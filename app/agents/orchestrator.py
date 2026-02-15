@@ -1,6 +1,6 @@
 """Agent orchestrator - manages and routes requests to different agents."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app.agents.base import BaseAgent, AgentResponse
 from app.agents.claude_agent import ClaudeAgent
 from app.agents.ollama_agent import OllamaAgent
@@ -60,7 +60,7 @@ class AgentOrchestrator:
         """Get agent by type."""
         return self.agents.get(agent_type.value)
     
-    def list_available_agents(self) -> list[str]:
+    def list_available_agents(self) -> List[str]:
         """List all available and configured agents."""
         available = []
         for agent_type, agent in self.agents.items():

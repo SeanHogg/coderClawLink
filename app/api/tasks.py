@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
+from datetime import datetime
 
 from app.core.database import get_db
 from app.models.database import Task, Project, AgentExecution
@@ -175,7 +176,6 @@ async def execute_task(
             execution.error_message = response.error
             execution.status = "failed"
         
-        from datetime import datetime
         execution.completed_at = datetime.utcnow()
         
         await db.commit()
@@ -186,7 +186,6 @@ async def execute_task(
     except Exception as e:
         execution.status = "failed"
         execution.error_message = str(e)
-        from datetime import datetime
         execution.completed_at = datetime.utcnow()
         await db.commit()
         raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")

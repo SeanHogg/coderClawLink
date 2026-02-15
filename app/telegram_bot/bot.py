@@ -256,8 +256,8 @@ class TelegramBot:
                 f"This may take a few moments."
             )
             
-            # Build context
-            context_data = {
+            # Build context for task execution
+            task_execution_context = {
                 "project": {
                     "key": project.key,
                     "name": project.name,
@@ -276,7 +276,7 @@ class TelegramBot:
             response = await self.orchestrator.execute_task(
                 agent_type=agent_type,
                 prompt=prompt,
-                context=context_data
+                context=task_execution_context
             )
             
             if response.success:
@@ -326,7 +326,7 @@ class TelegramBot:
             await update.message.reply_text(f"🤖 Processing with {agent_type.value}...")
             
             # Execute prompt with agent
-            context_data = {
+            prompt_context = {
                 "project": {
                     "key": project.key,
                     "name": project.name
@@ -336,7 +336,7 @@ class TelegramBot:
             response = await self.orchestrator.execute_task(
                 agent_type=agent_type,
                 prompt=message_text,
-                context=context_data
+                context=prompt_context
             )
             
             if response.success:

@@ -1,7 +1,7 @@
 """GitHub integration for repository management and PR creation."""
 
 from github import Github, GithubException
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from app.core.config import get_settings
 import logging
 
@@ -24,7 +24,7 @@ class GitHubIntegration:
         """Check if GitHub is properly configured."""
         return bool(self.token and self.client)
     
-    def parse_repo_url(self, repo_url: str) -> tuple[Optional[str], Optional[str]]:
+    def parse_repo_url(self, repo_url: str) -> Tuple[Optional[str], Optional[str]]:
         """
         Parse GitHub repository URL to extract owner and repo name.
         
