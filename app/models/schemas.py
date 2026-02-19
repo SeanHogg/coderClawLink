@@ -1,9 +1,9 @@
 """Pydantic schemas for API requests and responses."""
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
-from app.models.database import ProjectStatus, TaskStatus, TaskPriority, AgentType
+from app.models.database import ProjectStatus, TaskStatus, TaskPriority, AgentType, ExecutionState
 
 
 # Project schemas
@@ -120,3 +120,71 @@ class TelegramCommandResponse(BaseModel):
     success: bool
     message: str
     data: Optional[dict] = None
+
+
+# Phase 2: Transport and distributed execution schemas
+class SessionInfo(BaseModel):
+    """Session information schema."""
+    session_id: str
+    user_id: Optional[str] = None
+    created_at: datetime
+    last_activity: datetime
+    permissions: List[str] = []
+    
+    class Config:
+        from_attributes = True
+
+
+class TaskSubmissionRequest(BaseModel):
+    """Task submission for distributed execution."""
+    agent_type: str
+    prompt: str
+    context: Optional[Dict[str, Any]] = None
+    session_id: Optional[str] = None
+    project_id: Optional[int] = None
+    task_id: Optional[int] = None
+
+
+class TaskStateResponse(BaseModel):
+    """Task state response."""
+    task_id: str
+    execution_uuid: str
+    state: ExecutionState
+    success: bool
+    result: Optional[str] = None
+    error: Optional[str] = None
+    execution_time: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class AgentInfoResponse(BaseModel):
+    """Agent information response."""
+    agent_type: str
+    name: str
+    description: Optional[str] = None
+    available: bool
+    capabilities: List[str] = []
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class SkillInfoResponse(BaseModel):
+    """Skill information response."""
+    skill_id: str
+    name: str
+    description: Optional[str] = None
+    required_permissions: List[str] = []
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class AuditLogResponse(BaseModel):
+    """Audit log entry response."""
+    event_id: str
+    event_type: str
+    timestamp: datetime
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    resource_type: Optional[str] = None
+    resource_id: Optional[str] = None
+    action: Optional[str] = None
+    status: str
+    details: Dict[str, Any] = {}

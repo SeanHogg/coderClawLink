@@ -17,12 +17,28 @@ class ProjectStatus(str, enum.Enum):
 
 
 class TaskStatus(str, enum.Enum):
-    """Task status enumeration."""
+    """Task status enumeration - Phase 1 compatibility."""
     TODO = "todo"
     IN_PROGRESS = "in_progress"
     IN_REVIEW = "in_review"
     DONE = "done"
     BLOCKED = "blocked"
+
+
+class ExecutionState(str, enum.Enum):
+    """
+    Execution state for distributed task lifecycle (Phase 2).
+    
+    State machine:
+    PENDING -> PLANNING -> RUNNING -> (WAITING) -> COMPLETED/FAILED/CANCELLED
+    """
+    PENDING = "pending"
+    PLANNING = "planning"
+    RUNNING = "running"
+    WAITING = "waiting"
+    FAILED = "failed"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 class TaskPriority(str, enum.Enum):
@@ -99,21 +115,57 @@ class Task(Base):
 
 
 class AgentExecution(Base):
-    """Track agent execution history."""
+    """Track agent execution history with Phase 2 distributed lifecycle."""
     __tablename__ = "agent_executions"
     
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
     
+    # Phase 2: Globally unique execution ID
+    execution_uuid = Column(String(36), unique=True, nullable=True, index=True)
+    
     agent_type = Column(SQLEnum(AgentType), nullable=False)
     prompt = Column(Text, nullable=False)
     response = Column(Text)
     
-    status = Column(String(50))  # pending, running, completed, failed
+    # Phase 2: Use ExecutionState for distributed lifecycle
+    status = Column(String(50))  # backward compatibility: pending, running, completed, failed
+    execution_state = Column(SQLEnum(ExecutionState), nullable=True)
+    
     error_message = Column(Text)
+    
+    # Phase 2: Enhanced tracking
+    session_id = Column(String(36), nullable=True, index=True)
+    user_id = Column(String(255), nullable=True, index=True)
     
     started_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
     
     # Relationships
     task = relationship("Task", back_populates="executions")
+    events = relationship("ExecutionEvent", back_populates="execution", cascade="all, delete-orphan")
+
+
+class ExecutionEvent(Base):
+    """
+    Auditable event history for executions (Phase 2).
+    
+    Provides structured logs and event tracking for distributed execution.
+    """
+    __tablename__ = "execution_events"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    execution_id = Column(Integer, ForeignKey("agent_executions.id"), nullable=False)
+    
+    event_type = Column(String(50), nullable=False)  # state_change, progress, log, error
+    event_state = Column(SQLEnum(ExecutionState), nullable=True)
+    
+    message = Column(Text)
+    progress = Column(Integer)  # 0-100
+    
+    event_metadata = Column(Text)  # JSON metadata (renamed from 'metadata' to avoid SQLAlchemy conflict)
+    
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    # Relationships
+    execution = relationship("AgentExecution", back_populates="events")

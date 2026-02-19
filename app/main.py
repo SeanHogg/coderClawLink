@@ -10,7 +10,7 @@ import os
 
 from app.core.database import init_db
 from app.core.config import get_settings
-from app.api import projects, tasks, agents
+from app.api import projects, tasks, agents, runtime, audit
 from app.telegram_bot.bot import get_bot
 
 # Configure logging
@@ -27,10 +27,25 @@ async def lifespan(app: FastAPI):
     """Lifecycle management for the application."""
     # Startup
     logger.info("Starting AI Agent Orchestrator Portal...")
+    logger.info("Phase 2: Distributed AI Node with Transport Abstraction")
     
     # Initialize database
     await init_db()
     logger.info("Database initialized")
+    
+    # Phase 2: Initialize security and session management
+    from app.security.session import get_session_manager
+    from app.security.rbac import get_rbac_manager
+    from app.security.audit import get_audit_logger
+    from app.transport.local_runtime import get_local_runtime
+    
+    session_manager = get_session_manager()
+    rbac_manager = get_rbac_manager()
+    audit_logger = get_audit_logger()
+    runtime = get_local_runtime()
+    
+    logger.info("Security systems initialized")
+    logger.info("Transport abstraction layer ready")
     
     # Start Telegram bot if configured
     settings = get_settings()
@@ -46,6 +61,13 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("Telegram bot token not configured, bot not started")
     
+    logger.info("✓ Phase 2 features active:")
+    logger.info("  - Transport abstraction layer")
+    logger.info("  - Multi-session isolation")
+    logger.info("  - Role-based access control")
+    logger.info("  - Audit logging")
+    logger.info("  - Distributed task lifecycle")
+    
     yield
     
     # Shutdown
@@ -60,9 +82,9 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="AI Agent Orchestrator Portal",
-    description="A telegram-aware agentic portal for project management and code generation",
-    version="0.1.0",
+    title="coderClawLink - Distributed AI Node",
+    description="Phase 2: Secure, distributed AI-native development runtime with transport abstraction and remote orchestration",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -79,6 +101,10 @@ app.add_middleware(
 app.include_router(projects.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
+
+# Phase 2: New runtime and audit APIs
+app.include_router(runtime.router, prefix="/api")
+app.include_router(audit.router, prefix="/api")
 
 # Mount static files for frontend
 static_dir = os.path.join(os.path.dirname(__file__), "static")
