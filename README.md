@@ -1,10 +1,13 @@
 
 # coderClawLink
 
-A telegram-aware agentic portal similar to Jira that enables project management and code generation through multiple AI agents. Connect to GitHub repositories and create pull requests directly from the platform.
+**Phase 2: Distributed AI Node with Transport Abstraction**
+
+A secure, distributed AI-native development runtime that transforms from a basic productivity portal into a networked AI node capable of remote orchestration. Connect to GitHub repositories, execute multi-agent tasks, and maintain enterprise-grade security and audit trails.
 
 ## 🌟 Features
 
+### Phase 1: Core Intelligence
 - **Jira-like Web Interface**: Modern project and task management UI with Kanban boards
 - **Telegram Bot Integration**: Interact with projects and agents via Telegram
 - **Multi-Agent Support**: Execute tasks with different AI agents:
@@ -16,6 +19,18 @@ A telegram-aware agentic portal similar to Jira that enables project management 
 - **GitHub Integration**: Connect projects to repositories and create PRs automatically
 - **Prompt-based Communication**: Natural language interaction with projects
 - **Task Tracking**: Full CRUD operations for tasks with status tracking
+
+### Phase 2: Distributed AI Node ✨ NEW
+- **Transport Abstraction Layer**: Pluggable adapter pattern for any protocol (HTTP, WebSocket, CLI, clawlink)
+- **Remote Orchestration**: Secure remote command execution with multi-session isolation
+- **Distributed Task Lifecycle**: UUID-based tasks with state machine (PENDING → PLANNING → RUNNING → WAITING → COMPLETED/FAILED/CANCELLED)
+- **Identity & Security**: Session-based authentication, RBAC, device-level trust
+- **Enterprise Readiness**: Comprehensive audit logging, activity tracking, permission management
+- **Skill Ecosystem**: Discoverable skills with permission requirements
+
+## 🏗️ Architecture
+
+See [PHASE2.md](PHASE2.md) for detailed Phase 2 architecture documentation.
 
 ## 🚀 Quick Start
 
@@ -177,7 +192,7 @@ Once the server is running, visit:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
-### Key Endpoints
+### Phase 1 Endpoints (Project Management)
 
 - `GET /api/projects` - List projects
 - `POST /api/projects` - Create project
@@ -186,6 +201,56 @@ Once the server is running, visit:
 - `POST /api/tasks/execute` - Execute task with agent
 - `POST /api/tasks/{task_id}/create_pr` - Create GitHub PR
 - `GET /api/agents/available` - List configured agents
+
+### Phase 2 Endpoints (Distributed Runtime) ✨ NEW
+
+**Session Management:**
+- `POST /api/runtime/sessions` - Create session
+- `GET /api/runtime/sessions/{session_id}` - Get session info
+
+**Task Execution:**
+- `POST /api/runtime/tasks/submit` - Submit task through transport layer
+- `GET /api/runtime/tasks/{task_id}/state` - Query task state
+- `POST /api/runtime/tasks/{task_id}/cancel` - Cancel running task
+
+**Discovery:**
+- `GET /api/runtime/agents` - List available agents
+- `GET /api/runtime/skills` - List available skills
+
+**Audit & Compliance:**
+- `GET /api/audit/events` - Query audit events (requires admin)
+- `GET /api/audit/users/{user_id}/activity` - User activity history
+- `GET /api/audit/sessions/{session_id}/activity` - Session activity
+
+### Phase 2 Example Usage
+
+```python
+# Create a session
+response = requests.post("http://localhost:8000/api/runtime/sessions", json={
+    "user_id": "user@example.com",
+    "device_id": "device-123"
+})
+session_id = response.json()["session_id"]
+
+# Submit a task
+response = requests.post("http://localhost:8000/api/runtime/tasks/submit", json={
+    "agent_type": "claude",
+    "prompt": "Create a login component",
+    "session_id": session_id,
+    "context": {"project": "my-app"}
+})
+task_id = response.json()["task_id"]
+
+# Query task state
+response = requests.get(f"http://localhost:8000/api/runtime/tasks/{task_id}/state")
+state = response.json()
+print(f"Task state: {state['state']}")
+```
+
+Or use the provided demo:
+```bash
+python -m examples.phase2_demo
+```
 
 ## 🏗️ Architecture
 
@@ -218,39 +283,54 @@ Once the server is running, visit:
 
 ```
 app/
-├── agents/           # Agent implementations
-│   ├── base.py       # Base agent interface
+├── agents/              # Agent implementations
+│   ├── base.py          # Base agent interface
 │   ├── claude_agent.py
 │   ├── ollama_agent.py
 │   ├── openai_agent.py
 │   ├── http_agent.py
 │   └── orchestrator.py
-├── api/              # FastAPI routes
-│   ├── projects.py
-│   ├── tasks.py
-│   └── agents.py
-├── core/             # Core configuration
+├── api/                 # FastAPI routes
+│   ├── projects.py      # Phase 1: Project management
+│   ├── tasks.py         # Phase 1: Task management
+│   ├── agents.py        # Phase 1: Agent discovery
+│   ├── runtime.py       # Phase 2: Runtime interface ✨
+│   └── audit.py         # Phase 2: Audit logging ✨
+├── core/                # Core configuration
 │   ├── config.py
 │   └── database.py
-├── github_integration/ # GitHub API client
+├── github_integration/  # GitHub API client
 │   └── client.py
-├── models/           # Database models and schemas
-│   ├── database.py
-│   └── schemas.py
-├── static/           # Frontend assets
+├── models/              # Database models and schemas
+│   ├── database.py      # Enhanced with Phase 2 models
+│   └── schemas.py       # Enhanced with Phase 2 schemas
+├── security/            # Phase 2: Security layer ✨
+│   ├── session.py       # Multi-session isolation
+│   ├── rbac.py          # Role-based access control
+│   └── audit.py         # Audit logging system
+├── transport/           # Phase 2: Transport abstraction ✨
+│   ├── interface.py     # Runtime interface contract
+│   └── local_runtime.py # Local implementation
+├── static/              # Frontend assets
 │   ├── index.html
 │   ├── styles.css
 │   └── app.js
-├── telegram_bot/     # Telegram bot
+├── telegram_bot/        # Telegram bot
 │   └── bot.py
-└── main.py           # Application entry point
+└── main.py              # Application entry point
 ```
 
 ### Running Tests
 
 ```bash
-# TODO: Add tests
+# Install test dependencies
+pip install pytest pytest-asyncio
+
+# Run all tests
 pytest
+
+# Run Phase 2 tests specifically
+pytest tests/test_phase2.py -v
 ```
 
 ## 🤝 Contributing
@@ -263,13 +343,33 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔮 Future Enhancements
 
-- [ ] User authentication and authorization
-- [ ] Real-time updates with WebSockets
+### Phase 1 Enhancements
 - [ ] Task comments and activity history
 - [ ] File uploads and attachments
 - [ ] Advanced agent configuration
 - [ ] Custom agent workflows
 - [ ] Integration with more services (Slack, Discord, etc.)
 - [ ] Analytics and reporting dashboard
+
+### Phase 2 Roadmap
+- [ ] WebSocket streaming for real-time task updates
+- [ ] SSO integration (OIDC, GitHub OAuth, Enterprise SSO)
+- [ ] Remote clawlink transport adapter
+- [ ] Distributed state management (Redis/etcd)
+- [ ] Skill marketplace and registry
+- [ ] Policy as code (OPA integration)
+- [ ] Multi-node cluster support
+- [ ] Advanced audit analytics
+- [ ] Federated identity management
+- [ ] End-to-end encryption for remote sessions
+
+### Completed ✅
+- [x] Phase 2: Transport abstraction layer
+- [x] Phase 2: Multi-session isolation
+- [x] Phase 2: Role-based access control (RBAC)
+- [x] Phase 2: Audit logging system
+- [x] Phase 2: Distributed task lifecycle
+- [x] Phase 2: Session-based authentication
+- [x] Phase 2: Agent and skill discovery APIs
 
 ## 💬 Support

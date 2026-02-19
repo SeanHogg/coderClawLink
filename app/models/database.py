@@ -163,7 +163,7 @@ class ExecutionEvent(Base):
     message = Column(Text)
     progress = Column(Integer)  # 0-100
     
-    metadata = Column(Text)  # JSON metadata
+    event_metadata = Column(Text)  # JSON metadata (renamed from 'metadata' to avoid SQLAlchemy conflict)
     
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     
