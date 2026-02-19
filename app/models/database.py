@@ -43,7 +43,7 @@ class AgentType(str, enum.Enum):
 
 
 class Project(Base):
-    """Project model - similar to Jira projects."""
+    """Project model for organizing tasks and issues."""
     __tablename__ = "projects"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -68,7 +68,7 @@ class Project(Base):
 
 
 class Task(Base):
-    """Task/Issue model - similar to Jira issues."""
+    """Task/Issue model for tracking work items."""
     __tablename__ = "tasks"
     
     id = Column(Integer, primary_key=True, index=True)
