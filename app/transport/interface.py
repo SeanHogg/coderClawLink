@@ -28,6 +28,10 @@ class TaskSubmission:
     context: Optional[Dict[str, Any]] = None
     session_id: Optional[str] = None
     user_identity: Optional[Dict[str, Any]] = None
+    # File context: list of file paths to include (Aider/Goose CLI feature)
+    file_context: Optional[List[str]] = None
+    # Working directory for agent execution
+    working_directory: Optional[str] = None
 
 
 @dataclass

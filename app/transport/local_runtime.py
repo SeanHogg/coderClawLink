@@ -90,7 +90,9 @@ class LocalRuntime(RuntimeInterface):
             response: AgentResponse = await self.orchestrator.execute_task(
                 agent_type=agent_type,
                 prompt=submission.prompt,
-                context=submission.context
+                context=submission.context,
+                file_context=submission.file_context,
+                working_directory=submission.working_directory,
             )
             
             # Calculate execution time

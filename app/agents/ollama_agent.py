@@ -1,6 +1,6 @@
 """Ollama agent implementation for local LLM inference."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app.agents.base import BaseAgent, AgentResponse
 import httpx
 import logging
@@ -26,8 +26,7 @@ class OllamaAgent(BaseAgent):
         """Validate Ollama configuration."""
         return bool(self.base_url)
     
-    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> AgentResponse:
-        """Execute Ollama agent with prompt."""
+    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None, file_context: Optional[List[str]] = None, working_directory: Optional[str] = None) -> AgentResponse:
         if not self.validate_config():
             return AgentResponse(
                 success=False,

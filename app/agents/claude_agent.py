@@ -1,6 +1,6 @@
 """Claude agent implementation using Anthropic API."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app.agents.base import BaseAgent, AgentResponse
 import anthropic
 import logging
@@ -30,7 +30,7 @@ class ClaudeAgent(BaseAgent):
         """Validate Claude configuration."""
         return bool(self.api_key and self.client)
     
-    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> AgentResponse:
+    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None, file_context: Optional[List[str]] = None, working_directory: Optional[str] = None) -> AgentResponse:
         """Execute Claude agent with prompt."""
         if not self.validate_config():
             return AgentResponse(
