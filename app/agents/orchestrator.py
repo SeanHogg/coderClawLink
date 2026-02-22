@@ -8,6 +8,11 @@ from app.agents.openai_agent import OpenAIAgent, AuggieAgent
 from app.agents.http_agent import OpenDevinAgent, GooseAgent
 from app.models.database import AgentType
 from app.core.config import get_settings
+from app.core.file_editor import (
+    read_files, build_file_context_prompt, parse_edit_blocks, apply_edits,
+)
+from app.core.repo_map import generate_repo_map
+from app.core.git_commit import auto_commit
 import logging
 
 logger = logging.getLogger(__name__)
@@ -72,34 +77,100 @@ class AgentOrchestrator:
         self,
         agent_type: AgentType,
         prompt: str,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        file_context: Optional[List[str]] = None,
+        working_directory: Optional[str] = None,
     ) -> AgentResponse:
         """
-        Execute a task with specified agent.
-        
+        Execute a task with the specified agent.
+
+        When *file_context* is supplied the orchestrator:
+        1. Reads the listed files from disk.
+        2. Optionally prepends a repo map for orientation.
+        3. Injects file contents + edit instructions into the prompt.
+        4. Calls the LLM agent with the enriched prompt.
+        5. Parses SEARCH/REPLACE edit blocks from the response.
+        6. Applies those edits to disk.
+        7. Auto-commits changed files if the directory is a git repo.
+
         Args:
-            agent_type: Type of agent to use
-            prompt: Task prompt/instruction
-            context: Additional context (project, task details, etc.)
-        
+            agent_type:        Type of agent to use.
+            prompt:            Task prompt/instruction.
+            context:           Additional context (project, task details, etc.)
+            file_context:      List of file paths to include and potentially edit.
+            working_directory: Directory used to resolve file paths and for git.
+
         Returns:
-            AgentResponse with result or error
+            AgentResponse with result or error.  When edits were applied the
+            metadata includes ``edit_result`` and optionally ``commit_sha``.
         """
         agent = self.get_agent(agent_type)
-        
+
         if not agent:
             return AgentResponse(
                 success=False,
                 error=f"Agent type '{agent_type.value}' not available or not configured"
             )
-        
+
         if not agent.validate_config():
             return AgentResponse(
                 success=False,
                 error=f"Agent '{agent_type.value}' is not properly configured"
             )
-        
+
         logger.info(f"Executing task with {agent_type.value} agent")
+
+        # ------------------------------------------------------------------ #
+        # File-aware pipeline (Aider-style)                                    #
+        # ------------------------------------------------------------------ #
+        if file_context:
+            file_contents = read_files(file_context, working_directory)
+
+            repo_map: Optional[str] = None
+            try:
+                repo_map = generate_repo_map(working_directory, max_depth=3,
+                                             include_symbols=True)
+            except Exception:
+                pass  # repo map is best-effort
+
+            enriched_prompt = build_file_context_prompt(
+                file_contents, prompt, repo_map=repo_map
+            )
+
+            response = await agent.execute(enriched_prompt, context)
+
+            if response.success and response.result:
+                blocks = parse_edit_blocks(response.result)
+                if blocks:
+                    edit_result = apply_edits(blocks, working_directory)
+
+                    changed = edit_result.applied + edit_result.created
+                    commit_sha = auto_commit(
+                        changed,
+                        prompt_summary=prompt[:72],
+                        working_directory=working_directory,
+                    )
+
+                    meta = dict(response.metadata or {})
+                    meta["edit_result"] = {
+                        "applied": edit_result.applied,
+                        "created": edit_result.created,
+                        "skipped": edit_result.skipped,
+                    }
+                    if commit_sha:
+                        meta["commit_sha"] = commit_sha
+
+                    return AgentResponse(
+                        success=True,
+                        result=response.result,
+                        metadata=meta,
+                    )
+
+            return response
+
+        # ------------------------------------------------------------------ #
+        # Plain execution (no file context)                                    #
+        # ------------------------------------------------------------------ #
         return await agent.execute(prompt, context)
 
 

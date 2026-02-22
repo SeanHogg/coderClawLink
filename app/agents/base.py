@@ -1,7 +1,7 @@
 """Base agent interface and abstract class."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 
@@ -22,13 +22,21 @@ class BaseAgent(ABC):
         self.config = config
     
     @abstractmethod
-    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> AgentResponse:
+    async def execute(
+        self,
+        prompt: str,
+        context: Optional[Dict[str, Any]] = None,
+        file_context: Optional[List[str]] = None,
+        working_directory: Optional[str] = None,
+    ) -> AgentResponse:
         """
         Execute the agent with given prompt and context.
         
         Args:
             prompt: The prompt/instruction for the agent
             context: Additional context (project info, task details, etc.)
+            file_context: List of file paths to include in the agent context
+            working_directory: Directory in which the agent should operate
         
         Returns:
             AgentResponse with result or error

@@ -1,6 +1,6 @@
 """Generic HTTP-based agent for OpenDevin and Goose."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app.agents.base import BaseAgent, AgentResponse
 import httpx
 import logging
@@ -27,8 +27,7 @@ class HTTPAgent(BaseAgent):
         """Validate HTTP agent configuration."""
         return bool(self.api_url)
     
-    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> AgentResponse:
-        """Execute HTTP agent with prompt."""
+    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None, file_context: Optional[List[str]] = None, working_directory: Optional[str] = None) -> AgentResponse:
         if not self.validate_config():
             return AgentResponse(
                 success=False,

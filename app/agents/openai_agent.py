@@ -1,6 +1,6 @@
 """OpenAI-based agent implementation (for Auggie and other OpenAI-compatible agents)."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app.agents.base import BaseAgent, AgentResponse
 import openai
 import logging
@@ -34,8 +34,7 @@ class OpenAIAgent(BaseAgent):
         """Validate OpenAI configuration."""
         return bool(self.api_key and self.client)
     
-    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> AgentResponse:
-        """Execute OpenAI agent with prompt."""
+    async def execute(self, prompt: str, context: Optional[Dict[str, Any]] = None, file_context: Optional[List[str]] = None, working_directory: Optional[str] = None) -> AgentResponse:
         if not self.validate_config():
             return AgentResponse(
                 success=False,
