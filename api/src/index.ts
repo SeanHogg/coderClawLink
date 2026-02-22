@@ -32,13 +32,14 @@ import { RuntimeService }  from './application/runtime/RuntimeService';
 import { AuditService }    from './application/audit/AuditService';
 
 // Routes
-import { createProjectRoutes } from './presentation/routes/projectRoutes';
-import { createTaskRoutes }    from './presentation/routes/taskRoutes';
-import { createTenantRoutes }  from './presentation/routes/tenantRoutes';
-import { createAuthRoutes }    from './presentation/routes/authRoutes';
+import { createProjectRoutes }     from './presentation/routes/projectRoutes';
+import { createTaskRoutes }        from './presentation/routes/taskRoutes';
+import { createTenantRoutes }      from './presentation/routes/tenantRoutes';
+import { createAuthRoutes }        from './presentation/routes/authRoutes';
 import { createAgentRoutes, createSkillRoutes } from './presentation/routes/agentRoutes';
-import { createRuntimeRoutes } from './presentation/routes/runtimeRoutes';
-import { createAuditRoutes }   from './presentation/routes/auditRoutes';
+import { createRuntimeRoutes }     from './presentation/routes/runtimeRoutes';
+import { createAuditRoutes }       from './presentation/routes/auditRoutes';
+import { createMarketplaceRoutes } from './presentation/routes/marketplaceRoutes';
 
 // Middleware
 import { corsMiddleware } from './presentation/middleware/cors';
@@ -77,6 +78,9 @@ function buildApp(env: Env): Hono<HonoEnv> {
   app.use('*', corsMiddleware);
 
   app.get('/health', (c) => c.json({ status: 'ok', worker: 'api.coderclaw.ai' }));
+
+  // Marketplace (no JWT required for read, required for write)
+  app.route('/marketplace', createMarketplaceRoutes(db));
 
   // Public endpoints (no JWT required)
   app.route('/api/auth',    createAuthRoutes(authService));

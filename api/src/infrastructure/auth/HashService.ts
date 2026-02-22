@@ -19,3 +19,74 @@ export function generateApiKey(): string {
   const hex   = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
   return `clk_${hex}`;
 }
+
+// ---------------------------------------------------------------------------
+// PBKDF2 password hashing (for web / marketplace users)
+// ---------------------------------------------------------------------------
+
+const ITERATIONS = 100_000;
+const HASH_ALG   = 'SHA-256';
+const KEY_LEN    = 256; // bits
+
+/**
+ * Hash a plaintext password with PBKDF2.
+ * Returns `<saltHex>:<derivedKeyHex>` (safe to store in the DB).
+ */
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
+  );
+
+  const derived = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: ITERATIONS, hash: HASH_ALG },
+    keyMaterial,
+    KEY_LEN,
+  );
+
+  const toHex = (buf: Uint8Array) =>
+    Array.from(buf).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+  return `${toHex(salt)}:${toHex(new Uint8Array(derived))}`;
+}
+
+/**
+ * Verify a plaintext password against a stored PBKDF2 hash.
+ */
+export async function verifyPassword(
+  password: string,
+  stored:   string,
+): Promise<boolean> {
+  const [saltHex, hashHex] = stored.split(':');
+  if (!saltHex || !hashHex) return false;
+
+  const fromHex = (hex: string) =>
+    new Uint8Array(hex.match(/../g)!.map((h) => parseInt(h, 16)));
+
+  const salt = fromHex(saltHex);
+
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
+  );
+
+  const derived = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: ITERATIONS, hash: HASH_ALG },
+    keyMaterial,
+    KEY_LEN,
+  );
+
+  const derivedHex = Array.from(new Uint8Array(derived))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  return derivedHex === hashHex;
+}

@@ -1,13 +1,16 @@
 import { IUserRepository } from '../../domain/user/IUserRepository';
 import { User } from '../../domain/user/User';
-import { AuditEventType } from '../../domain/shared/types';
+import { AuditEventType, UserId, asTenantId } from '../../domain/shared/types';
 import { UnauthorizedError, ConflictError } from '../../domain/shared/errors';
-import { signJwt } from '../../infrastructure/auth/JwtService';
-import { hashSecret, generateApiKey } from '../../infrastructure/auth/HashService';
+import { signJwt, signWebJwt } from '../../infrastructure/auth/JwtService';
+import { hashSecret, generateApiKey, hashPassword, verifyPassword } from '../../infrastructure/auth/HashService';
 import { IAuditRepository } from '../../domain/audit/IAuditRepository';
 import { AuditEvent } from '../../domain/audit/AuditEvent';
 import { ITenantRepository } from '../../domain/tenant/ITenantRepository';
-import { TenantRole, asTenantId } from '../../domain/shared/types';
+
+// ---------------------------------------------------------------------------
+// DTOs
+// ---------------------------------------------------------------------------
 
 export interface RegisterDto {
   email:    string;
@@ -16,7 +19,7 @@ export interface RegisterDto {
 
 export interface RegisterResult {
   user:   { id: string; email: string };
-  apiKey: string; // shown once – plaintext
+  apiKey: string; // shown once � plaintext
 }
 
 export interface LoginResult {
@@ -24,23 +27,43 @@ export interface LoginResult {
   expiresIn: number;
 }
 
-/**
- * AuthService handles user registration (API key issuance) and login.
- *
- * Authentication flow:
- *   1. Registration: generate API key, hash it, store hash. Return plaintext once.
- *   2. Login: client sends `Authorization: Bearer <apiKey>`.
- *              We hash it, find matching user, issue a short-lived JWT.
- *   3. Subsequent requests: client sends `Authorization: Bearer <jwt>`.
- *              jwtMiddleware verifies + injects userId/tenantId/role into context.
- */
+export interface WebRegisterDto {
+  email:    string;
+  username: string;
+  password: string;
+}
+
+export interface WebLoginDto {
+  email:    string;
+  password: string;
+}
+
+export interface WebLoginResult {
+  token:     string;
+  expiresIn: number;
+  user: {
+    id:          string;
+    email:       string;
+    username:    string;
+    displayName: string | null;
+    avatarUrl:   string | null;
+    bio:         string | null;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
 export class AuthService {
   constructor(
-    private readonly users:   IUserRepository,
-    private readonly tenants: ITenantRepository,
-    private readonly audit:   IAuditRepository,
+    private readonly users:     IUserRepository,
+    private readonly tenants:   ITenantRepository,
+    private readonly audit:     IAuditRepository,
     private readonly jwtSecret: string,
   ) {}
+
+  // -- API key path ----------------------------------------------------------
 
   async register(dto: RegisterDto): Promise<RegisterResult> {
     const existing = await this.users.findByEmail(dto.email);
@@ -67,14 +90,9 @@ export class AuthService {
 
   async login(rawApiKey: string, tenantId: number): Promise<LoginResult> {
     const hash = await hashSecret(rawApiKey);
-
-    // Find all users isn't scalable – in production, add a UNIQUE index on api_key_hash.
-    // For now we rely on findByApiKeyHash if the repo exposes it, or hash+compare.
-    // We store hash in users table so we do a direct lookup by hash.
     const user = await this.users.findByApiKeyHash(hash);
     if (!user) throw new UnauthorizedError('Invalid API key');
 
-    // Resolve caller's role in the requested tenant.
     const tenant = await this.tenants.findById(asTenantId(tenantId));
     if (!tenant) throw new UnauthorizedError('Tenant not found');
 
@@ -98,5 +116,84 @@ export class AuthService {
     }));
 
     return { token, expiresIn };
+  }
+
+  // -- Web / marketplace path ------------------------------------------------
+
+  async registerWeb(dto: WebRegisterDto): Promise<WebLoginResult> {
+    const existing = await this.users.findByEmail(dto.email);
+    if (existing) throw new ConflictError(`Email '${dto.email}' is already registered`);
+
+    const existingUsername = await this.users.findByUsername(dto.username);
+    if (existingUsername) throw new ConflictError(`Username '${dto.username}' is already taken`);
+
+    const pwHash  = await hashPassword(dto.password);
+    const apiKey  = generateApiKey();
+    const keyHash = await hashSecret(apiKey);
+
+    const user = await this.users.save(
+      User.createWeb(dto.email, dto.username, pwHash, keyHash),
+    );
+
+    const expiresIn = 86_400;
+    const token = await signWebJwt(
+      { sub: user.id, email: user.email, username: user.username! },
+      this.jwtSecret,
+      expiresIn,
+    );
+
+    return {
+      token,
+      expiresIn,
+      user: {
+        id:          user.id,
+        email:       user.email,
+        username:    user.username!,
+        displayName: user.displayName,
+        avatarUrl:   user.avatarUrl,
+        bio:         user.bio,
+      },
+    };
+  }
+
+  async loginWeb(dto: WebLoginDto): Promise<WebLoginResult> {
+    const user = await this.users.findByEmail(dto.email);
+    if (!user || !user.passwordHash) throw new UnauthorizedError('Invalid email or password');
+
+    const ok = await verifyPassword(dto.password, user.passwordHash);
+    if (!ok) throw new UnauthorizedError('Invalid email or password');
+
+    const expiresIn = 86_400;
+    const token = await signWebJwt(
+      { sub: user.id, email: user.email, username: user.username ?? '' },
+      this.jwtSecret,
+      expiresIn,
+    );
+
+    return {
+      token,
+      expiresIn,
+      user: {
+        id:          user.id,
+        email:       user.email,
+        username:    user.username ?? '',
+        displayName: user.displayName,
+        avatarUrl:   user.avatarUrl,
+        bio:         user.bio,
+      },
+    };
+  }
+
+  async getMe(userId: UserId): Promise<WebLoginResult['user'] | null> {
+    const user = await this.users.findById(userId);
+    if (!user) return null;
+    return {
+      id:          user.id,
+      email:       user.email,
+      username:    user.username ?? '',
+      displayName: user.displayName,
+      avatarUrl:   user.avatarUrl,
+      bio:         user.bio,
+    };
   }
 }

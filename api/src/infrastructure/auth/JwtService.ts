@@ -96,3 +96,54 @@ export async function verifyJwt(token: string, secret: string): Promise<JwtPaylo
 
   return payload;
 }
+
+// ---------------------------------------------------------------------------
+// Web / Marketplace JWT  (no tenant / role required)
+// ---------------------------------------------------------------------------
+
+export interface WebJwtPayload {
+  sub:      string;   // userId
+  email:    string;
+  username: string;
+  iat:      number;
+  exp:      number;
+}
+
+export async function signWebJwt(
+  payload:          Omit<WebJwtPayload, 'iat' | 'exp'>,
+  secret:           string,
+  expiresInSeconds: number = 86_400, // 24 hours for web sessions
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const full: WebJwtPayload = { ...payload, iat: now, exp: now + expiresInSeconds };
+
+  const header = strToB64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const body   = strToB64url(JSON.stringify(full));
+  const input  = `${header}.${body}`;
+
+  const key = await importKey(secret);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(input));
+
+  return `${input}.${b64urlEncode(sig)}`;
+}
+
+export async function verifyWebJwt(token: string, secret: string): Promise<WebJwtPayload> {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new Error('Malformed token');
+
+  const [header, body, sig] = parts as [string, string, string];
+  const input = `${header}.${body}`;
+
+  const key = await importKey(secret);
+  const sigBytes = Uint8Array.from(
+    atob(sig.replace(/-/g, '+').replace(/_/g, '/')),
+    (c) => c.charCodeAt(0),
+  );
+  const valid = await crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(input));
+  if (!valid) throw new Error('Invalid token signature');
+
+  const payload: WebJwtPayload = JSON.parse(b64urlToStr(body));
+  if (payload.exp < Math.floor(Date.now() / 1000)) throw new Error('Token expired');
+
+  return payload;
+}

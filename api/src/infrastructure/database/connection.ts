@@ -1,20 +1,17 @@
-import postgres from 'postgres';
-import { drizzle, PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { neon } from '@neondatabase/serverless';
+import { drizzle, NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import * as schema from './schema';
 import type { Env } from '../../env';
 
-export type Db = PostgresJsDatabase<typeof schema>;
+export type Db = NeonHttpDatabase<typeof schema>;
 
 /**
- * Build a Drizzle database instance from the DATABASE_URL secret.
+ * Build a Drizzle database instance using the Neon HTTP driver.
  *
- * Using `max: 1` is required inside a Cloudflare Worker because persistent
- * connections are not supported across requests.
+ * @neondatabase/serverless uses HTTP fetch instead of TCP, making it
+ * fully compatible with Cloudflare Workers without nodejs_compat TCP quirks.
  */
 export function buildDatabase(env: Env): Db {
-  const client = postgres(env.DATABASE_URL, {
-    max: 1,
-    prepare: false,
-  });
-  return drizzle(client, { schema });
+  const sql = neon(env.DATABASE_URL);
+  return drizzle(sql, { schema });
 }
