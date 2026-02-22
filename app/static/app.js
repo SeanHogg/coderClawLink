@@ -70,6 +70,18 @@ themeToggle.addEventListener('click', () => {
 });
 applyTheme(localStorage.getItem('cc-theme') ?? 'dark');
 
+// ── Password visibility toggle ────────────────────────────────────────────────
+document.querySelectorAll('.pw-eye').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const input = $(btn.dataset.pw);
+    const show  = input.type === 'password';
+    input.type  = show ? 'text' : 'password';
+    btn.textContent = show ? '🙈' : '👁';
+    btn.classList.toggle('visible', show);
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  });
+});
+
 // ── Screen management ─────────────────────────────────────────────────────────
 function showAuth() {
   $('auth-screen').style.display   = '';
