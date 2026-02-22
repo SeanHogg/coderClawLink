@@ -38,6 +38,10 @@
           <button class="nav-tab" data-view="tenants">Workspace</button>
         </nav>
         <div class="nav-right">
+          <div id="landing-nav-btns">
+            <button class="btn btn-secondary btn-sm" id="btn-nav-signin">Sign in</button>
+            <button class="btn btn-primary btn-sm" id="btn-nav-register">Get Started</button>
+          </div>
           <div class="user-chip" id="user-chip" style="display:none">
             <span class="dot"></span>
             <span id="user-label">user</span>
@@ -48,50 +52,100 @@
       </div>
     </header>
 
-    <!-- ── SCREEN 1: Auth ── -->
-    <div id="auth-screen" class="auth-screen">
-      <div class="auth-card">
-        <div class="auth-logo">
-          <img src="https://cdn.builder.io/api/v1/image/assets%2Fac94883aaa0849cc897eb61793256164%2Fc284d818569a472aa80fdbee574db744?format=webp&width=800&height=1200" alt="CoderClaw" />
-          <span class="auth-logo-text">CoderClawLink</span>
-        </div>
-        <div class="auth-tabs">
-          <button class="auth-tab active" data-auth-tab="login">Sign in</button>
-          <button class="auth-tab" data-auth-tab="register">Register</button>
-        </div>
-        <form class="auth-form active" id="form-login">
-          <div class="form-group">
-            <label for="login-email">Email</label>
-            <input id="login-email" class="input" type="email" required placeholder="you@example.com" autocomplete="email" />
+    <!-- ── SCREEN 1: Landing ── -->
+    <div id="landing-screen">
+      <!-- Hero -->
+      <section class="hero">
+        <div class="hero-inner">
+          <span class="hero-badge">Now in Beta</span>
+          <h1 class="hero-title">Your AI Coding Mesh,<br class="hero-br" /> Unified</h1>
+          <p class="hero-sub">Register your CoderClaw instances, assign skills from the marketplace, and orchestrate intelligent workflows across your entire development environment.</p>
+          <div class="hero-ctas">
+            <button class="btn btn-primary btn-lg" id="btn-hero-register">Get Started Free</button>
+            <button class="btn btn-ghost btn-lg" id="btn-hero-signin">Sign In →</button>
           </div>
-          <div class="form-group">
-            <label for="login-password">Password</label>
-            <div class="pw-wrap">
-              <input id="login-password" class="input" type="password" required placeholder="••••••••" autocomplete="current-password" />
-              <button type="button" class="pw-eye" aria-label="Show password" data-pw="login-password">👁</button>
+          <p class="hero-note">No credit card required. Free to get started.</p>
+        </div>
+        <div class="hero-visual" aria-hidden="true">
+          <div class="mesh-diagram">
+            <div class="mesh-center"><img src="https://cdn.builder.io/api/v1/image/assets%2Fac94883aaa0849cc897eb61793256164%2Fc284d818569a472aa80fdbee574db744?format=webp&width=200&height=300" alt="" /></div>
+            <div class="mesh-node mesh-node-1">🤖<span>claw-01</span></div>
+            <div class="mesh-node mesh-node-2">🤖<span>claw-02</span></div>
+            <div class="mesh-node mesh-node-3">🤖<span>claw-03</span></div>
+            <div class="mesh-line mesh-line-1"></div>
+            <div class="mesh-line mesh-line-2"></div>
+            <div class="mesh-line mesh-line-3"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features -->
+      <section class="features">
+        <div class="features-inner">
+          <h2 class="features-title">Everything you need to orchestrate your mesh</h2>
+          <p class="features-sub">CoderClawLink connects your CoderClaw agents into a unified, skill-aware coding mesh.</p>
+          <div class="features-grid">
+            <div class="feature-card">
+              <div class="feature-icon">🤖</div>
+              <h3>CoderClaw Mesh</h3>
+              <p>Register any number of CoderClaw instances to your workspace. Each claw gets a unique API key and joins your intelligent mesh automatically.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">🧩</div>
+              <h3>Skills Marketplace</h3>
+              <p>Browse and assign capabilities from the marketplace. Target your entire workspace or individual claws for precision orchestration.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">📋</div>
+              <h3>Projects &amp; Tasks</h3>
+              <p>Organize work into projects with kanban-style task management. Track progress across your entire coding mesh in real time.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">🏢</div>
+              <h3>Multi-Tenant Workspaces</h3>
+              <p>Create isolated workspaces for different teams or repos. Invite collaborators, manage roles, and keep everything neatly separated.</p>
             </div>
           </div>
-          <button type="submit" class="btn btn-primary btn-full">Sign in</button>
-        </form>
-        <form class="auth-form" id="form-register">
-          <div class="form-group">
-            <label for="reg-email">Email</label>
-            <input id="reg-email" class="input" type="email" required placeholder="you@example.com" autocomplete="email" />
-          </div>
-          <div class="form-group">
-            <label for="reg-username">Username</label>
-            <input id="reg-username" class="input" type="text" required placeholder="yourhandle" autocomplete="username" />
-          </div>
-          <div class="form-group">
-            <label for="reg-password">Password</label>
-            <div class="pw-wrap">
-              <input id="reg-password" class="input" type="password" required placeholder="••••••••" autocomplete="new-password" />
-              <button type="button" class="pw-eye" aria-label="Show password" data-pw="reg-password">👁</button>
+        </div>
+      </section>
+
+      <!-- How it works -->
+      <section class="steps">
+        <div class="steps-inner">
+          <h2 class="features-title">Up and running in three steps</h2>
+          <div class="steps-grid">
+            <div class="step-card">
+              <div class="step-num">01</div>
+              <h3>Create your account</h3>
+              <p>Sign up with your email. Create a workspace for your team or project in seconds.</p>
+            </div>
+            <div class="step-card">
+              <div class="step-num">02</div>
+              <h3>Register your claws</h3>
+              <p>Add each CoderClaw instance to your mesh. Paste the generated API key into your claw config and it connects automatically.</p>
+            </div>
+            <div class="step-card">
+              <div class="step-num">03</div>
+              <h3>Assign skills &amp; orchestrate</h3>
+              <p>Browse the skills marketplace, assign capabilities to your workspace or individual claws, and start building.</p>
             </div>
           </div>
-          <button type="submit" class="btn btn-primary btn-full">Create account</button>
-        </form>
-      </div>
+        </div>
+      </section>
+
+      <!-- CTA Banner -->
+      <section class="cta-section">
+        <div class="cta-inner">
+          <h2>Ready to build your mesh?</h2>
+          <p>Create your free account and register your first CoderClaw in minutes.</p>
+          <button class="btn btn-primary btn-lg" id="btn-cta-register">Start for free →</button>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer class="landing-footer">
+        <span>© 2026 CoderClaw · <a href="https://coderclaw.ai" target="_blank">coderclaw.ai</a></span>
+      </footer>
     </div>
 
     <!-- ── SCREEN 2: Tenant Picker ── -->
@@ -205,7 +259,56 @@
     </main>
   </div>
 
-  <!-- ── Modals ── -->
+  <!-- ── Auth Modal ── -->
+  <div id="modal-auth" class="modal modal-auth-wrap" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="auth-logo" style="margin-bottom:0">
+          <img src="https://cdn.builder.io/api/v1/image/assets%2Fac94883aaa0849cc897eb61793256164%2Fc284d818569a472aa80fdbee574db744?format=webp&width=800&height=1200" alt="CoderClaw" style="height:30px" />
+          <span class="auth-logo-text" style="font-size:16px">CoderClawLink</span>
+        </div>
+        <button class="close-btn" data-close="modal-auth">&times;</button>
+      </div>
+      <div class="auth-tabs" style="margin-bottom:22px">
+        <button class="auth-tab active" data-auth-tab="login">Sign in</button>
+        <button class="auth-tab" data-auth-tab="register">Register</button>
+      </div>
+      <form class="auth-form active" id="form-login">
+        <div class="form-group">
+          <label for="login-email">Email</label>
+          <input id="login-email" class="input" type="email" required placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <div class="pw-wrap">
+            <input id="login-password" class="input" type="password" required placeholder="••••••••" autocomplete="current-password" />
+            <button type="button" class="pw-eye" aria-label="Show password" data-pw="login-password">👁</button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Sign in</button>
+      </form>
+      <form class="auth-form" id="form-register">
+        <div class="form-group">
+          <label for="reg-email">Email</label>
+          <input id="reg-email" class="input" type="email" required placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <div class="form-group">
+          <label for="reg-username">Username</label>
+          <input id="reg-username" class="input" type="text" required placeholder="yourhandle" autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label for="reg-password">Password</label>
+          <div class="pw-wrap">
+            <input id="reg-password" class="input" type="password" required placeholder="••••••••" autocomplete="new-password" />
+            <button type="button" class="pw-eye" aria-label="Show password" data-pw="reg-password">👁</button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Create account</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── App Modals ── -->
 
   <div id="modal-create-project" class="modal" role="dialog" aria-modal="true">
     <div class="modal-content">

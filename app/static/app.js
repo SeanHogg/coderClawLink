@@ -82,34 +82,58 @@ document.querySelectorAll('.pw-eye').forEach(btn => {
   });
 });
 
+// ── Landing CTA buttons ───────────────────────────────────────────────────────
+['btn-hero-register', 'btn-nav-register', 'btn-cta-register'].forEach(id =>
+  $(id)?.addEventListener('click', () => openAuthModal('register')));
+['btn-hero-signin', 'btn-nav-signin'].forEach(id =>
+  $(id)?.addEventListener('click', () => openAuthModal('login')));
+
+// Auth-tab switching inside modal
+document.querySelectorAll('[data-auth-tab]').forEach(btn => {
+  btn.addEventListener('click', () => openAuthModal(btn.dataset.authTab));
+});
+
 // ── Screen management ─────────────────────────────────────────────────────────
-function showAuth() {
-  $('auth-screen').style.display   = '';
-  $('picker-screen').style.display = 'none';
-  $('app-screen').style.display    = 'none';
-  $('nav-tabs').style.display      = 'none';
-  $('user-chip').style.display     = 'none';
-  $('btn-logout').style.display    = 'none';
+function showLanding() {
+  $('landing-screen').style.display  = '';
+  $('picker-screen').style.display   = 'none';
+  $('app-screen').style.display      = 'none';
+  $('nav-tabs').style.display        = 'none';
+  $('user-chip').style.display       = 'none';
+  $('btn-logout').style.display      = 'none';
+  $('landing-nav-btns').style.display = '';
+}
+
+function showAuth() { showLanding(); }  // alias kept for back-compat
+
+function openAuthModal(tab = 'login') {
+  document.querySelectorAll('[data-auth-tab]').forEach(b =>
+    b.classList.toggle('active', b.dataset.authTab === tab));
+  $('form-login').classList.toggle('active', tab === 'login');
+  $('form-register').classList.toggle('active', tab === 'register');
+  openModal('modal-auth');
 }
 
 function showPicker() {
-  $('auth-screen').style.display   = 'none';
-  $('picker-screen').style.display = '';
-  $('app-screen').style.display    = 'none';
-  $('nav-tabs').style.display      = 'none';
-  $('user-chip').style.display     = 'none';
-  $('btn-logout').style.display    = 'none';
+  $('landing-screen').style.display   = 'none';
+  $('landing-nav-btns').style.display = 'none';
+  $('picker-screen').style.display    = '';
+  $('app-screen').style.display       = 'none';
+  $('nav-tabs').style.display         = 'none';
+  $('user-chip').style.display        = 'none';
+  $('btn-logout').style.display       = 'none';
   loadPickerTenants();
 }
 
 function showApp() {
-  $('auth-screen').style.display   = 'none';
-  $('picker-screen').style.display = 'none';
-  $('app-screen').style.display    = '';
-  $('nav-tabs').style.display      = '';
-  $('user-chip').style.display     = '';
-  $('btn-logout').style.display    = '';
-  $('user-label').textContent      = tenantName ? `${userEmail} · ${tenantName}` : userEmail;
+  $('landing-screen').style.display   = 'none';
+  $('landing-nav-btns').style.display = 'none';
+  $('picker-screen').style.display    = 'none';
+  $('app-screen').style.display       = '';
+  $('nav-tabs').style.display         = '';
+  $('user-chip').style.display        = '';
+  $('btn-logout').style.display       = '';
+  $('user-label').textContent         = tenantName ? `${userEmail} · ${tenantName}` : userEmail;
   // Push slug to URL without reload
   const slug = tenantSlug || tenantId;
   if (slug) history.replaceState({}, '', `/${slug}`);
@@ -138,15 +162,7 @@ function logout() {
 $('btn-logout').addEventListener('click', logout);
 $('btn-picker-logout').addEventListener('click', logout);
 
-// ── Auth tabs ─────────────────────────────────────────────────────────────────
-document.querySelectorAll('[data-auth-tab]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('[data-auth-tab]').forEach(b => b.classList.toggle('active', b === btn));
-    const tab = btn.dataset.authTab;
-    $('form-login').classList.toggle('active', tab === 'login');
-    $('form-register').classList.toggle('active', tab === 'register');
-  });
-});
+// Auth-tab clicks are handled by the [data-auth-tab] listeners near the top (via openAuthModal)
 
 // ── Register ──────────────────────────────────────────────────────────────────
 $('form-register').addEventListener('submit', async (e) => {
@@ -164,6 +180,7 @@ $('form-register').addEventListener('submit', async (e) => {
     localStorage.setItem('ccl-email',  userEmail);
     localStorage.setItem('ccl-uid',    userId);
     toast('Account created! Now set up your first workspace.');
+    closeModal('modal-auth');
     showPicker();
   } catch (err) { toast(err.message, 'error'); }
 });
@@ -182,6 +199,7 @@ $('form-login').addEventListener('submit', async (e) => {
     localStorage.setItem('ccl-wtoken', webToken);
     localStorage.setItem('ccl-email',  userEmail);
     localStorage.setItem('ccl-uid',    userId);
+    closeModal('modal-auth');
     showPicker();
   } catch (err) { toast(err.message, 'error'); }
 });
