@@ -1,0 +1,94 @@
+services:
+
+  # ── Local Postgres (dev only) ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: coderclawlink
+      POSTGRES_PASSWORD: coderclawlink
+      POSTGRES_DB: coderclawlink
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coderclawlink"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    profiles: ["dev"]
+
+  # ── API worker – wrangler dev (http://localhost:8787) ─────────────────────
+  api-dev:
+    build:
+      context: .
+      target: dev
+    working_dir: /app/api
+    command: >
+      npx wrangler dev
+      --port 8787
+      --ip 0.0.0.0
+      --hyperdrive=HYPERDRIVE=postgres://coderclawlink:coderclawlink@postgres:5432/coderclawlink
+    volumes:
+      - ./api/src:/app/api/src:ro
+      - ./api/wrangler.toml:/app/api/wrangler.toml:ro
+    ports:
+      - "8787:8787"
+    environment:
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+      - CORS_ORIGINS=http://localhost:8788
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["dev"]
+
+  # ── App (frontend) worker – wrangler dev (http://localhost:8788) ──────────
+  app-dev:
+    build:
+      context: .
+      target: dev
+    working_dir: /app/app
+    command: >
+      npx wrangler dev
+      --port 8788
+      --ip 0.0.0.0
+    volumes:
+      - ./app/src:/app/app/src:ro
+      - ./app/static:/app/app/static:ro
+      - ./app/wrangler.toml:/app/app/wrangler.toml:ro
+    ports:
+      - "8788:8788"
+    environment:
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+      - API_URL=http://localhost:8787
+    profiles: ["dev"]
+
+  # ── Deploy both workers to Cloudflare ─────────────────────────────────────
+  # Usage: docker compose run --rm deploy
+  deploy:
+    build:
+      context: .
+      target: deploy
+    environment:
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+    profiles: ["deploy"]
+
+  # ── DB migrations (run once against live Postgres) ────────────────────────
+  # Usage: docker compose run --rm migrate
+  migrate:
+    build:
+      context: .
+      target: base
+    working_dir: /app/api
+    command: >
+      sh -c "DATABASE_URL=${DATABASE_URL} npx drizzle-kit push"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    profiles: ["migrate"]
+
+volumes:
+  pg_data:

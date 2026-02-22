@@ -1,416 +1,328 @@
-// AI Agent Orchestrator Portal - Frontend JavaScript
+/**
+ * coderClawLink – Frontend application
+ * Communicates with api.coderclaw.ai
+ */
 
-const API_BASE_URL = '/api';
+const API = 'https://api.coderclaw.ai';
 
+// ---------------------------------------------------------------------------
 // State
-let projects = [];
-let tasks = [];
-let agents = [];
+// ---------------------------------------------------------------------------
 
-// Initialize app
+/** @type {Array<object>} */
+let projects = [];
+/** @type {Array<object>} */
+let tasks = [];
+/** @type {Array<object>} */
+let tenants = [];
+
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
+
 document.addEventListener('DOMContentLoaded', () => {
-    setupNavigation();
-    loadProjects();
-    loadTasks();
-    loadAgents();
+  setupNavigation();
+  setupModals();
+  setupForms();
+  loadProjects();
+  loadTasks();
+  loadTenants();
 });
 
+// ---------------------------------------------------------------------------
 // Navigation
+// ---------------------------------------------------------------------------
+
 function setupNavigation() {
-    const navBtns = document.querySelectorAll('.nav-btn');
-    navBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const view = btn.dataset.view;
-            switchView(view);
-        });
-    });
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchView(btn.dataset.view));
+  });
 }
 
-function switchView(viewName) {
-    // Update nav buttons
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.view === viewName);
-    });
-    
-    // Update views
-    document.querySelectorAll('.view').forEach(view => {
-        view.classList.toggle('active', view.id === `${viewName}-view`);
-    });
+function switchView(name) {
+  document.querySelectorAll('.nav-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.view === name),
+  );
+  document.querySelectorAll('.view').forEach(v =>
+    v.classList.toggle('active', v.id === `${name}-view`),
+  );
 }
 
-// Projects
-async function loadProjects() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/projects`);
-        projects = await response.json();
-        renderProjects();
-        updateProjectSelects();
-    } catch (error) {
-        console.error('Error loading projects:', error);
-        showError('Failed to load projects');
+// ---------------------------------------------------------------------------
+// Modal helpers
+// ---------------------------------------------------------------------------
+
+function setupModals() {
+  // Open triggers
+  document.getElementById('open-create-project')
+    ?.addEventListener('click', () => openModal('modal-create-project'));
+  document.getElementById('open-create-task')
+    ?.addEventListener('click', () => openModal('modal-create-task'));
+  document.getElementById('open-create-tenant')
+    ?.addEventListener('click', () => openModal('modal-create-tenant'));
+
+  // Close triggers (close buttons + backdrop click)
+  document.querySelectorAll('[data-close]').forEach(el => {
+    el.addEventListener('click', () => closeModal(el.dataset.close));
+  });
+
+  document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('click', e => {
+      if (e.target === modal) closeModal(modal.id);
+    });
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal.show').forEach(m => closeModal(m.id));
     }
+  });
+}
+
+function openModal(id) {
+  document.getElementById(id)?.classList.add('show');
+}
+
+function closeModal(id) {
+  document.getElementById(id)?.classList.remove('show');
+}
+
+// ---------------------------------------------------------------------------
+// Forms
+// ---------------------------------------------------------------------------
+
+function setupForms() {
+  document.getElementById('form-create-project')
+    ?.addEventListener('submit', handleCreateProject);
+  document.getElementById('form-create-task')
+    ?.addEventListener('submit', handleCreateTask);
+  document.getElementById('form-create-tenant')
+    ?.addEventListener('submit', handleCreateTenant);
+
+  document.getElementById('project-filter')
+    ?.addEventListener('change', loadTasks);
+}
+
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+async function loadProjects() {
+  try {
+    projects = await apiFetch('/api/projects');
+    renderProjects();
+    syncProjectSelects();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 function renderProjects() {
-    const grid = document.getElementById('projects-grid');
-    
-    if (projects.length === 0) {
-        grid.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-state-icon">📋</div>
-                <div class="empty-state-text">No projects yet</div>
-                <div class="empty-state-subtext">Create your first project to get started</div>
-            </div>
-        `;
-        return;
-    }
-    
-    grid.innerHTML = projects.map(project => `
-        <div class="project-card" onclick="viewProject(${project.id})">
-            <div class="project-header">
-                <span class="project-key">${project.key}</span>
-                <h3 class="project-name">${project.name}</h3>
-            </div>
-            ${project.description ? `<p class="project-description">${project.description}</p>` : ''}
-            <div class="project-meta">
-                <span>Status: ${project.status}</span>
-            </div>
-            ${project.github_repo_url ? `
-                <div class="project-github">
-                    🔗 ${project.github_repo_owner}/${project.github_repo_name}
-                </div>
-            ` : ''}
-        </div>
-    `).join('');
+  const grid = document.getElementById('projects-grid');
+  if (!projects.length) {
+    grid.innerHTML = emptyState('📋', 'No projects yet', 'Create your first project to get started');
+    return;
+  }
+  grid.innerHTML = projects.map(p => `
+    <div class="card project-card" data-id="${p.id}" role="button" tabindex="0">
+      <div class="card-header">
+        <span class="badge">${p.key}</span>
+        <span class="status-pill status-${p.status}">${p.status}</span>
+      </div>
+      <h3 class="card-title">${escHtml(p.name)}</h3>
+      ${p.description ? `<p class="card-desc">${escHtml(p.description)}</p>` : ''}
+      ${p.githubRepoOwner ? `<div class="card-meta">🔗 ${escHtml(p.githubRepoOwner)}/${escHtml(p.githubRepoName)}</div>` : ''}
+    </div>
+  `).join('');
+
+  grid.querySelectorAll('.project-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.getElementById('project-filter').value = card.dataset.id;
+      switchView('tasks');
+      loadTasks();
+    });
+  });
 }
 
-function showCreateProjectModal() {
-    document.getElementById('create-project-modal').classList.add('show');
+async function handleCreateProject(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = {
+    key:          fd.get('key'),
+    name:         fd.get('name'),
+    description:  fd.get('description') || null,
+    githubRepoUrl: fd.get('githubRepoUrl') || null,
+  };
+  try {
+    await apiFetch('/api/projects', { method: 'POST', body: JSON.stringify(body) });
+    closeModal('modal-create-project');
+    e.target.reset();
+    await loadProjects();
+    showToast('Project created');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
-async function createProject(event) {
-    event.preventDefault();
-    
-    const formData = {
-        key: document.getElementById('project-key').value.toUpperCase(),
-        name: document.getElementById('project-name').value,
-        description: document.getElementById('project-description').value,
-        github_repo_url: document.getElementById('project-github-url').value || null
-    };
-    
-    try {
-        const response = await fetch(`${API_BASE_URL}/projects`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
-        });
-        
-        if (response.ok) {
-            closeModal('create-project-modal');
-            document.getElementById('create-project-form').reset();
-            await loadProjects();
-            showSuccess('Project created successfully!');
-        } else {
-            const error = await response.json();
-            showError(error.detail || 'Failed to create project');
-        }
-    } catch (error) {
-        console.error('Error creating project:', error);
-        showError('Failed to create project');
-    }
-}
-
-function viewProject(projectId) {
-    const project = projects.find(p => p.id === projectId);
-    if (project) {
-        // Switch to tasks view and filter by project
-        document.getElementById('project-filter').value = projectId;
-        switchView('tasks');
-        loadTasks();
-    }
-}
-
+// ---------------------------------------------------------------------------
 // Tasks
+// ---------------------------------------------------------------------------
+
 async function loadTasks() {
-    const projectId = document.getElementById('project-filter')?.value;
-    const url = projectId ? `${API_BASE_URL}/tasks?project_id=${projectId}` : `${API_BASE_URL}/tasks`;
-    
-    try {
-        const response = await fetch(url);
-        tasks = await response.json();
-        renderTasks();
-    } catch (error) {
-        console.error('Error loading tasks:', error);
-        showError('Failed to load tasks');
-    }
+  const projectId = document.getElementById('project-filter')?.value;
+  const qs = projectId ? `?project_id=${projectId}` : '';
+  try {
+    tasks = await apiFetch(`/api/tasks${qs}`);
+    renderTasks();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 function renderTasks() {
-    // Clear all lists
-    ['todo', 'in-progress', 'in-review', 'done'].forEach(status => {
-        document.getElementById(`${status}-list`).innerHTML = '';
-        document.getElementById(`${status}-count`).textContent = '0';
-    });
-    
-    // Group tasks by status
-    const grouped = {
-        'todo': tasks.filter(t => t.status === 'todo'),
-        'in_progress': tasks.filter(t => t.status === 'in_progress'),
-        'in_review': tasks.filter(t => t.status === 'in_review'),
-        'done': tasks.filter(t => t.status === 'done')
-    };
-    
-    // Render each group
-    Object.entries(grouped).forEach(([status, statusTasks]) => {
-        const listId = status.replace('_', '-') + '-list';
-        const countId = status.replace('_', '-') + '-count';
-        
-        document.getElementById(countId).textContent = statusTasks.length;
-        
-        if (statusTasks.length > 0) {
-            document.getElementById(listId).innerHTML = statusTasks.map(task => `
-                <div class="task-card" onclick="viewTask(${task.id})">
-                    <div class="task-key">${task.key}</div>
-                    <div class="task-title">${task.title}</div>
-                    <div class="task-meta">
-                        <span class="priority-badge priority-${task.priority}">${task.priority}</span>
-                        ${task.assigned_agent_type ? `<span class="agent-badge">${task.assigned_agent_type}</span>` : ''}
-                        ${task.github_pr_url ? '<span>🔗 PR</span>' : ''}
-                    </div>
-                </div>
-            `).join('');
-        }
-    });
-}
-
-function showCreateTaskModal() {
-    document.getElementById('create-task-modal').classList.add('show');
-}
-
-async function createTask(event) {
-    event.preventDefault();
-    
-    const formData = {
-        project_id: parseInt(document.getElementById('task-project').value),
-        title: document.getElementById('task-title').value,
-        description: document.getElementById('task-description').value || null,
-        priority: document.getElementById('task-priority').value,
-        assigned_agent_type: document.getElementById('task-agent').value || null
-    };
-    
-    try {
-        const response = await fetch(`${API_BASE_URL}/tasks`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
-        });
-        
-        if (response.ok) {
-            closeModal('create-task-modal');
-            document.getElementById('create-task-form').reset();
-            await loadTasks();
-            showSuccess('Task created successfully!');
-        } else {
-            const error = await response.json();
-            showError(error.detail || 'Failed to create task');
-        }
-    } catch (error) {
-        console.error('Error creating task:', error);
-        showError('Failed to create task');
-    }
-}
-
-async function viewTask(taskId) {
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
-    
-    const project = projects.find(p => p.id === task.project_id);
-    
-    document.getElementById('task-detail-title').textContent = task.key;
-    document.getElementById('task-detail-content').innerHTML = `
-        <div class="task-detail-section">
-            <h4>Title</h4>
-            <div>${task.title}</div>
+  const statuses = ['todo', 'in_progress', 'in_review', 'done'];
+  statuses.forEach(status => {
+    const group = tasks.filter(t => t.status === status);
+    document.getElementById(`count-${status}`).textContent = group.length;
+    document.getElementById(`list-${status}`).innerHTML = group.map(task => `
+      <div class="task-card card small">
+        <div class="task-key">${escHtml(task.key)}</div>
+        <div class="task-title">${escHtml(task.title)}</div>
+        <div class="task-meta">
+          <span class="priority-badge priority-${task.priority}">${task.priority}</span>
+          ${task.assignedAgentType ? `<span class="agent-badge">${task.assignedAgentType}</span>` : ''}
+          ${task.githubPrUrl ? `<a href="${escHtml(task.githubPrUrl)}" target="_blank" class="pr-link">PR #${task.githubPrNumber}</a>` : ''}
         </div>
-        
-        <div class="task-detail-section">
-            <h4>Description</h4>
-            <div>${task.description || 'No description'}</div>
-        </div>
-        
-        <div class="task-detail-section">
-            <h4>Details</h4>
-            <div>
-                <p><strong>Project:</strong> ${project ? project.name : 'Unknown'}</p>
-                <p><strong>Status:</strong> <span class="status-badge status-${task.status.replace('_', '-')}">${task.status}</span></p>
-                <p><strong>Priority:</strong> <span class="priority-badge priority-${task.priority}">${task.priority}</span></p>
-                ${task.assigned_agent_type ? `<p><strong>Agent:</strong> <span class="agent-badge">${task.assigned_agent_type}</span></p>` : ''}
-                ${task.github_pr_url ? `<p><strong>Pull Request:</strong> <a href="${task.github_pr_url}" target="_blank">#${task.github_pr_number}</a></p>` : ''}
-            </div>
-        </div>
-        
-        <div class="task-actions">
-            ${!task.github_pr_url && project?.github_repo_url ? `
-                <button class="btn btn-primary" onclick="createPRForTask(${task.id})">Create PR</button>
-            ` : ''}
-            ${task.assigned_agent_type ? `
-                <button class="btn btn-success" onclick="executeTask(${task.id}, '${task.assigned_agent_type}')">Execute with ${task.assigned_agent_type}</button>
-            ` : ''}
-            <button class="btn btn-secondary" onclick="closeModal('task-detail-modal')">Close</button>
-        </div>
-    `;
-    
-    document.getElementById('task-detail-modal').classList.add('show');
-}
-
-async function executeTask(taskId, agentType) {
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
-    
-    const prompt = `Task: ${task.title}\n\nDescription: ${task.description || 'No description'}\n\nPlease generate code or solution for this task.`;
-    
-    showLoading('Executing task with agent...');
-    
-    try {
-        const response = await fetch(`${API_BASE_URL}/tasks/execute`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                task_id: taskId,
-                agent_type: agentType,
-                prompt: prompt
-            })
-        });
-        
-        if (response.ok) {
-            await loadTasks();
-            closeModal('task-detail-modal');
-            showSuccess('Task executed successfully!');
-        } else {
-            const error = await response.json();
-            showError(error.detail || 'Failed to execute task');
-        }
-    } catch (error) {
-        console.error('Error executing task:', error);
-        showError('Failed to execute task');
-    }
-}
-
-async function createPRForTask(taskId) {
-    showLoading('Creating pull request...');
-    
-    try {
-        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/create_pr`, {
-            method: 'POST'
-        });
-        
-        if (response.ok) {
-            const result = await response.json();
-            await loadTasks();
-            closeModal('task-detail-modal');
-            showSuccess(`Pull request created: #${result.pr_number}`);
-        } else {
-            const error = await response.json();
-            showError(error.detail || 'Failed to create pull request');
-        }
-    } catch (error) {
-        console.error('Error creating PR:', error);
-        showError('Failed to create pull request');
-    }
-}
-
-// Agents
-async function loadAgents() {
-    try {
-        const [availableResponse, typesResponse] = await Promise.all([
-            fetch(`${API_BASE_URL}/agents/available`),
-            fetch(`${API_BASE_URL}/agents/types`)
-        ]);
-        
-        const availableAgents = await availableResponse.json();
-        const allAgentTypes = await typesResponse.json();
-        
-        agents = allAgentTypes.map(type => ({
-            type,
-            available: availableAgents.includes(type)
-        }));
-        
-        renderAgents();
-    } catch (error) {
-        console.error('Error loading agents:', error);
-        showError('Failed to load agents');
-    }
-}
-
-function renderAgents() {
-    const grid = document.getElementById('agents-grid');
-    
-    const agentIcons = {
-        'auggie': '🤖',
-        'claude': '🧠',
-        'opendevin': '🔨',
-        'goose': '🦆',
-        'ollama': '🦙'
-    };
-    
-    grid.innerHTML = agents.map(agent => `
-        <div class="agent-card ${agent.available ? 'available' : 'unavailable'}">
-            <div class="agent-icon">${agentIcons[agent.type] || '🤖'}</div>
-            <div class="agent-name">${agent.type.charAt(0).toUpperCase() + agent.type.slice(1)}</div>
-            <span class="agent-status ${agent.available ? 'available' : 'unavailable'}">
-                ${agent.available ? '✓ Available' : '✗ Not Configured'}
-            </span>
-        </div>
+      </div>
     `).join('');
+  });
 }
 
-// Helper functions
-function updateProjectSelects() {
-    const selects = ['project-filter', 'task-project'];
-    
-    selects.forEach(selectId => {
-        const select = document.getElementById(selectId);
-        if (!select) return;
-        
-        const currentValue = select.value;
-        
-        // Keep first option, update rest
-        const firstOption = select.options[0];
-        select.innerHTML = '';
-        if (firstOption) select.appendChild(firstOption);
-        
-        projects.forEach(project => {
-            const option = document.createElement('option');
-            option.value = project.id;
-            option.textContent = `[${project.key}] ${project.name}`;
-            select.appendChild(option);
-        });
-        
-        select.value = currentValue;
-    });
+async function handleCreateTask(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = {
+    projectId:          Number(fd.get('projectId')),
+    title:              fd.get('title'),
+    description:        fd.get('description') || null,
+    priority:           fd.get('priority'),
+    assignedAgentType:  fd.get('assignedAgentType') || null,
+  };
+  try {
+    await apiFetch('/api/tasks', { method: 'POST', body: JSON.stringify(body) });
+    closeModal('modal-create-task');
+    e.target.reset();
+    await loadTasks();
+    showToast('Task created');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
-function closeModal(modalId) {
-    document.getElementById(modalId).classList.remove('show');
+// ---------------------------------------------------------------------------
+// Tenants
+// ---------------------------------------------------------------------------
+
+async function loadTenants() {
+  try {
+    tenants = await apiFetch('/api/tenants');
+    renderTenants();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
-function showSuccess(message) {
-    alert(message); // In production, use a proper notification system
+function renderTenants() {
+  const grid = document.getElementById('tenants-grid');
+  if (!tenants.length) {
+    grid.innerHTML = emptyState('🏢', 'No tenants yet', 'Create your first tenant organisation');
+    return;
+  }
+  grid.innerHTML = tenants.map(t => `
+    <div class="card tenant-card">
+      <div class="card-header">
+        <span class="badge">${escHtml(t.slug)}</span>
+        <span class="status-pill status-${t.status}">${t.status}</span>
+      </div>
+      <h3 class="card-title">${escHtml(t.name)}</h3>
+      <div class="card-meta">${t.members?.length ?? 0} member(s)</div>
+    </div>
+  `).join('');
 }
 
-function showError(message) {
-    alert('Error: ' + message); // In production, use a proper notification system
+async function handleCreateTenant(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = { name: fd.get('name'), ownerUserId: fd.get('ownerUserId') };
+  try {
+    await apiFetch('/api/tenants', { method: 'POST', body: JSON.stringify(body) });
+    closeModal('modal-create-tenant');
+    e.target.reset();
+    await loadTenants();
+    showToast('Tenant created');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
-function showLoading(message) {
-    console.log('Loading:', message); // In production, show a loading overlay
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function syncProjectSelects() {
+  const opts = projects.map(p => `<option value="${p.id}">${escHtml(p.key)} – ${escHtml(p.name)}</option>`).join('');
+  /** @type {HTMLSelectElement} */
+  const filter = document.getElementById('project-filter');
+  const select = document.getElementById('inp-task-project');
+  if (filter) {
+    const currentFilter = filter.value;
+    filter.innerHTML = '<option value="">All Projects</option>' + opts;
+    filter.value = currentFilter;
+  }
+  if (select) select.innerHTML = opts;
 }
 
-// Close modals when clicking outside
-document.querySelectorAll('.modal').forEach(modal => {
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            modal.classList.remove('show');
-        }
-    });
-});
+function emptyState(icon, title, subtitle) {
+  return `
+    <div class="empty-state">
+      <div class="empty-icon">${icon}</div>
+      <div class="empty-title">${title}</div>
+      <div class="empty-subtitle">${subtitle}</div>
+    </div>`;
+}
+
+function escHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** @param {'success'|'error'} type */
+function showToast(message, type = 'success') {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = message;
+  el.className = `toast ${type}`;
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.className = 'toast hidden'; }, 3500);
+}

@@ -1,0 +1,21 @@
+name = "coderclawlink-app"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+[[routes]]
+pattern = "app.coderclaw.ai/*"
+zone_name = "coderclaw.ai"
+
+# Serve everything in ./static as static assets.
+# The Worker script handles any request not matched by a static file.
+[assets]
+directory = "./static"
+html_handling = "auto-trailing-slash"
+not_found_handling = "single-page-application"
+
+[vars]
+API_URL = "https://api.coderclaw.ai"
+
+[dev]
+port = 8788
+local_protocol = "http"

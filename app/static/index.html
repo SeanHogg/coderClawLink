@@ -1,192 +1,198 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Agent Orchestrator Portal</title>
-    <link rel="stylesheet" href="/static/styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>coderClawLink</title>
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-    <div class="app-container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-content">
-                <h1 class="logo">🤖 AI Agent Orchestrator</h1>
-                <nav class="nav">
-                    <button class="nav-btn active" data-view="projects">Projects</button>
-                    <button class="nav-btn" data-view="tasks">Tasks</button>
-                    <button class="nav-btn" data-view="agents">Agents</button>
-                </nav>
-            </div>
-        </header>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <h1 class="logo">coderClawLink</h1>
+        <nav class="nav">
+          <button class="nav-btn active" data-view="projects">Projects</button>
+          <button class="nav-btn" data-view="tasks">Tasks</button>
+          <button class="nav-btn" data-view="tenants">Tenants</button>
+        </nav>
+      </div>
+    </header>
 
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Projects View -->
-            <div id="projects-view" class="view active">
-                <div class="view-header">
-                    <h2>Projects</h2>
-                    <button class="btn btn-primary" onclick="showCreateProjectModal()">
-                        <span>+</span> Create Project
-                    </button>
-                </div>
-                <div class="projects-grid" id="projects-grid">
-                    <!-- Projects will be loaded here -->
-                </div>
-            </div>
+    <!-- Toast notifications -->
+    <div id="toast" class="toast hidden"></div>
 
-            <!-- Tasks View -->
-            <div id="tasks-view" class="view">
-                <div class="view-header">
-                    <h2>Tasks Board</h2>
-                    <div class="filters">
-                        <select id="project-filter" class="select" onchange="loadTasks()">
-                            <option value="">All Projects</option>
-                        </select>
-                        <button class="btn btn-primary" onclick="showCreateTaskModal()">
-                            <span>+</span> Create Task
-                        </button>
-                    </div>
-                </div>
-                <div class="kanban-board">
-                    <div class="kanban-column">
-                        <div class="column-header">
-                            <span class="status-badge status-todo">To Do</span>
-                            <span class="count" id="todo-count">0</span>
-                        </div>
-                        <div class="task-list" id="todo-list"></div>
-                    </div>
-                    <div class="kanban-column">
-                        <div class="column-header">
-                            <span class="status-badge status-in-progress">In Progress</span>
-                            <span class="count" id="in-progress-count">0</span>
-                        </div>
-                        <div class="task-list" id="in-progress-list"></div>
-                    </div>
-                    <div class="kanban-column">
-                        <div class="column-header">
-                            <span class="status-badge status-in-review">In Review</span>
-                            <span class="count" id="in-review-count">0</span>
-                        </div>
-                        <div class="task-list" id="in-review-list"></div>
-                    </div>
-                    <div class="kanban-column">
-                        <div class="column-header">
-                            <span class="status-badge status-done">Done</span>
-                            <span class="count" id="done-count">0</span>
-                        </div>
-                        <div class="task-list" id="done-list"></div>
-                    </div>
-                </div>
-            </div>
+    <!-- Main content -->
+    <main class="main-content">
 
-            <!-- Agents View -->
-            <div id="agents-view" class="view">
-                <div class="view-header">
-                    <h2>Available Agents</h2>
-                </div>
-                <div class="agents-grid" id="agents-grid">
-                    <!-- Agents will be loaded here -->
-                </div>
-            </div>
-        </main>
-    </div>
-
-    <!-- Create Project Modal -->
-    <div id="create-project-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Create New Project</h3>
-                <button class="close-btn" onclick="closeModal('create-project-modal')">&times;</button>
-            </div>
-            <form id="create-project-form" onsubmit="createProject(event)">
-                <div class="form-group">
-                    <label for="project-key">Project Key *</label>
-                    <input type="text" id="project-key" class="input" required placeholder="e.g., PROJ">
-                </div>
-                <div class="form-group">
-                    <label for="project-name">Project Name *</label>
-                    <input type="text" id="project-name" class="input" required placeholder="My Project">
-                </div>
-                <div class="form-group">
-                    <label for="project-description">Description</label>
-                    <textarea id="project-description" class="textarea" rows="4" placeholder="Project description..."></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="project-github-url">GitHub Repository URL</label>
-                    <input type="text" id="project-github-url" class="input" placeholder="https://github.com/owner/repo">
-                </div>
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal('create-project-modal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Create Project</button>
-                </div>
-            </form>
+      <!-- Projects view -->
+      <div id="projects-view" class="view active">
+        <div class="view-header">
+          <h2>Projects</h2>
+          <button class="btn btn-primary" id="open-create-project">+ Create Project</button>
         </div>
-    </div>
+        <div class="projects-grid" id="projects-grid"></div>
+      </div>
 
-    <!-- Create Task Modal -->
-    <div id="create-task-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Create New Task</h3>
-                <button class="close-btn" onclick="closeModal('create-task-modal')">&times;</button>
-            </div>
-            <form id="create-task-form" onsubmit="createTask(event)">
-                <div class="form-group">
-                    <label for="task-project">Project *</label>
-                    <select id="task-project" class="select" required>
-                        <option value="">Select a project...</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="task-title">Title *</label>
-                    <input type="text" id="task-title" class="input" required placeholder="Task title">
-                </div>
-                <div class="form-group">
-                    <label for="task-description">Description</label>
-                    <textarea id="task-description" class="textarea" rows="4" placeholder="Task description..."></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="task-priority">Priority</label>
-                    <select id="task-priority" class="select">
-                        <option value="low">Low</option>
-                        <option value="medium" selected>Medium</option>
-                        <option value="high">High</option>
-                        <option value="critical">Critical</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="task-agent">Assign Agent</label>
-                    <select id="task-agent" class="select">
-                        <option value="">None</option>
-                        <option value="auggie">Auggie</option>
-                        <option value="claude">Claude</option>
-                        <option value="opendevin">OpenDevin</option>
-                        <option value="goose">Goose</option>
-                        <option value="ollama">Ollama</option>
-                    </select>
-                </div>
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal('create-task-modal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Create Task</button>
-                </div>
-            </form>
+      <!-- Tasks view -->
+      <div id="tasks-view" class="view">
+        <div class="view-header">
+          <h2>Tasks</h2>
+          <div class="filters">
+            <select id="project-filter" class="select">
+              <option value="">All Projects</option>
+            </select>
+            <button class="btn btn-primary" id="open-create-task">+ Create Task</button>
+          </div>
         </div>
-    </div>
-
-    <!-- Task Detail Modal -->
-    <div id="task-detail-modal" class="modal">
-        <div class="modal-content modal-large">
-            <div class="modal-header">
-                <h3 id="task-detail-title">Task Details</h3>
-                <button class="close-btn" onclick="closeModal('task-detail-modal')">&times;</button>
+        <div class="kanban-board">
+          <div class="kanban-column" data-status="todo">
+            <div class="column-header">
+              <span class="status-badge todo">To Do</span>
+              <span class="count" id="count-todo">0</span>
             </div>
-            <div id="task-detail-content" class="task-detail">
-                <!-- Task details will be loaded here -->
+            <div class="task-list" id="list-todo"></div>
+          </div>
+          <div class="kanban-column" data-status="in_progress">
+            <div class="column-header">
+              <span class="status-badge in-progress">In Progress</span>
+              <span class="count" id="count-in_progress">0</span>
             </div>
+            <div class="task-list" id="list-in_progress"></div>
+          </div>
+          <div class="kanban-column" data-status="in_review">
+            <div class="column-header">
+              <span class="status-badge in-review">In Review</span>
+              <span class="count" id="count-in_review">0</span>
+            </div>
+            <div class="task-list" id="list-in_review"></div>
+          </div>
+          <div class="kanban-column" data-status="done">
+            <div class="column-header">
+              <span class="status-badge done">Done</span>
+              <span class="count" id="count-done">0</span>
+            </div>
+            <div class="task-list" id="list-done"></div>
+          </div>
         </div>
-    </div>
+      </div>
 
-    <script src="/static/app.js"></script>
+      <!-- Tenants view -->
+      <div id="tenants-view" class="view">
+        <div class="view-header">
+          <h2>Tenants</h2>
+          <button class="btn btn-primary" id="open-create-tenant">+ Create Tenant</button>
+        </div>
+        <div class="tenants-grid" id="tenants-grid"></div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Create Project Modal -->
+  <div id="modal-create-project" class="modal" role="dialog" aria-modal="true" aria-label="Create Project">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Create Project</h3>
+        <button class="close-btn" data-close="modal-create-project">&times;</button>
+      </div>
+      <form id="form-create-project">
+        <div class="form-group">
+          <label for="inp-project-key">Key <span class="required">*</span></label>
+          <input id="inp-project-key" name="key" type="text" required maxlength="50" class="input" placeholder="PROJ" />
+        </div>
+        <div class="form-group">
+          <label for="inp-project-name">Name <span class="required">*</span></label>
+          <input id="inp-project-name" name="name" type="text" required maxlength="255" class="input" />
+        </div>
+        <div class="form-group">
+          <label for="inp-project-desc">Description</label>
+          <textarea id="inp-project-desc" name="description" class="input" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="inp-project-github">GitHub Repo URL</label>
+          <input id="inp-project-github" name="githubRepoUrl" type="url" class="input" placeholder="https://github.com/owner/repo" />
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" data-close="modal-create-project">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create Task Modal -->
+  <div id="modal-create-task" class="modal" role="dialog" aria-modal="true" aria-label="Create Task">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Create Task</h3>
+        <button class="close-btn" data-close="modal-create-task">&times;</button>
+      </div>
+      <form id="form-create-task">
+        <div class="form-group">
+          <label for="inp-task-project">Project <span class="required">*</span></label>
+          <select id="inp-task-project" name="projectId" required class="select"></select>
+        </div>
+        <div class="form-group">
+          <label for="inp-task-title">Title <span class="required">*</span></label>
+          <input id="inp-task-title" name="title" type="text" required maxlength="500" class="input" />
+        </div>
+        <div class="form-group">
+          <label for="inp-task-desc">Description</label>
+          <textarea id="inp-task-desc" name="description" class="input" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="inp-task-priority">Priority</label>
+          <select id="inp-task-priority" name="priority" class="select">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="inp-task-agent">Assign Agent</label>
+          <select id="inp-task-agent" name="assignedAgentType" class="select">
+            <option value="">None</option>
+            <option value="claude">Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="ollama">Ollama</option>
+            <option value="http">HTTP</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" data-close="modal-create-task">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create Tenant Modal -->
+  <div id="modal-create-tenant" class="modal" role="dialog" aria-modal="true" aria-label="Create Tenant">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Create Tenant</h3>
+        <button class="close-btn" data-close="modal-create-tenant">&times;</button>
+      </div>
+      <form id="form-create-tenant">
+        <div class="form-group">
+          <label for="inp-tenant-name">Name <span class="required">*</span></label>
+          <input id="inp-tenant-name" name="name" type="text" required maxlength="255" class="input" />
+        </div>
+        <div class="form-group">
+          <label for="inp-tenant-owner">Owner User ID <span class="required">*</span></label>
+          <input id="inp-tenant-owner" name="ownerUserId" type="text" required class="input" />
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" data-close="modal-create-tenant">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js" type="module"></script>
 </body>
 </html>

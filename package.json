@@ -1,0 +1,19 @@
+{
+  "name": "coderclawlink",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "api",
+    "app"
+  ],
+  "scripts": {
+    "dev:api": "pnpm --filter api dev",
+    "dev:app": "pnpm --filter app dev",
+    "deploy:api": "pnpm --filter api deploy",
+    "deploy:app": "pnpm --filter app deploy",
+    "deploy": "pnpm run deploy:api && pnpm run deploy:app",
+    "db:generate": "pnpm --filter api db:generate",
+    "db:migrate": "pnpm --filter api db:migrate"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

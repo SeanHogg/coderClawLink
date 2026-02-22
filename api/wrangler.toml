@@ -1,0 +1,24 @@
+name = "coderclawlink-api"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[routes]]
+pattern = "api.coderclaw.ai/*"
+zone_name = "coderclaw.ai"
+
+# Hyperdrive binding – proxies to your Postgres instance with connection pooling.
+# Provision via: wrangler hyperdrive create coderclawlink-db --connection-string="postgres://..."
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "REPLACE_WITH_YOUR_HYPERDRIVE_ID"
+
+[vars]
+# Overridden by Cloudflare dashboard secrets for production.
+CORS_ORIGINS = "https://app.coderclaw.ai"
+ENVIRONMENT = "production"
+
+# Wrangler dev overrides (local only, never committed)
+[dev]
+port = 8787
+local_protocol = "http"
