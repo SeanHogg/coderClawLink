@@ -16,7 +16,9 @@ id = "REPLACE_WITH_YOUR_HYPERDRIVE_ID"
 [vars]
 # Overridden by Cloudflare dashboard secrets for production.
 CORS_ORIGINS = "https://app.coderclaw.ai"
-ENVIRONMENT = "production"
+ENVIRONMENT  = "production"
+# JWT_SECRET must be set via: wrangler secret put JWT_SECRET
+# Do NOT put the real value here – use a long random string (32+ chars).
 
 # Wrangler dev overrides (local only, never committed)
 [dev]

@@ -1,10 +1,12 @@
 import { Hono } from 'hono';
 import { TenantService } from '../../application/tenant/TenantService';
 import { TenantRole } from '../../domain/shared/types';
-import type { Env } from '../../env';
+import type { HonoEnv } from '../../env';
+import { authMiddleware, requireRole } from '../middleware/authMiddleware';
 
-export function createTenantRoutes(tenantService: TenantService): Hono<{ Bindings: Env }> {
-  const router = new Hono<{ Bindings: Env }>();
+export function createTenantRoutes(tenantService: TenantService): Hono<HonoEnv> {
+  const router = new Hono<HonoEnv>();
+  router.use('*', authMiddleware);
 
   // GET /api/tenants
   router.get('/', async (c) => {

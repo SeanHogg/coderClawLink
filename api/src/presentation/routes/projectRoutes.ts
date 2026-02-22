@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { ProjectService } from '../../application/project/ProjectService';
-import type { Env } from '../../env';
-
-type Variables = { projectService: ProjectService };
+import type { HonoEnv } from '../../env';
+import { authMiddleware, requireRole } from '../middleware/authMiddleware';
+import { TenantRole } from '../../domain/shared/types';
 
 /**
  * Presentation layer: Project HTTP routes.
@@ -10,8 +10,9 @@ type Variables = { projectService: ProjectService };
  * Maps between HTTP request/response and the application service.
  * No business logic lives here.
  */
-export function createProjectRoutes(projectService: ProjectService): Hono<{ Bindings: Env; Variables: Variables }> {
-  const router = new Hono<{ Bindings: Env; Variables: Variables }>();
+export function createProjectRoutes(projectService: ProjectService): Hono<HonoEnv> {
+  const router = new Hono<HonoEnv>();
+  router.use('*', authMiddleware);
 
   // GET /api/projects
   router.get('/', async (c) => {

@@ -1,10 +1,12 @@
 import { Hono } from 'hono';
 import { TaskService } from '../../application/task/TaskService';
 import { TaskPriority, AgentType, TaskStatus } from '../../domain/shared/types';
-import type { Env } from '../../env';
+import type { HonoEnv } from '../../env';
+import { authMiddleware } from '../middleware/authMiddleware';
 
-export function createTaskRoutes(taskService: TaskService): Hono<{ Bindings: Env }> {
-  const router = new Hono<{ Bindings: Env }>();
+export function createTaskRoutes(taskService: TaskService): Hono<HonoEnv> {
+  const router = new Hono<HonoEnv>();
+  router.use('*', authMiddleware);
 
   // GET /api/tasks?project_id=1
   router.get('/', async (c) => {

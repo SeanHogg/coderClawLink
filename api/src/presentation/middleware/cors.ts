@@ -1,5 +1,5 @@
 import { MiddlewareHandler } from 'hono';
-import type { Env } from '../../env';
+import type { HonoEnv } from '../../env';
 
 /**
  * CORS middleware.
@@ -7,7 +7,7 @@ import type { Env } from '../../env';
  * Reads allowed origins from the CORS_ORIGINS environment variable
  * (comma-separated).  Strict: rejects requests from unlisted origins.
  */
-export const corsMiddleware: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
+export const corsMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   const origin = c.req.header('Origin') ?? '';
   const allowed = (c.env.CORS_ORIGINS ?? 'https://app.coderclaw.ai')
     .split(',')
