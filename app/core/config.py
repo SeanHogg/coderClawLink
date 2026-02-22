@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import List
 
 
 class Settings(BaseSettings):
@@ -30,6 +31,19 @@ class Settings(BaseSettings):
     # Server
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+
+    # CORS – allowed origins for the frontend.
+    # Accepts a comma-separated string, e.g.:
+    #   CORS_ORIGINS=https://app.coderclaw.ai,http://localhost:3000
+    cors_origins_str: str = "https://app.coderclaw.ai"
+
+    @property
+    def cors_origins(self) -> List[str]:
+        """Return CORS origins as a list (parsed from the comma-separated string)."""
+        return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
+
+    # Frontend URL (used in documentation / redirect hints)
+    frontend_url: str = "https://app.coderclaw.ai"
     
     class Config:
         env_file = ".env"

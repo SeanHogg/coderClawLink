@@ -1,14 +1,31 @@
 # Deployment Guide
 
+## Architecture Overview
+
+The application is split into two independent layers:
+
+| Layer    | Domain                  | Source        |
+|----------|-------------------------|---------------|
+| Frontend | `app.coderclaw.ai`      | `frontend/`   |
+| API      | `api.coderclaw.ai`      | `app/`        |
+
+The **frontend** is a static HTML/CSS/JS application served from the `frontend/` directory.  
+The **API** is a Python FastAPI application served from the `app/` directory.
+
+---
+
 ## Prerequisites
 
 - Python 3.10+
 - pip or poetry for dependency management
+- A static file host or web server for the frontend (e.g., nginx, CDN, GitHub Pages)
 - (Optional) Telegram Bot Token from @BotFather
 - (Optional) GitHub Personal Access Token
 - (Optional) API keys for AI agents
 
-## Installation Steps
+---
+
+## API Layer (api.coderclaw.ai)
 
 ### 1. Clone and Setup
 
@@ -53,36 +70,65 @@ OLLAMA_BASE_URL=http://localhost:11434
 # Server Configuration
 API_HOST=0.0.0.0
 API_PORT=8000
+
+# CORS – must include the frontend origin
+CORS_ORIGINS_STR=https://app.coderclaw.ai
+
+# Frontend URL
+FRONTEND_URL=https://app.coderclaw.ai
 ```
 
-### 4. Run the Application
+### 4. Run the API
 
 ```bash
 python -m app.main
 ```
 
-The server will start on `http://localhost:8000`
+The API will start on `http://localhost:8000`.
 
-## Accessing the Portal
-
-### Web Interface
-
-Open your browser to:
-- Main Portal: `http://localhost:8000`
-- API Docs: `http://localhost:8000/docs`
+- Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
+- Health check: `http://localhost:8000/health`
 
-### Telegram Bot
+---
 
-1. Open Telegram and search for your bot
-2. Send `/start` to begin
-3. Use commands like `/create_project`, `/tasks`, `/execute`
+## Frontend Layer (app.coderclaw.ai)
+
+The frontend consists of static files in the `frontend/` directory:
+
+```
+frontend/
+├── index.html   # Main SPA entry point
+├── app.js       # Application logic (calls https://api.coderclaw.ai/api)
+└── styles.css   # Styles
+```
+
+Deploy these files to any static hosting service (nginx, CDN, GitHub Pages, S3, etc.).
+
+### Local development
+
+```bash
+# Serve frontend locally with Python's built-in server
+cd frontend
+python -m http.server 3000
+# Open http://localhost:3000
+```
+
+For local development against the production API, update `API_BASE_URL` in `frontend/app.js`:
+
+```js
+const API_BASE_URL = 'https://api.coderclaw.ai/api'; // production
+// or for local:
+// const API_BASE_URL = 'http://localhost:8000/api';
+```
+
+Also add `http://localhost:3000` to `CORS_ORIGINS_STR` in the API's `.env`.
+
+---
 
 ## Production Deployment
 
-### Using Docker (Recommended)
-
-Create a `Dockerfile`:
+### API – Docker
 
 ```dockerfile
 FROM python:3.11-slim
@@ -99,54 +145,66 @@ EXPOSE 8000
 CMD ["python", "-m", "app.main"]
 ```
 
-Build and run:
-
 ```bash
-docker build -t ai-agent-orchestrator .
-docker run -p 8000:8000 --env-file .env ai-agent-orchestrator
+docker build -t coderclaw-api .
+docker run -p 8000:8000 --env-file .env coderclaw-api
 ```
 
-### Using systemd (Linux)
+### API – systemd (Linux)
 
-Create `/etc/systemd/system/ai-orchestrator.service`:
+Create `/etc/systemd/system/coderclaw-api.service`:
 
 ```ini
 [Unit]
-Description=AI Agent Orchestrator Portal
+Description=coderClawLink API
 After=network.target
 
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/opt/ai-agent-orchestrator
-Environment="PATH=/opt/ai-agent-orchestrator/venv/bin"
-EnvironmentFile=/opt/ai-agent-orchestrator/.env
-ExecStart=/opt/ai-agent-orchestrator/venv/bin/python -m app.main
+WorkingDirectory=/opt/coderclaw
+Environment="PATH=/opt/coderclaw/venv/bin"
+EnvironmentFile=/opt/coderclaw/.env
+ExecStart=/opt/coderclaw/venv/bin/python -m app.main
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Enable and start:
-
 ```bash
-sudo systemctl enable ai-orchestrator
-sudo systemctl start ai-orchestrator
+sudo systemctl enable coderclaw-api
+sudo systemctl start coderclaw-api
 ```
 
-### Nginx Reverse Proxy
+### Nginx – API reverse proxy (api.coderclaw.ai)
 
 ```nginx
 server {
-    listen 80;
-    server_name your-domain.com;
+    listen 443 ssl;
+    server_name api.coderclaw.ai;
 
     location / {
         proxy_pass http://localhost:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+### Nginx – Frontend static files (app.coderclaw.ai)
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name app.coderclaw.ai;
+
+    root /var/www/coderclaw/frontend;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
     }
 }
 ```
