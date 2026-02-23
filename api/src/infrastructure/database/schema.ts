@@ -161,6 +161,10 @@ export const tasks = pgTable('tasks', {
   assignedAgentType: agentTypeEnum('assigned_agent_type'),
   githubPrUrl:       varchar('github_pr_url', { length: 500 }),
   githubPrNumber:    integer('github_pr_number'),
+  startDate:         timestamp('start_date'),
+  dueDate:           timestamp('due_date'),
+  persona:           varchar('persona', { length: 50 }),
+  archived:          boolean('archived').notNull().default(false),
   createdAt:         timestamp('created_at').notNull().defaultNow(),
   updatedAt:         timestamp('updated_at').notNull().defaultNow(),
 });

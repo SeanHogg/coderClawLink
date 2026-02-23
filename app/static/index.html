@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
@@ -10,6 +10,8 @@
   <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin />
   <link href="https://api.fontshare.com/v2/css?f[]=clash-display@700,600,500&f[]=satoshi@400,500,700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
   <script>
     (() => {
       const saved = localStorage.getItem('cc-theme');
@@ -36,6 +38,7 @@
           <button class="nav-tab" data-view="claws">Claws</button>
           <button class="nav-tab" data-view="skills">Skills</button>
           <button class="nav-tab" data-view="tenants">Workspace</button>
+          <button class="nav-tab" data-view="logs">Logs</button>
         </nav>
         <div class="nav-right">
           <div id="landing-nav-btns">
@@ -98,7 +101,7 @@
             <div class="feature-card">
               <div class="feature-icon">📋</div>
               <h3>Projects &amp; Tasks</h3>
-              <p>Organize work into projects with kanban-style task management. Track progress across your entire coding mesh in real time.</p>
+              <p>Organize work into projects with kanban-style task management. Switch between Kanban, List, and Gantt views. Track progress across your entire coding mesh.</p>
             </div>
             <div class="feature-card">
               <div class="feature-icon">🏢</div>
@@ -190,26 +193,88 @@
         <div class="view-header">
           <h2>Tasks</h2>
           <div class="actions filters-bar">
-            <select id="task-project-filter" class="select" style="width:200px"><option value="">All Projects</option></select>
+            <select id="task-project-filter" class="select" style="width:160px"><option value="">All Projects</option></select>
+            <select id="task-status-filter" class="select" style="width:130px">
+              <option value="">All Statuses</option>
+              <option value="todo">To Do</option>
+              <option value="in_progress">In Progress</option>
+              <option value="in_review">In Review</option>
+              <option value="done">Done</option>
+              <option value="blocked">Blocked</option>
+            </select>
+            <select id="task-priority-filter" class="select" style="width:120px">
+              <option value="">All Priorities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <input id="task-search" class="input" type="search" placeholder="Search tasks…" style="width:160px" />
+            <label class="filter-archived-label" title="Show archived tasks">
+              <input type="checkbox" id="task-show-archived" /> Archived
+            </label>
+            <div class="view-switcher">
+              <button class="view-switch-btn active" id="btn-view-kanban" title="Kanban view">⊞ Kanban</button>
+              <button class="view-switch-btn" id="btn-view-list" title="List view">☰ List</button>
+              <button class="view-switch-btn" id="btn-view-gantt" title="Gantt view">📊 Gantt</button>
+            </div>
             <button class="btn btn-primary btn-sm" id="btn-create-task">+ New Task</button>
           </div>
         </div>
-        <div class="kanban-board">
-          <div class="kanban-column">
+
+        <!-- Kanban View -->
+        <div id="tasks-kanban" class="kanban-board">
+          <div class="kanban-column" data-status="todo">
             <div class="column-header"><span class="badge badge-todo">To Do</span><span class="count-badge" id="count-todo">0</span></div>
-            <div id="col-todo"></div>
+            <div class="kanban-drop-zone" id="col-todo" data-status="todo"></div>
           </div>
-          <div class="kanban-column">
+          <div class="kanban-column" data-status="in_progress">
             <div class="column-header"><span class="badge badge-in_progress">In Progress</span><span class="count-badge" id="count-in_progress">0</span></div>
-            <div id="col-in_progress"></div>
+            <div class="kanban-drop-zone" id="col-in_progress" data-status="in_progress"></div>
           </div>
-          <div class="kanban-column">
+          <div class="kanban-column" data-status="in_review">
             <div class="column-header"><span class="badge badge-in_review">In Review</span><span class="count-badge" id="count-in_review">0</span></div>
-            <div id="col-in_review"></div>
+            <div class="kanban-drop-zone" id="col-in_review" data-status="in_review"></div>
           </div>
-          <div class="kanban-column">
+          <div class="kanban-column" data-status="done">
             <div class="column-header"><span class="badge badge-done">Done</span><span class="count-badge" id="count-done">0</span></div>
-            <div id="col-done"></div>
+            <div class="kanban-drop-zone" id="col-done" data-status="done"></div>
+          </div>
+          <div class="kanban-column" data-status="blocked">
+            <div class="column-header"><span class="badge badge-blocked">Blocked</span><span class="count-badge" id="count-blocked">0</span></div>
+            <div class="kanban-drop-zone" id="col-blocked" data-status="blocked"></div>
+          </div>
+        </div>
+
+        <!-- List View -->
+        <div id="tasks-list" style="display:none">
+          <div class="task-table-wrap">
+            <table class="task-table">
+              <thead>
+                <tr>
+                  <th class="sortable" data-sort="key">Key</th>
+                  <th class="sortable" data-sort="title">Title</th>
+                  <th class="sortable" data-sort="status">Status</th>
+                  <th class="sortable" data-sort="priority">Priority</th>
+                  <th class="sortable" data-sort="dueDate">Due Date</th>
+                  <th class="sortable" data-sort="createdAt">Created</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="task-list-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Gantt View -->
+        <div id="tasks-gantt" style="display:none">
+          <div id="gantt-container" class="gantt-container">
+            <div class="gantt-empty" id="gantt-empty" style="display:none">
+              <div class="empty-icon">📊</div>
+              <div class="empty-title">No tasks with due dates</div>
+              <div class="empty-desc">Set start and due dates on tasks to see them in Gantt view.</div>
+            </div>
+            <div id="gantt-chart"></div>
           </div>
         </div>
       </div>
@@ -259,8 +324,90 @@
           <button class="btn btn-primary btn-sm" id="btn-invite-member">+ Invite member</button>
         </div>
         <div class="cards-grid" id="members-grid"></div>
+
+        <!-- AI Settings -->
+        <div class="view-header" style="margin-top:32px">
+          <h3 style="font-size:16px;margin:0">AI Settings</h3>
+        </div>
+        <div class="card" style="max-width:520px;margin-top:12px">
+          <div class="card-desc" style="margin-bottom:16px">Configure OpenRouter to enable AI-powered task and PRD generation.</div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label for="openrouter-key">OpenRouter API Key</label>
+            <div class="pw-wrap">
+              <input id="openrouter-key" class="input" type="password" placeholder="sk-or-..." />
+              <button type="button" class="pw-eye" aria-label="Show key" data-pw="openrouter-key">👁</button>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:16px">
+            <label for="openrouter-model">Model</label>
+            <select id="openrouter-model" class="select">
+              <option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6 (Recommended)</option>
+              <option value="anthropic/claude-opus-4-6">Claude Opus 4.6</option>
+              <option value="anthropic/claude-haiku-4-5">Claude Haiku 4.5 (Fast)</option>
+              <option value="openai/gpt-4o">GPT-4o</option>
+              <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+              <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
+              <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btn-save-ai-settings">Save AI Settings</button>
+        </div>
+      </div>
+      <!-- Logs -->
+      <div id="view-logs" class="view-panel" style="display:none">
+        <div class="view-header">
+          <h2>Execution Logs</h2>
+          <div class="actions" style="gap:10px">
+            <select id="logs-task-filter" class="select" style="width:200px"><option value="">All Tasks</option></select>
+            <button class="btn btn-secondary btn-sm" id="btn-logs-refresh">↺ Refresh</button>
+            <button class="btn btn-secondary btn-sm" id="btn-logs-copy-all">📋 Copy All</button>
+          </div>
+        </div>
+        <div id="logs-container" class="logs-container">
+          <div class="logs-empty" id="logs-empty">
+            <div class="empty-icon">📋</div>
+            <div class="empty-title">No execution logs yet</div>
+            <div class="empty-desc">Run a task with an agent to see output here.</div>
+          </div>
+          <div id="logs-list"></div>
+        </div>
       </div>
     </main>
+  </div>
+
+  <!-- ── Task Drawer ── -->
+  <div id="task-drawer" class="task-drawer" role="dialog" aria-modal="true" aria-label="Task detail">
+    <div class="drawer-backdrop" id="drawer-backdrop"></div>
+    <aside class="drawer-panel">
+      <div class="drawer-header">
+        <div class="drawer-header-info">
+          <div class="drawer-meta-row">
+            <span id="drawer-key" class="task-key"></span>
+            <div id="drawer-badges" class="drawer-badges"></div>
+          </div>
+          <h2 id="drawer-title" class="drawer-title"></h2>
+          <div class="drawer-dates" id="drawer-dates"></div>
+        </div>
+        <div class="drawer-header-btns">
+          <button class="btn btn-secondary btn-sm" id="drawer-btn-restart" style="display:none" title="Reset to To Do">↺ Restart</button>
+          <button class="btn btn-secondary btn-sm" id="drawer-btn-reply" title="Create follow-up task">↩ Reply</button>
+          <button class="btn btn-secondary btn-sm" id="drawer-btn-archive" title="Archive/unarchive">Archive</button>
+          <button class="btn btn-secondary btn-sm" id="drawer-btn-edit" title="Edit task">✎ Edit</button>
+          <button class="btn btn-primary btn-sm" id="drawer-btn-run" title="Run with agent">▶ Run</button>
+          <button class="close-btn" id="drawer-close" title="Close (Esc)">&times;</button>
+        </div>
+      </div>
+      <div class="drawer-body">
+        <section class="drawer-section" id="drawer-desc-section" style="display:none">
+          <div class="drawer-section-title">Description / PRD</div>
+          <div id="drawer-description" class="drawer-md"></div>
+        </section>
+        <section class="drawer-section">
+          <div class="drawer-section-title">Execution History</div>
+          <div id="drawer-executions"></div>
+        </section>
+      </div>
+    </aside>
   </div>
 
   <!-- ── Auth Modal ── -->
@@ -331,24 +478,174 @@
   </div>
 
   <div id="modal-create-task" class="modal" role="dialog" aria-modal="true">
-    <div class="modal-content">
+    <div class="modal-content modal-wide">
       <div class="modal-header"><h3>New Task</h3><button class="close-btn" data-close="modal-create-task">&times;</button></div>
       <form class="modal-form" id="form-create-task">
         <div class="form-group"><label>Project *</label><select id="inp-task-proj" name="projectId" class="select" required></select></div>
-        <div class="form-group"><label>Title *</label><input name="title" class="input" type="text" required maxlength="500" /></div>
-        <div class="form-group"><label>Description</label><textarea name="description" class="input" rows="3"></textarea></div>
+        <div class="form-group"><label>Title *</label><input name="title" id="inp-task-title" class="input" type="text" required maxlength="500" /></div>
         <div class="form-group">
-          <label>Priority</label>
-          <select name="priority" class="select">
-            <option value="low">Low</option><option value="medium" selected>Medium</option>
-            <option value="high">High</option><option value="critical">Critical</option>
-          </select>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <label style="margin:0">Description / PRD</label>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-ai-generate" style="gap:6px">
+              <span id="ai-generate-icon">✨</span> Generate with AI
+            </button>
+          </div>
+          <textarea name="description" id="inp-task-description" class="input" rows="6" placeholder="Describe the task, acceptance criteria, technical notes..."></textarea>
+          <div id="ai-generate-status" style="display:none;font-size:12px;color:var(--text-muted);margin-top:4px"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+          <div class="form-group">
+            <label>Priority</label>
+            <select name="priority" class="select">
+              <option value="low">Low</option><option value="medium" selected>Medium</option>
+              <option value="high">High</option><option value="critical">Critical</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Agent</label>
+            <select name="assignedAgentType" class="select">
+              <option value="">None</option>
+              <option value="claude">Claude</option>
+              <option value="openai">OpenAI</option>
+              <option value="ollama">Ollama</option>
+              <option value="http">HTTP</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Persona</label>
+            <select name="persona" class="select">
+              <option value="">General</option>
+              <option value="frontend">Frontend</option>
+              <option value="backend">Backend</option>
+              <option value="qa">QA / Testing</option>
+              <option value="devops">DevOps</option>
+              <option value="security">Security</option>
+              <option value="data-architect">Data Architect</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group"><label>Start Date</label><input name="startDate" class="input" type="date" /></div>
+          <div class="form-group"><label>Due Date</label><input name="dueDate" class="input" type="date" /></div>
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-secondary" data-close="modal-create-task">Cancel</button>
           <button type="submit" class="btn btn-primary">Create</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Task Detail / Edit Modal -->
+  <div id="modal-task-detail" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-wide">
+      <div class="modal-header">
+        <div>
+          <span id="detail-task-key" style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)"></span>
+          <h3 id="detail-task-title" style="margin-top:4px"></h3>
+        </div>
+        <button class="close-btn" data-close="modal-task-detail">&times;</button>
+      </div>
+      <form class="modal-form" id="form-edit-task">
+        <input type="hidden" id="edit-task-id" />
+        <div class="form-group"><label>Title *</label><input name="title" id="edit-task-title" class="input" type="text" required maxlength="500" /></div>
+        <div class="form-group">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <label style="margin:0">Description / PRD</label>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-ai-generate-edit" style="gap:6px">
+              <span>✨</span> Enhance with AI
+            </button>
+          </div>
+          <textarea name="description" id="edit-task-description" class="input" rows="6"></textarea>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group">
+            <label>Status</label>
+            <select name="status" id="edit-task-status" class="select">
+              <option value="todo">To Do</option>
+              <option value="in_progress">In Progress</option>
+              <option value="in_review">In Review</option>
+              <option value="done">Done</option>
+              <option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Priority</label>
+            <select name="priority" id="edit-task-priority" class="select">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group">
+            <label>Agent</label>
+            <select name="assignedAgentType" id="edit-task-agent" class="select">
+              <option value="">None</option>
+              <option value="claude">Claude</option>
+              <option value="openai">OpenAI</option>
+              <option value="ollama">Ollama</option>
+              <option value="http">HTTP</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Persona</label>
+            <select name="persona" id="edit-task-persona" class="select">
+              <option value="">General</option>
+              <option value="frontend">Frontend</option>
+              <option value="backend">Backend</option>
+              <option value="qa">QA / Testing</option>
+              <option value="devops">DevOps</option>
+              <option value="security">Security</option>
+              <option value="data-architect">Data Architect</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group"><label>Start Date</label><input name="startDate" id="edit-task-start-date" class="input" type="date" /></div>
+          <div class="form-group"><label>Due Date</label><input name="dueDate" id="edit-task-due-date" class="input" type="date" /></div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-danger btn-sm" id="btn-delete-task">Delete</button>
+          <div style="display:flex;gap:10px">
+            <button type="button" class="btn btn-secondary" data-close="modal-task-detail">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+          </div>
+        </div>
+      </form>
+
+      <!-- Execution History -->
+      <div id="task-executions-section" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border-subtle)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h4 style="font-size:14px;margin:0;color:var(--text-secondary)">Execution History</h4>
+          <button class="btn btn-primary btn-sm" id="btn-run-task">▶ Run with Agent</button>
+        </div>
+        <div id="task-executions-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Run Task Modal -->
+  <div id="modal-run-task" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header"><h3>Run Task</h3><button class="close-btn" data-close="modal-run-task">&times;</button></div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Submit this task for AI agent execution.</div>
+      <input type="hidden" id="run-task-id" />
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Agent</label>
+        <select id="run-task-agent" class="select">
+          <option value="claude">Claude</option>
+          <option value="openai">OpenAI</option>
+          <option value="ollama">Ollama</option>
+          <option value="http">HTTP</option>
+        </select>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" data-close="modal-run-task">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-run">Submit</button>
+      </div>
     </div>
   </div>
 

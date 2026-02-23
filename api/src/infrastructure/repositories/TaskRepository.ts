@@ -59,6 +59,10 @@ export class TaskRepository implements ITaskRepository {
         assignedAgentType: plain.assignedAgentType ?? undefined,
         githubPrUrl:       plain.githubPrUrl ?? undefined,
         githubPrNumber:    plain.githubPrNumber ?? undefined,
+        startDate:         plain.startDate ?? undefined,
+        dueDate:           plain.dueDate ?? undefined,
+        persona:           plain.persona ?? undefined,
+        archived:          plain.archived,
       })
       .returning();
     if (!inserted) throw new Error('Insert returned no rows');
@@ -77,6 +81,10 @@ export class TaskRepository implements ITaskRepository {
         assignedAgentType: plain.assignedAgentType ?? undefined,
         githubPrUrl:       plain.githubPrUrl ?? undefined,
         githubPrNumber:    plain.githubPrNumber ?? undefined,
+        startDate:         plain.startDate ?? undefined,
+        dueDate:           plain.dueDate ?? undefined,
+        persona:           plain.persona ?? undefined,
+        archived:          plain.archived,
         updatedAt:         plain.updatedAt,
       })
       .where(eq(tasksTable.id, plain.id))
@@ -108,6 +116,10 @@ function toDomain(row: Row): Task {
     assignedAgentType: (row.assignedAgentType as AgentType) ?? null,
     githubPrUrl:       row.githubPrUrl ?? null,
     githubPrNumber:    row.githubPrNumber ?? null,
+    startDate:         row.startDate ?? null,
+    dueDate:           row.dueDate ?? null,
+    persona:           row.persona ?? null,
+    archived:          row.archived,
     createdAt:         row.createdAt,
     updatedAt:         row.updatedAt,
   });

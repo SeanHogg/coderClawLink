@@ -13,6 +13,9 @@ export interface CreateTaskDto {
   description?: string | null;
   priority?: TaskPriority;
   assignedAgentType?: AgentType | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+  persona?: string | null;
 }
 
 export interface UpdateTaskDto {
@@ -23,6 +26,10 @@ export interface UpdateTaskDto {
   assignedAgentType?: AgentType | null;
   githubPrUrl?: string | null;
   githubPrNumber?: number | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+  persona?: string | null;
+  archived?: boolean;
 }
 
 /**
@@ -70,6 +77,9 @@ export class TaskService {
       status: TaskStatus.TODO,
       priority: dto.priority ?? TaskPriority.MEDIUM,
       assignedAgentType: dto.assignedAgentType ?? null,
+      startDate: dto.startDate ? new Date(dto.startDate) : null,
+      dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+      persona: dto.persona ?? null,
       projectKey: project.key,
       projectTaskCount: taskCount,
     });
@@ -79,7 +89,11 @@ export class TaskService {
 
   async updateTask(id: number, dto: UpdateTaskDto): Promise<Task> {
     const task = await this.getTask(id);
-    const updated = task.update(dto);
+    const updated = task.update({
+      ...dto,
+      startDate: dto.startDate !== undefined ? (dto.startDate ? new Date(dto.startDate) : null) : undefined,
+      dueDate: dto.dueDate !== undefined ? (dto.dueDate ? new Date(dto.dueDate) : null) : undefined,
+    });
     return this.tasks.update(updated);
   }
 

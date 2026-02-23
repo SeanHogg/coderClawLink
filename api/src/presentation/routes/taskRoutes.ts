@@ -31,6 +31,9 @@ export function createTaskRoutes(taskService: TaskService): Hono<HonoEnv> {
       description?: string | null;
       priority?: TaskPriority;
       assignedAgentType?: AgentType | null;
+      startDate?: string | null;
+      dueDate?: string | null;
+      persona?: string | null;
     }>();
     const task = await taskService.createTask(body, c.get('tenantId'));
     return c.json(task.toPlain(), 201);
@@ -47,6 +50,10 @@ export function createTaskRoutes(taskService: TaskService): Hono<HonoEnv> {
       assignedAgentType?: AgentType | null;
       githubPrUrl?: string | null;
       githubPrNumber?: number | null;
+      startDate?: string | null;
+      dueDate?: string | null;
+      persona?: string | null;
+      archived?: boolean;
     }>();
     const task = await taskService.updateTask(id, body);
     return c.json(task.toPlain());

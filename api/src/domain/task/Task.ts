@@ -12,6 +12,10 @@ export interface TaskProps {
   assignedAgentType: AgentType | null;
   githubPrUrl: string | null;
   githubPrNumber: number | null;
+  startDate: Date | null;
+  dueDate: Date | null;
+  persona: string | null;
+  archived: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,7 +36,7 @@ export class Task {
   static create(
     props: Omit<
       TaskProps,
-      'id' | 'key' | 'createdAt' | 'updatedAt' | 'githubPrUrl' | 'githubPrNumber'
+      'id' | 'key' | 'createdAt' | 'updatedAt' | 'githubPrUrl' | 'githubPrNumber' | 'archived'
     > & {
       projectKey: string;
       projectTaskCount: number;
@@ -55,6 +59,10 @@ export class Task {
       assignedAgentType: props.assignedAgentType,
       githubPrUrl: null,
       githubPrNumber: null,
+      startDate: props.startDate ?? null,
+      dueDate: props.dueDate ?? null,
+      persona: props.persona ?? null,
+      archived: false,
       createdAt: now,
       updatedAt: now,
     });
@@ -78,6 +86,10 @@ export class Task {
   get assignedAgentType(): AgentType | null { return this.props.assignedAgentType; }
   get githubPrUrl(): string | null { return this.props.githubPrUrl; }
   get githubPrNumber(): number | null { return this.props.githubPrNumber; }
+  get startDate(): Date | null { return this.props.startDate; }
+  get dueDate(): Date | null { return this.props.dueDate; }
+  get persona(): string | null { return this.props.persona; }
+  get archived(): boolean { return this.props.archived; }
   get createdAt(): Date { return this.props.createdAt; }
   get updatedAt(): Date { return this.props.updatedAt; }
 
@@ -90,7 +102,8 @@ export class Task {
       Pick<
         TaskProps,
         'title' | 'description' | 'status' | 'priority' | 'assignedAgentType'
-        | 'githubPrUrl' | 'githubPrNumber'
+        | 'githubPrUrl' | 'githubPrNumber' | 'startDate' | 'dueDate'
+        | 'persona' | 'archived'
       >
     >,
   ): Task {
