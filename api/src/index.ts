@@ -47,6 +47,9 @@ import { createSkillAssignmentRoutes } from './presentation/routes/skillAssignme
 import { corsMiddleware } from './presentation/middleware/cors';
 import { errorHandler }   from './presentation/middleware/errorHandler';
 
+// Durable Objects (must be re-exported so the Workers runtime can instantiate them)
+export { ClawRelayDO } from './infrastructure/relay/ClawRelayDO';
+
 // ---------------------------------------------------------------------------
 // Composition root: build the full Hono app for a single request,
 // injecting the concrete infrastructure implementations.

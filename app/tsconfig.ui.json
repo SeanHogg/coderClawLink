@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "useDefineForClassFields": false,
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src/main.ts", "src/app.ts", "src/api.ts", "src/views/**/*.ts", "src/claw-ui/**/*.ts", "src/i18n/**/*.ts", "src/styles/**/*.ts", "vite.config.ts"]
+}

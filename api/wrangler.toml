@@ -15,6 +15,14 @@ ENVIRONMENT  = "production"
 # Do NOT put the real value here – use a long random string (32+ chars).
 
 # Wrangler dev overrides (local only, never committed)
+[[durable_objects.bindings]]
+name = "CLAW_RELAY"
+class_name = "ClawRelayDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ClawRelayDO"]
+
 [dev]
 port = 8787
 local_protocol = "http"

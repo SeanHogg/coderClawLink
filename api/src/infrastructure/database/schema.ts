@@ -206,6 +206,7 @@ export const coderclawInstances = pgTable('coderclaw_instances', {
   status:       clawStatusEnum('status').notNull().default('active'),
   registeredBy: varchar('registered_by', { length: 36 }).references(() => users.id),
   lastSeenAt:   timestamp('last_seen_at'),
+  connectedAt:  timestamp('connected_at'),   // set when claw's upstream WS connects; null = offline
   createdAt:    timestamp('created_at').notNull().defaultNow(),
 });
 

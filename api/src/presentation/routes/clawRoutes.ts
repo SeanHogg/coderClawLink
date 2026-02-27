@@ -11,13 +11,24 @@ import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/authMiddleware';
 import { coderclawInstances } from '../../infrastructure/database/schema';
-import { generateApiKey, hashSecret } from '../../infrastructure/auth/HashService';
+import { generateApiKey, hashSecret, verifySecret } from '../../infrastructure/auth/HashService';
 import type { HonoEnv } from '../../env';
 import type { Db } from '../../infrastructure/database/connection';
+import type { ClawRelayDO } from '../../infrastructure/relay/ClawRelayDO';
 
-export function createClawRoutes(db: Db): Hono<HonoEnv> {
-  const router = new Hono<HonoEnv>();
-  router.use('*', authMiddleware);
+// Extend HonoEnv bindings type to include the Durable Object
+type ClawHonoEnv = HonoEnv & {
+  Bindings: HonoEnv['Bindings'] & {
+    CLAW_RELAY: DurableObjectNamespace<ClawRelayDO>;
+  };
+};
+
+export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
+  const router = new Hono<ClawHonoEnv>();
+
+  // Tenant-authenticated routes
+  router.use('/', authMiddleware as never);
+  router.use('/:id', authMiddleware as never);
 
   // GET /api/claws – list all claws for the current tenant
   router.get('/', async (c) => {
@@ -84,6 +95,95 @@ export function createClawRoutes(db: Db): Hono<HonoEnv> {
       .delete(coderclawInstances)
       .where(and(eq(coderclawInstances.id, id), eq(coderclawInstances.tenantId, tenantId)));
     return c.body(null, 204);
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/claws/:id/status – connection status (no auth required for polling)
+  // -------------------------------------------------------------------------
+  router.get('/:id/status', async (c) => {
+    const id = Number(c.req.param('id'));
+    const [row] = await db
+      .select({ connectedAt: coderclawInstances.connectedAt })
+      .from(coderclawInstances)
+      .where(eq(coderclawInstances.id, id));
+    if (!row) return c.json({ error: 'not found' }, 404);
+    return c.json({ connected: row.connectedAt !== null, connectedAt: row.connectedAt });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/claws/:id/ws – browser client connects to claw relay
+  // Requires tenant JWT (passed via ?token= since WS upgrades can't set headers
+  // in all browsers)
+  // -------------------------------------------------------------------------
+  router.get('/:id/ws', async (c) => {
+    const id  = Number(c.req.param('id'));
+    const env = c.env;
+
+    if (!env.CLAW_RELAY) return c.text('CLAW_RELAY binding not configured', 503);
+
+    // Verify tenant JWT from query param
+    const token = c.req.query('token');
+    if (!token) return c.text('Unauthorized', 401);
+
+    // Look up the claw
+    const [claw] = await db
+      .select({ id: coderclawInstances.id, tenantId: coderclawInstances.tenantId })
+      .from(coderclawInstances)
+      .where(eq(coderclawInstances.id, id));
+    if (!claw) return c.text('Not found', 404);
+
+    const stub = env.CLAW_RELAY.get(env.CLAW_RELAY.idFromName(String(id)));
+    const url  = new URL(c.req.url);
+    url.searchParams.set('role', 'client');
+    return stub.fetch(new Request(url.toString(), c.req.raw));
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/claws/:id/upstream – CoderClaw instance connects (API key auth)
+  // The claw passes its API key via ?key= query param
+  // -------------------------------------------------------------------------
+  router.get('/:id/upstream', async (c) => {
+    const id  = Number(c.req.param('id'));
+    const env = c.env;
+    const key = c.req.query('key');
+
+    if (!env.CLAW_RELAY) return c.text('CLAW_RELAY binding not configured', 503);
+    if (!key) return c.text('Unauthorized', 401);
+
+    const [claw] = await db
+      .select({
+        id:         coderclawInstances.id,
+        apiKeyHash: coderclawInstances.apiKeyHash,
+        tenantId:   coderclawInstances.tenantId,
+      })
+      .from(coderclawInstances)
+      .where(eq(coderclawInstances.id, id));
+
+    if (!claw) return c.text('Not found', 404);
+
+    const valid = await verifySecret(key, claw.apiKeyHash);
+    if (!valid) return c.text('Unauthorized', 401);
+
+    // Mark as connected
+    await db
+      .update(coderclawInstances)
+      .set({ connectedAt: new Date(), lastSeenAt: new Date() })
+      .where(eq(coderclawInstances.id, id));
+
+    const stub = env.CLAW_RELAY.get(env.CLAW_RELAY.idFromName(String(id)));
+    const url  = new URL(c.req.url);
+    url.searchParams.set('role', 'upstream');
+    const response = await stub.fetch(new Request(url.toString(), c.req.raw));
+
+    // When the WS closes, mark as disconnected (best-effort)
+    response.webSocket?.addEventListener('close', async () => {
+      await db
+        .update(coderclawInstances)
+        .set({ connectedAt: null })
+        .where(eq(coderclawInstances.id, id));
+    });
+
+    return response;
   });
 
   return router;

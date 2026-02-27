@@ -13,6 +13,18 @@ export async function hashSecret(value: string): Promise<string> {
     .join('');
 }
 
+/** Constant-time comparison of a plaintext secret against a stored SHA-256 hex hash. */
+export async function verifySecret(value: string, storedHash: string): Promise<boolean> {
+  const computed = await hashSecret(value);
+  if (computed.length !== storedHash.length) return false;
+  // constant-time comparison
+  let diff = 0;
+  for (let i = 0; i < computed.length; i++) {
+    diff |= computed.charCodeAt(i) ^ storedHash.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 /** Generates a new random API key in the format `clk_<32 hex chars>`. */
 export function generateApiKey(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));

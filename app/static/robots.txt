@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://app.coderclaw.ai/sitemap.xml
