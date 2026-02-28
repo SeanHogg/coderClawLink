@@ -1,13 +1,18 @@
 /**
  * coderClawLLM — OpenRouter free-model proxy with automatic failover.
  *
- * Handles two kinds of rate-limit signals from OpenRouter:
- *   1. HTTP 429 status
- *   2. HTTP 200 with {"error":{"code":429, "message":"…"}} in the body
- *      (OpenRouter sends this for upstream provider rate limits)
+ * Handles error signals from OpenRouter:
+ *   1. HTTP 4xx/5xx status (except 400/401 which are client errors)
+ *   2. HTTP 200 with {"error":{...}} in the body
+ *      (OpenRouter sends this for upstream provider errors — rate limits, spend
+ *       limits, capacity issues, etc.)
+ *   3. First SSE chunk contains an error object (streaming variant of #2)
  *
- * On either signal the model is put on a 60-second cooldown and the next
+ * On any of these signals the model is put on a 60-second cooldown and the next
  * healthy model in the pool is tried transparently.
+ *
+ * Requests are distributed round-robin across the pool so no single model is
+ * hammered first on every call.
  */
 
 // ---------------------------------------------------------------------------
@@ -69,7 +74,7 @@ export interface ProxyResult {
 /** model → timestamp when cooldown expires */
 const cooldowns = new Map<string, number>();
 
-const COOLDOWN_MS = 60_000; // 60 s cooldown after a rate-limit signal
+const COOLDOWN_MS = 60_000; // 60 s cooldown after any provider error
 
 function markCooldown(model: string): void {
   cooldowns.set(model, Date.now() + COOLDOWN_MS);
@@ -83,30 +88,46 @@ function isOnCooldown(model: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Rate-limit detection helpers
+// Round-robin cursor  (in-memory, per-isolate)
 // ---------------------------------------------------------------------------
 
-interface OpenRouterError { message?: string; code?: number; }
+/** Advances each request so the starting model rotates evenly across the pool. */
+let requestCursor = 0;
 
-/** Detect an embedded rate-limit error in a parsed JSON body. */
-function isBodyRateLimit(json: Record<string, unknown>): boolean {
-  const err = json['error'] as OpenRouterError | undefined;
-  if (!err) return false;
-  if (err.code === 429) return true;
-  const msg = (err.message ?? '').toLowerCase();
-  return msg.includes('rate limit') || msg.includes('rate-limit') || msg.includes('temporarily');
+// ---------------------------------------------------------------------------
+// Error detection helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * HTTP status codes that warrant failover to the next model.
+ * - 400 Bad Request: client error — won't improve by switching models.
+ * - 401 Unauthorized: API key invalid — switching models won't help.
+ * - Everything else 4xx/5xx: provider/capacity error → try next model.
+ */
+function isFailoverStatus(status: number): boolean {
+  return status >= 400 && status !== 400 && status !== 401;
 }
 
-/** Detect a rate-limit signal in a raw SSE text chunk. */
-function isChunkRateLimit(text: string): boolean {
+/** Detect any provider error in a parsed JSON body. */
+function isBodyError(json: Record<string, unknown>): boolean {
+  return 'error' in json && json['error'] != null;
+}
+
+/**
+ * Detect a provider error in a raw SSE text chunk.
+ * Tries to parse the first `data:` line as JSON; falls back to text heuristics.
+ */
+function isChunkError(text: string): boolean {
   if (!text.includes('"error"')) return false;
-  return (
-    text.includes('"code":429') ||
-    text.includes('"code": 429') ||
-    text.includes('rate limit') ||
-    text.includes('rate-limit') ||
-    text.includes('temporarily')
-  );
+  // Try to parse the first SSE data line
+  const dataLine = text.split('\n').find((l) => l.startsWith('data: '));
+  if (!dataLine) return true; // has "error" substring but no parseable line → be safe
+  try {
+    const parsed = JSON.parse(dataLine.slice(6)) as Record<string, unknown>;
+    return 'error' in parsed && parsed['error'] != null;
+  } catch {
+    return true; // unparseable chunk that mentions "error" → failover
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -124,14 +145,20 @@ export class LlmProxyService {
 
   /**
    * Forward a chat-completion request through the free model pool.
-   * Automatically fails over on HTTP 429 OR embedded rate-limit bodies.
+   * Automatically fails over on any HTTP error status OR embedded error body.
+   * Requests are distributed round-robin so all models share traffic evenly.
    */
   async complete(
     body: ChatCompletionRequest,
     requestHeaders?: Record<string, string>,
   ): Promise<ProxyResult> {
-    const candidates = [...FREE_MODEL_POOL.filter((m) => !isOnCooldown(m))];
-    if (candidates.length === 0) candidates.push(FREE_MODEL_POOL[0]);
+    const available = FREE_MODEL_POOL.filter((m) => !isOnCooldown(m));
+    const pool = available.length > 0 ? available : [...FREE_MODEL_POOL];
+
+    // Rotate the starting position for round-robin distribution
+    const start = requestCursor % pool.length;
+    const candidates = [...pool.slice(start), ...pool.slice(0, start)];
+    requestCursor++;
 
     let lastResponse: Response | undefined;
     let retries = 0;
@@ -149,8 +176,8 @@ export class LlmProxyService {
         body: JSON.stringify({ ...body, model }),
       });
 
-      // ── HTTP 429 ──────────────────────────────────────────────────────────
-      if (upstream.status === 429) {
+      // ── HTTP error status (402 spend limit, 429 rate limit, 5xx, etc.) ───────
+      if (isFailoverStatus(upstream.status)) {
         markCooldown(model);
         lastResponse = upstream;
         retries++;
@@ -166,7 +193,7 @@ export class LlmProxyService {
 
         const firstText = firstChunk ? new TextDecoder().decode(firstChunk) : '';
 
-        if (isChunkRateLimit(firstText)) {
+        if (isChunkError(firstText)) {
           await passStream.cancel().catch(() => { /* ignore */ });
           markCooldown(model);
           retries++;
@@ -184,7 +211,7 @@ export class LlmProxyService {
       // ── Non-streaming: read body and check for embedded error ─────────────
       const json = await upstream.json() as Record<string, unknown>;
 
-      if (isBodyRateLimit(json)) {
+      if (isBodyError(json)) {
         markCooldown(model);
         retries++;
         continue;
@@ -201,10 +228,10 @@ export class LlmProxyService {
       };
     }
 
-    // All candidates exhausted — return a clean error instead of raw upstream
+    // All candidates exhausted — return a clean error
     const exhaustedBody = JSON.stringify({
       error: {
-        message: 'All free models are temporarily rate-limited. Please retry in a moment.',
+        message: 'All free models are temporarily unavailable. Please retry in a moment.',
         code: 429,
         type: 'rate_limit_error',
       },
