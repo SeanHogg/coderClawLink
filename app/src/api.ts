@@ -278,9 +278,9 @@ export const tasks = {
   },
 
   async run(id: string, payload?: string): Promise<Execution> {
-    return request(`/api/runtime/tasks/${id}/executions`, {
+    return request(`/api/runtime/executions`, {
       method: "POST",
-      body: JSON.stringify({ payload }),
+      body: JSON.stringify({ taskId: Number(id), payload }),
     });
   },
 
