@@ -42,6 +42,7 @@ import { createAuditRoutes }       from './presentation/routes/auditRoutes';
 import { createMarketplaceRoutes } from './presentation/routes/marketplaceRoutes';
 import { createClawRoutes }        from './presentation/routes/clawRoutes';
 import { createSkillAssignmentRoutes } from './presentation/routes/skillAssignmentRoutes';
+import { createLlmRoutes }          from './presentation/routes/llmRoutes';
 
 // Middleware
 import { corsMiddleware } from './presentation/middleware/cors';
@@ -83,6 +84,9 @@ function buildApp(env: Env): Hono<HonoEnv> {
   app.use('*', corsMiddleware);
 
   app.get('/health', (c) => c.json({ status: 'ok', worker: 'api.coderclaw.ai' }));
+
+  // coderClawLLM — OpenAI-compatible LLM proxy (no JWT, keyed by OPENROUTER_API_KEY)
+  app.route('/llm', createLlmRoutes());
 
   // Marketplace (no JWT required for read, required for write)
   app.route('/marketplace', createMarketplaceRoutes(db));
