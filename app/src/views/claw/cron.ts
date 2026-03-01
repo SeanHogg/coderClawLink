@@ -58,7 +58,7 @@ export class CclClawCron extends LitElement {
     } catch (e) { this.error = (e as Error).message; }
   }
 
-  private async remove(job: CronJob) {
+  private async removeCronJob(job: CronJob) {
     if (!confirm(`Delete cron job "${job.name}"?`)) return;
     try {
       await apiFetch(`/api/claws/${this.clawId}/cron/${job.id}`, { method: "DELETE" });
@@ -106,7 +106,7 @@ export class CclClawCron extends LitElement {
                 </div>
                 <div style="display:flex;gap:6px">
                   <button class="btn btn-secondary btn-sm" @click=${() => this.toggle(job)}>${job.enabled ? "Pause" : "Resume"}</button>
-                  <button class="btn btn-danger btn-sm" @click=${() => this.remove(job)}>Delete</button>
+                  <button class="btn btn-danger btn-sm" @click=${() => this.removeCronJob(job)}>Delete</button>
                 </div>
               </div>
             `)}

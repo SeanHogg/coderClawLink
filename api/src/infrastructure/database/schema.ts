@@ -237,6 +237,7 @@ export const coderclawInstances = pgTable('coderclaw_instances', {
   registeredBy: varchar('registered_by', { length: 36 }).references(() => users.id),
   lastSeenAt:   timestamp('last_seen_at'),
   connectedAt:  timestamp('connected_at'),   // set when claw's upstream WS connects; null = offline
+  capabilities: text('capabilities'),        // JSON array of capability strings, e.g. '["chat","tasks","relay"]'
   createdAt:    timestamp('created_at').notNull().defaultNow(),
 });
 

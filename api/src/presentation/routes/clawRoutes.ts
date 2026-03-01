@@ -53,6 +53,46 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
     return valid ? claw : null;
   };
 
+  // GET /api/claws/fleet?from=<clawId>&key=<apiKey>
+  // Claw-authenticated endpoint: returns all claws in the same tenant.
+  // Used by the claw_fleet agent tool for peer discovery without a user JWT.
+  // NOTE: registered before /:id routes so "/fleet" is not captured by the param.
+  router.get('/fleet', async (c) => {
+    const fromId = Number(c.req.query('from') ?? '');
+    const key    = c.req.query('key');
+
+    if (Number.isNaN(fromId) || fromId <= 0) {
+      return c.json({ error: 'from parameter (source claw id) is required' }, 400);
+    }
+
+    const sourceClaw = await verifyClawApiKey(fromId, key);
+    if (!sourceClaw) return c.text('Unauthorized', 401);
+
+    const rows = await db
+      .select({
+        id:           coderclawInstances.id,
+        name:         coderclawInstances.name,
+        slug:         coderclawInstances.slug,
+        connectedAt:  coderclawInstances.connectedAt,
+        lastSeenAt:   coderclawInstances.lastSeenAt,
+        capabilities: coderclawInstances.capabilities,
+      })
+      .from(coderclawInstances)
+      .where(eq(coderclawInstances.tenantId, sourceClaw.tenantId));
+
+    const fleet = rows.map((row) => ({
+      id:           row.id,
+      name:         row.name,
+      slug:         row.slug,
+      online:       row.connectedAt !== null,
+      connectedAt:  row.connectedAt,
+      lastSeenAt:   row.lastSeenAt,
+      capabilities: row.capabilities ? (JSON.parse(row.capabilities) as string[]) : [],
+    }));
+
+    return c.json({ fleet });
+  });
+
   // GET /api/claws – list all claws for the current tenant
   router.get('/', authMiddleware as never, async (c) => {
     const tenantId = c.get('tenantId') as number;
@@ -437,9 +477,22 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
     const claw = await verifyClawApiKey(id, key);
     if (!claw) return c.text('Unauthorized', 401);
 
+    // Accept optional capabilities array from request body
+    let capabilitiesJson: string | undefined;
+    try {
+      const body = await c.req.json<{ capabilities?: string[] }>();
+      if (Array.isArray(body.capabilities)) {
+        const caps = body.capabilities.filter((v) => typeof v === 'string');
+        capabilitiesJson = JSON.stringify(caps);
+      }
+    } catch { /* body may be empty — fine */ }
+
     await db
       .update(coderclawInstances)
-      .set({ lastSeenAt: new Date() })
+      .set({
+        lastSeenAt:   new Date(),
+        ...(capabilitiesJson !== undefined ? { capabilities: capabilitiesJson } : {}),
+      })
       .where(eq(coderclawInstances.id, id));
 
     return c.json({ ok: true });
@@ -521,6 +574,58 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
     });
 
     return response;
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/claws/:id/forward?from=<sourceClawId>&key=<sourceClawApiKey>
+  // Claw-to-claw task delegation: source claw dispatches a payload to target
+  // claw via the ClawRelayDO dispatch mechanism.
+  // The source claw authenticates with its OWN API key (not the target's key).
+  // Both claws must belong to the same tenant.
+  // -------------------------------------------------------------------------
+  router.post('/:id/forward', async (c) => {
+    const targetId = Number(c.req.param('id'));
+    const fromId   = Number(c.req.query('from') ?? '');
+    const key      = c.req.query('key');
+    const env      = c.env;
+
+    if (!env.CLAW_RELAY) return c.text('CLAW_RELAY binding not configured', 503);
+
+    if (Number.isNaN(fromId) || fromId <= 0) {
+      return c.json({ error: 'from parameter (source claw id) is required' }, 400);
+    }
+
+    // Authenticate the calling (source) claw
+    const sourceClaw = await verifyClawApiKey(fromId, key);
+    if (!sourceClaw) return c.text('Unauthorized', 401);
+
+    // Ensure target is in same tenant
+    const [targetClaw] = await db
+      .select({ id: coderclawInstances.id, connectedAt: coderclawInstances.connectedAt })
+      .from(coderclawInstances)
+      .where(and(
+        eq(coderclawInstances.id, targetId),
+        eq(coderclawInstances.tenantId, sourceClaw.tenantId),
+      ));
+
+    if (!targetClaw) return c.json({ error: 'Target claw not found in tenant' }, 404);
+
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+
+    // Forward to target claw via ClawRelayDO /dispatch endpoint
+    const stub = env.CLAW_RELAY.get(env.CLAW_RELAY.idFromName(String(targetId)));
+    const result = await stub.fetch(new Request('https://internal/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }));
+
+    return result;
   });
 
   return router;

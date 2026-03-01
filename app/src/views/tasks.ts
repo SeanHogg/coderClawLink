@@ -122,7 +122,7 @@ export class CclTasks extends LitElement {
     }
   }
 
-  private async remove(t?: Task | null, e?: Event) {
+  private async removeTask(t?: Task | null, e?: Event) {
     e?.stopPropagation();
     if (!t?.id) return;
     if (!confirm(`Delete "${t.title ?? "this task"}"?`)) return;
@@ -366,7 +366,7 @@ export class CclTasks extends LitElement {
                 <td>
                   <div style="display:flex;gap:4px" @click=${(e: Event) => e.stopPropagation()}>
                     <button class="btn btn-ghost btn-sm" @click=${(e: Event) => this.openEdit(t, e)}>Edit</button>
-                    <button class="btn btn-danger btn-sm" @click=${(e: Event) => this.remove(t, e)}>Delete</button>
+                    <button class="btn btn-danger btn-sm" @click=${(e: Event) => this.removeTask(t, e)}>Delete</button>
                   </div>
                 </td>
               </tr>
@@ -620,7 +620,7 @@ export class CclTasks extends LitElement {
             ${this.running ? "Running…" : "Run task"}
           </button>
           <button class="btn btn-secondary" @click=${(e: Event) => this.openEdit(t, e)}>Edit</button>
-          <button class="btn btn-danger" @click=${(e: Event) => this.remove(t, e)}>Delete</button>
+          <button class="btn btn-danger" @click=${(e: Event) => this.removeTask(t, e)}>Delete</button>
         </div>
       </div>
     `;

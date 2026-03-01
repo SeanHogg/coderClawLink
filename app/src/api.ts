@@ -191,6 +191,30 @@ export interface SkillAssignment {
   assignedAt: string;
 }
 
+export type LlmChatRole = "system" | "user" | "assistant";
+
+export interface LlmChatMessage {
+  role: LlmChatRole;
+  content: string;
+}
+
+export interface LlmChatCompletionResponse {
+  id?: string;
+  choices?: Array<{
+    index?: number;
+    finish_reason?: string | null;
+    message?: {
+      role?: string;
+      content?: string | null;
+    };
+  }>;
+  _coderclaw?: {
+    resolvedModel?: string;
+    retries?: number;
+    pool?: number;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -401,7 +425,8 @@ export const claws = {
 
   /** WebSocket URL for connecting to a claw's relay */
   wsUrl(id: string): string {
-    const base = BASE.replace(/^http/, "ws");
+    const baseUrl = typeof BASE === "string" ? BASE : "https://api.coderclaw.ai";
+    const base = baseUrl.replace(/^http/, "ws");
     const token = getTenantToken() ?? "";
     return `${base}/api/claws/${id}/ws?token=${encodeURIComponent(token)}`;
   },
@@ -453,6 +478,41 @@ export const executions = {
     if (params?.taskId) q.set("taskId", params.taskId);
     if (params?.clawId) q.set("clawId", params.clawId);
     return request(`/api/runtime/executions${q.size ? `?${q}` : ""}`);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// coderClawLLM
+// ---------------------------------------------------------------------------
+
+export const llm = {
+  async chat(
+    messages: LlmChatMessage[],
+    opts?: { temperature?: number; maxTokens?: number },
+  ): Promise<LlmChatCompletionResponse> {
+    const res = await fetch(`${BASE}/llm/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages,
+        stream: false,
+        temperature: opts?.temperature,
+        max_tokens: opts?.maxTokens,
+      }),
+    });
+
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json() as { error?: string; message?: string };
+        message = body.error ?? body.message ?? message;
+      } catch {
+        // ignore parse errors
+      }
+      throw new ApiError(res.status, message);
+    }
+
+    return res.json() as Promise<LlmChatCompletionResponse>;
   },
 };
 

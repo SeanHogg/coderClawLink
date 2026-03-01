@@ -63,7 +63,7 @@ export class CclProjects extends LitElement {
     }
   }
 
-  private async remove(p?: Project | null) {
+  private async removeProject(p?: Project | null) {
     if (!p?.id) return;
     if (!confirm(`Delete project "${p.name ?? "this project"}"? This cannot be undone.`)) return;
     try {
@@ -127,7 +127,7 @@ export class CclProjects extends LitElement {
                       : ""}
                     <div style="flex:1"></div>
                     <button class="btn btn-ghost btn-sm" @click=${() => this.openEdit(p)}>Edit</button>
-                    <button class="btn btn-danger btn-sm" @click=${() => this.remove(p)}>Delete</button>
+                    <button class="btn btn-danger btn-sm" @click=${() => this.removeProject(p)}>Delete</button>
                   </div>
                 </div>
               `)}

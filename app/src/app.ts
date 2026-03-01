@@ -19,6 +19,7 @@ import "./views/workspace.js";
 import "./views/logs.js";
 import "./views/admin.js";
 import "./views/quickstart.js";
+import "./views/brain.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
 type DashTab = "projects" | "tasks" | "claws" | "skills" | "workspace" | "logs";
@@ -52,7 +53,7 @@ export class CclApp extends LitElement {
     window.removeEventListener("ccl:impersonate", this.handleImpersonate as EventListener);
   }
 
-  override updated(changed: PropertyValues<this>) {
+  override updated(changed: PropertyValues) {
     if (this.appState !== "dashboard") return;
     if (changed.has("appState") || changed.has("tab") || changed.has("tenant")) {
       this.mountDashboardView();
@@ -184,13 +185,13 @@ export class CclApp extends LitElement {
 
     switch (this.tab) {
       case "tasks": {
-        const el = document.createElement("ccl-tasks") as HTMLElement & { tenantId?: string };
+        const el = document.createElement("ccl-tasks") as unknown as HTMLElement & { tenantId?: string };
         el.tenantId = tenantId;
         view = el;
         break;
       }
       case "projects": {
-        const el = document.createElement("ccl-projects") as HTMLElement & { tenantId?: string };
+        const el = document.createElement("ccl-projects") as unknown as HTMLElement & { tenantId?: string };
         el.tenantId = tenantId;
         view = el;
         break;
@@ -519,6 +520,8 @@ export class CclApp extends LitElement {
         <main class="content">
           <div id="dashboard-view-host"></div>
         </main>
+
+        <ccl-brain .tenantId=${this.tenant?.id ?? ""} .page=${this.tab}></ccl-brain>
       </div>
     `;
   }

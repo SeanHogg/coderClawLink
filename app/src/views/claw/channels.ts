@@ -71,7 +71,7 @@ export class CclClawChannels extends LitElement {
     } catch (e) { this.error = (e as Error).message; }
   }
 
-  private async remove(ch: Channel) {
+  private async removeChannel(ch: Channel) {
     if (!confirm(`Delete ${ch.type} channel?`)) return;
     try {
       await apiFetch(`/api/claws/${this.clawId}/channels/${ch.id}`, { method: "DELETE" });
@@ -126,7 +126,7 @@ export class CclClawChannels extends LitElement {
                 </div>
                 <div style="display:flex;gap:6px">
                   <button class="btn btn-secondary btn-sm" @click=${() => this.toggle(ch)}>${ch.enabled ? "Disable" : "Enable"}</button>
-                  <button class="btn btn-danger btn-sm" @click=${() => this.remove(ch)}>Delete</button>
+                  <button class="btn btn-danger btn-sm" @click=${() => this.removeChannel(ch)}>Delete</button>
                 </div>
               </div>
             `)}

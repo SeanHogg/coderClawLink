@@ -54,12 +54,13 @@ export function createTenantRoutes(tenantService: TenantService, db: Db): Hono<H
     const status = (c.req.query('status') ?? '').trim().toLowerCase();
     const rows = await db
       .select({
-        id: coderclawInstances.id,
-        name: coderclawInstances.name,
-        slug: coderclawInstances.slug,
-        status: coderclawInstances.status,
-        connectedAt: coderclawInstances.connectedAt,
-        lastSeenAt: coderclawInstances.lastSeenAt,
+        id:           coderclawInstances.id,
+        name:         coderclawInstances.name,
+        slug:         coderclawInstances.slug,
+        status:       coderclawInstances.status,
+        connectedAt:  coderclawInstances.connectedAt,
+        lastSeenAt:   coderclawInstances.lastSeenAt,
+        capabilities: coderclawInstances.capabilities,
       })
       .from(coderclawInstances)
       .where(eq(coderclawInstances.tenantId, tenantId));
@@ -79,11 +80,15 @@ export function createTenantRoutes(tenantService: TenantService, db: Db): Hono<H
               eq(clawProjects.clawId, row.id),
             ),
           );
+        const capabilities: string[] = row.capabilities
+          ? (JSON.parse(row.capabilities) as string[])
+          : [];
         return {
           ...row,
+          capabilities,
           capabilitySummary: {
             distributed: row.connectedAt !== null && associatedProjects.length > 1,
-            remoteDispatch: row.connectedAt !== null,
+            remoteDispatch: row.connectedAt !== null && capabilities.includes('remote-dispatch'),
             projectCount: associatedProjects.length,
           },
           projectIds: associatedProjects.map((p) => p.projectId),

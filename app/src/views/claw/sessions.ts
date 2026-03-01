@@ -39,7 +39,7 @@ export class CclClawSessions extends LitElement {
     finally { this.loading = false; }
   }
 
-  private async remove(s: Session) {
+  private async removeSession(s: Session) {
     if (!confirm("Delete this session?")) return;
     try {
       await apiFetch(`/api/claws/${this.clawId}/sessions/${s.id}`, { method: "DELETE" });
@@ -68,7 +68,7 @@ export class CclClawSessions extends LitElement {
                     <div class="card-title">${s.name ?? s.id}</div>
                     <div style="font-size:11px;color:var(--muted)">${this.fmt(s.createdAt)}${s.messageCount != null ? ` · ${s.messageCount} messages` : ""}</div>
                   </div>
-                  <button class="btn btn-danger btn-sm" @click=${() => this.remove(s)}>Delete</button>
+                  <button class="btn btn-danger btn-sm" @click=${() => this.removeSession(s)}>Delete</button>
                 </div>
               </div>
             `)}

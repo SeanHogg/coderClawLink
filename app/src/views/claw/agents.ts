@@ -55,7 +55,7 @@ export class CclClawAgents extends LitElement {
     } catch (e) { this.error = (e as Error).message; }
   }
 
-  private async remove(a: Agent) {
+  private async removeAgent(a: Agent) {
     if (!confirm(`Delete agent "${a.name}"?`)) return;
     try {
       await apiFetch(`/api/agents/${a.id}`, { method: "DELETE" });
@@ -100,7 +100,7 @@ export class CclClawAgents extends LitElement {
                   <button class="btn btn-secondary btn-sm" @click=${() => this.toggleActive(a)}>
                     ${a.isActive ? "Deactivate" : "Activate"}
                   </button>
-                  <button class="btn btn-danger btn-sm" @click=${() => this.remove(a)}>Delete</button>
+                  <button class="btn btn-danger btn-sm" @click=${() => this.removeAgent(a)}>Delete</button>
                 </div>
               </div>
             `)}

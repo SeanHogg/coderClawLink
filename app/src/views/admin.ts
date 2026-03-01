@@ -2,6 +2,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import {
   adminApi,
+  getWebToken,
   setTenantToken, setTenantId,
   type AdminUser, type AdminTenant, type AdminHealth, type AdminError,
   type LlmUsageStats,
@@ -22,6 +23,10 @@ export class CclAdmin extends LitElement {
   @state() private usageDays = 30;
   @state() private loading = false;
   @state() private errorMsg = "";
+  @state() private showAdminToken = false;
+  @state() private copiedAdminToken = false;
+  @state() private copiedAdminEnv = false;
+  @state() private downloadedAdminEnv = false;
   @state() private impersonateUserId: string | null = null;
   @state() private impersonateTenants: AdminTenant[] = [];
   @state() private expandedErrorId: number | null = null;
@@ -93,6 +98,85 @@ export class CclAdmin extends LitElement {
     return new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
+  private async copyAdminToken() {
+    const webToken = getWebToken();
+    if (!webToken) {
+      this.errorMsg = "No superadmin web token found for this session.";
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(webToken);
+      this.copiedAdminToken = true;
+      setTimeout(() => {
+        this.copiedAdminToken = false;
+      }, 2000);
+    } catch (err) {
+      this.errorMsg = (err as Error).message;
+    }
+  }
+
+  private buildSuperadminEnvTemplate() {
+    const webToken = getWebToken() ?? "";
+    const apiUrl = ((window as unknown as { API_URL?: string }).API_URL ?? "https://api.coderclaw.ai").replace(/\/+$/, "");
+    return [
+      `CODERCLAW_LINK_URL=${apiUrl}`,
+      `CODERCLAW_LINK_WEB_TOKEN=${webToken}`,
+      "CODERCLAW_LINK_TENANT_TOKEN=",
+      "CODERCLAW_LINK_CLAW_NAME=openclaw-superadmin-node",
+      "CODERCLAW_LINK_CLAW_ID=",
+      "CODERCLAW_LINK_API_KEY=",
+      "OPENCLAW_EXEC_COMMAND=",
+      "OPENCLAW_MAX_CONCURRENT_TASKS=1",
+      "OPENCLAW_EXEC_TIMEOUT_MS=900000",
+      "OPENCLAW_RELAY_STATE_PATH=.generated/relay-state.json",
+      "OPENCLAW_PLUGIN_ENV_FILE=.generated/coderclawlink.env",
+    ].join("\n");
+  }
+
+  private async copySuperadminEnvTemplate() {
+    const webToken = getWebToken();
+    if (!webToken) {
+      this.errorMsg = "No superadmin web token found for this session.";
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(this.buildSuperadminEnvTemplate());
+      this.copiedAdminEnv = true;
+      setTimeout(() => {
+        this.copiedAdminEnv = false;
+      }, 2000);
+    } catch (err) {
+      this.errorMsg = (err as Error).message;
+    }
+  }
+
+  private downloadSuperadminEnvTemplate() {
+    const webToken = getWebToken();
+    if (!webToken) {
+      this.errorMsg = "No superadmin web token found for this session.";
+      return;
+    }
+    try {
+      const content = this.buildSuperadminEnvTemplate();
+      const blob = new Blob([`${content}\n`], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "coderclawlink.superadmin.env";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+      this.downloadedAdminEnv = true;
+      setTimeout(() => {
+        this.downloadedAdminEnv = false;
+      }, 2000);
+    } catch (err) {
+      this.errorMsg = (err as Error).message;
+    }
+  }
+
   override render() {
     return html`
       <div class="admin-shell">
@@ -142,6 +226,7 @@ export class CclAdmin extends LitElement {
 
   private renderHealth() {
     const h = this.health;
+    const webToken = getWebToken() ?? "";
     if (!h) return html`<div class="loading-state">No data</div>`;
 
     return html`
@@ -208,6 +293,30 @@ export class CclAdmin extends LitElement {
 
       <div class="admin-refresh">
         <button class="btn btn-ghost btn-sm" @click=${() => this.loadTab("health")}>↻ Refresh</button>
+      </div>
+
+      <div class="card" style="max-width:680px;margin-top:24px">
+        <div class="card-title" style="margin-bottom:8px">Superadmin token (advanced)</div>
+        <div style="font-size:12px;color:var(--text-muted,#6b7280);line-height:1.5;margin-bottom:12px">
+          This web token grants superadmin API access for your current session. Share only with trusted tooling.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn btn-secondary btn-sm" @click=${() => { this.showAdminToken = !this.showAdminToken; }}>
+            ${this.showAdminToken ? "Hide token" : "Show token"}
+          </button>
+          <button class="btn btn-primary btn-sm" @click=${this.copyAdminToken} ?disabled=${!webToken}>
+            ${this.copiedAdminToken ? "Copied!" : "Copy token"}
+          </button>
+          <button class="btn btn-secondary btn-sm" @click=${this.copySuperadminEnvTemplate} ?disabled=${!webToken}>
+            ${this.copiedAdminEnv ? "Env copied!" : "Copy plugin env file"}
+          </button>
+          <button class="btn btn-secondary btn-sm" @click=${this.downloadSuperadminEnvTemplate} ?disabled=${!webToken}>
+            ${this.downloadedAdminEnv ? "Downloaded!" : "Download .env file"}
+          </button>
+        </div>
+        ${this.showAdminToken
+          ? html`<textarea class="textarea" readonly style="min-height:84px;font-family:var(--mono)">${webToken || "No superadmin web token found"}</textarea>`
+          : html`<div style="font-size:12px;color:var(--text-muted,#6b7280);font-family:var(--mono)">${webToken ? "••••••••••••••••••••••••••••" : "No superadmin web token found"}</div>`}
       </div>
     `;
   }
