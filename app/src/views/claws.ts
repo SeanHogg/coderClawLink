@@ -1,6 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { claws as clawsApi, type Claw, type ClawRegistration } from "../api.js";
+import { claws as clawsApi, getTenantToken, type Claw, type ClawRegistration } from "../api.js";
 import "./claw/chat.js";
 import "./claw/agents.js";
 import "./claw/config.js";
@@ -47,6 +47,8 @@ export class ClawsView extends LitElement {
   @state() private registerError = "";
   @state() private newClaw: ClawRegistration | null = null;
   @state() private apiKeyCopied = false;
+  @state() private pluginEnvCopied = false;
+  @state() private pluginEnvDownloaded = false;
   @state() private panelOpen = false;
   @state() private activeClaw: Claw | null = null;
   @state() private activeTab: Tab = "chat";
@@ -124,6 +126,8 @@ export class ClawsView extends LitElement {
     this.registerName = "";
     this.registerError = "";
     this.apiKeyCopied = false;
+    this.pluginEnvCopied = false;
+    this.pluginEnvDownloaded = false;
   }
 
   private async copyApiKey() {
@@ -133,6 +137,70 @@ export class ClawsView extends LitElement {
       this.apiKeyCopied = true;
       setTimeout(() => { this.apiKeyCopied = false; }, 2000);
     } catch { /* ignore */ }
+  }
+
+  private buildPluginEnvTemplate() {
+    const tenantToken = getTenantToken() ?? "";
+    const apiUrl = ((window as unknown as { API_URL?: string }).API_URL ?? "https://api.coderclaw.ai").replace(/\/+$/, "");
+    const clawName = this.newClaw?.name ?? "openclaw-node";
+    return [
+      `CODERCLAW_LINK_URL=${apiUrl}`,
+      `CODERCLAW_LINK_TENANT_TOKEN=${tenantToken}`,
+      `CODERCLAW_LINK_CLAW_NAME=${clawName}`,
+      `CODERCLAW_LINK_CLAW_ID=${this.newClaw?.id ?? ""}`,
+      `CODERCLAW_LINK_API_KEY=${this.newClaw?.apiKey ?? ""}`,
+      "OPENCLAW_EXEC_COMMAND=",
+      "OPENCLAW_MAX_CONCURRENT_TASKS=1",
+      "OPENCLAW_EXEC_TIMEOUT_MS=900000",
+      "OPENCLAW_RELAY_STATE_PATH=.generated/relay-state.json",
+      "OPENCLAW_PLUGIN_ENV_FILE=.generated/coderclawlink.env",
+    ].join("\n");
+  }
+
+  private async copyPluginEnvTemplate() {
+    if (!this.newClaw) return;
+    if (!getTenantToken()) {
+      this.registerError = "No tenant token found for current workspace session.";
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(this.buildPluginEnvTemplate());
+      this.pluginEnvCopied = true;
+      setTimeout(() => {
+        this.pluginEnvCopied = false;
+      }, 2000);
+    } catch {
+      this.registerError = "Failed to copy plugin env file.";
+    }
+  }
+
+  private downloadPluginEnvTemplate() {
+    if (!this.newClaw) return;
+    if (!getTenantToken()) {
+      this.registerError = "No tenant token found for current workspace session.";
+      return;
+    }
+
+    try {
+      const content = this.buildPluginEnvTemplate();
+      const blob = new Blob([`${content}\n`], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "coderclawlink.env";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+      this.pluginEnvDownloaded = true;
+      setTimeout(() => {
+        this.pluginEnvDownloaded = false;
+      }, 2000);
+    } catch {
+      this.registerError = "Failed to download plugin env file.";
+    }
   }
 
   private async handleDelete(id: string) {
@@ -167,9 +235,21 @@ export class ClawsView extends LitElement {
           ${this.newClaw ? html`
             <div class="modal-sub">Claw registered. Save this API key &mdash; it will not be shown again.</div>
             <div style="margin:1rem 0;background:var(--bg-2,#f4f4f5);border-radius:6px;padding:0.75rem 1rem;font-family:monospace;font-size:0.875rem;word-break:break-all;">${this.newClaw.apiKey}</div>
-            <button class="btn btn-secondary btn-sm" @click=${this.copyApiKey}>
-              ${this.apiKeyCopied ? "Copied!" : "Copy API key"}
-            </button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-secondary btn-sm" @click=${this.copyApiKey}>
+                ${this.apiKeyCopied ? "Copied!" : "Copy API key"}
+              </button>
+              <button class="btn btn-secondary btn-sm" @click=${this.copyPluginEnvTemplate}>
+                ${this.pluginEnvCopied ? "Env copied!" : "Copy plugin env file"}
+              </button>
+              <button class="btn btn-secondary btn-sm" @click=${this.downloadPluginEnvTemplate}>
+                ${this.pluginEnvDownloaded ? "Downloaded!" : "Download .env file"}
+              </button>
+            </div>
+            <div style="margin-top:10px;font-size:12px;color:var(--muted,#71717a)">
+              Use this env file to run the OpenClaw plugin relay on your node host.
+            </div>
+            ${this.registerError ? html`<div class="error-banner">${this.registerError}</div>` : ""}
             <div class="modal-footer">
               <button class="btn btn-primary" @click=${this.closeRegisterModal}>Done</button>
             </div>

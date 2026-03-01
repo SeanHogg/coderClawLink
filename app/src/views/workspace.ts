@@ -1,6 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { tenants, type Tenant, type TenantSummary } from "../api.js";
+import { getTenantToken, tenants, type Tenant, type TenantSummary } from "../api.js";
 
 const ROLES = ["owner", "manager", "developer", "viewer"];
 
@@ -14,6 +14,10 @@ export class CclWorkspace extends LitElement {
   @state() private loading = true;
   @state() private error = "";
   @state() private tab: "members" | "settings" = "members";
+  @state() private showTenantToken = false;
+  @state() private copiedTenantToken = false;
+  @state() private copiedPluginEnv = false;
+  @state() private downloadedPluginEnv = false;
 
   // Invite
   @state() private showInvite = false;
@@ -56,6 +60,86 @@ export class CclWorkspace extends LitElement {
   private roleBadge(r: string) {
     const map: Record<string, string> = { owner: "badge-red", manager: "badge-yellow", developer: "badge-blue", viewer: "badge-gray" };
     return html`<span class="badge ${map[r] ?? "badge-gray"}">${r}</span>`;
+  }
+
+  private async copyTenantToken() {
+    const token = getTenantToken();
+    if (!token) {
+      this.error = "No tenant token found for current workspace session.";
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(token);
+      this.copiedTenantToken = true;
+      setTimeout(() => {
+        this.copiedTenantToken = false;
+      }, 2000);
+    } catch (err) {
+      this.error = (err as Error).message;
+    }
+  }
+
+  private buildPluginEnvTemplate() {
+    const tenantToken = getTenantToken() ?? "";
+    const apiUrl = ((window as unknown as { API_URL?: string }).API_URL ?? "https://api.coderclaw.ai").replace(/\/+$/, "");
+    const clawName = `openclaw-${(this.tenant?.slug ?? "node").replace(/[^a-z0-9-]/gi, "-")}`;
+    return [
+      `CODERCLAW_LINK_URL=${apiUrl}`,
+      `CODERCLAW_LINK_TENANT_TOKEN=${tenantToken}`,
+      `CODERCLAW_LINK_CLAW_NAME=${clawName}`,
+      "CODERCLAW_LINK_CLAW_ID=",
+      "CODERCLAW_LINK_API_KEY=",
+      "OPENCLAW_EXEC_COMMAND=",
+      "OPENCLAW_MAX_CONCURRENT_TASKS=1",
+      "OPENCLAW_EXEC_TIMEOUT_MS=900000",
+      "OPENCLAW_RELAY_STATE_PATH=.generated/relay-state.json",
+      "OPENCLAW_PLUGIN_ENV_FILE=.generated/coderclawlink.env",
+    ].join("\n");
+  }
+
+  private async copyPluginEnvTemplate() {
+    const tenantToken = getTenantToken();
+    if (!tenantToken) {
+      this.error = "No tenant token found for current workspace session.";
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(this.buildPluginEnvTemplate());
+      this.copiedPluginEnv = true;
+      setTimeout(() => {
+        this.copiedPluginEnv = false;
+      }, 2000);
+    } catch (err) {
+      this.error = (err as Error).message;
+    }
+  }
+
+  private downloadPluginEnvTemplate() {
+    const tenantToken = getTenantToken();
+    if (!tenantToken) {
+      this.error = "No tenant token found for current workspace session.";
+      return;
+    }
+
+    try {
+      const content = this.buildPluginEnvTemplate();
+      const blob = new Blob([`${content}\n`], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "coderclawlink.env";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+      this.downloadedPluginEnv = true;
+      setTimeout(() => {
+        this.downloadedPluginEnv = false;
+      }, 2000);
+    } catch (err) {
+      this.error = (err as Error).message;
+    }
   }
 
   override render() {
@@ -135,20 +219,47 @@ export class CclWorkspace extends LitElement {
   }
 
   private renderSettings() {
+    const tenantToken = getTenantToken() ?? "";
     return html`
-      <div class="card" style="max-width:480px">
-        <div class="card-title" style="margin-bottom:16px">Workspace details</div>
-        <div style="display:grid;gap:10px">
-          ${[
-            ["Name",   this.tenant?.name ?? "—"],
-            ["Slug",   this.tenant?.slug ?? "—"],
-            ["Status", this.tenant?.status ?? "—"],
-            ["Your role", this.tenant?.role ?? "—"],
-          ].map(([label, val]) => html`
-            <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
-              <span style="color:var(--muted)">${label}</span>
-              <span style="color:var(--text-strong);font-weight:500">${val}</span>
-            </div>`)}
+      <div style="display:grid;gap:16px;max-width:680px">
+        <div class="card" style="max-width:680px">
+          <div class="card-title" style="margin-bottom:16px">Workspace details</div>
+          <div style="display:grid;gap:10px">
+            ${[
+              ["Name",   this.tenant?.name ?? "—"],
+              ["Slug",   this.tenant?.slug ?? "—"],
+              ["Status", this.tenant?.status ?? "—"],
+              ["Your role", this.tenant?.role ?? "—"],
+            ].map(([label, val]) => html`
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <span style="color:var(--muted)">${label}</span>
+                <span style="color:var(--text-strong);font-weight:500">${val}</span>
+              </div>`)}
+          </div>
+        </div>
+
+        <div class="card" style="max-width:680px">
+          <div class="card-title" style="margin-bottom:8px">Tenant token (advanced)</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">
+            This token grants tenant-scoped API access for your current workspace session. Share only with trusted tooling.
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <button class="btn btn-secondary btn-sm" @click=${() => { this.showTenantToken = !this.showTenantToken; }}>
+              ${this.showTenantToken ? "Hide token" : "Show token"}
+            </button>
+            <button class="btn btn-primary btn-sm" @click=${this.copyTenantToken} ?disabled=${!tenantToken}>
+              ${this.copiedTenantToken ? "Copied!" : "Copy token"}
+            </button>
+            <button class="btn btn-secondary btn-sm" @click=${this.copyPluginEnvTemplate} ?disabled=${!tenantToken}>
+              ${this.copiedPluginEnv ? "Env copied!" : "Copy plugin env file"}
+            </button>
+            <button class="btn btn-secondary btn-sm" @click=${this.downloadPluginEnvTemplate} ?disabled=${!tenantToken}>
+              ${this.downloadedPluginEnv ? "Downloaded!" : "Download .env file"}
+            </button>
+          </div>
+          ${this.showTenantToken
+            ? html`<textarea class="textarea" readonly style="min-height:84px;font-family:var(--mono)">${tenantToken || "No tenant token found"}</textarea>`
+            : html`<div style="font-size:12px;color:var(--muted);font-family:var(--mono)">${tenantToken ? "••••••••••••••••••••••••••••" : "No tenant token found"}</div>`}
         </div>
       </div>
     `;
