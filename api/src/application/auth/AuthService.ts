@@ -53,7 +53,16 @@ export interface WebLoginResult {
 }
 
 export interface MyTenantsResult {
-  tenants: Array<{ id: number; name: string; slug: string; role: string }>;
+  tenants: Array<{
+    id: number;
+    name: string;
+    slug: string;
+    role: string;
+    status: string;
+    plan: string;
+    effectivePlan: string;
+    billingStatus: string;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +143,16 @@ export class AuthService {
     return {
       tenants: userTenants.map(t => {
         const member = t.getMember(userId);
-        return { id: t.id, name: t.name, slug: t.slug, role: member?.role ?? 'member' };
+        return {
+          id: t.id,
+          name: t.name,
+          slug: t.slug,
+          role: member?.role ?? 'member',
+          status: t.status,
+          plan: t.plan,
+          effectivePlan: t.effectivePlan(),
+          billingStatus: t.billingStatus,
+        };
       }),
     };
   }

@@ -11,6 +11,7 @@ import {
 // Views
 import "./views/auth.js";
 import "./views/workspace-picker.js";
+import "./views/dashboard.js";
 import "./views/projects.js";
 import "./views/tasks.js";
 import "./views/claws.js";
@@ -22,7 +23,7 @@ import "./views/quickstart.js";
 import "./views/brain.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "projects" | "tasks" | "claws" | "skills" | "workspace" | "logs";
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "logs";
 
 @customElement("ccl-app")
 export class CclApp extends LitElement {
@@ -30,7 +31,10 @@ export class CclApp extends LitElement {
   override createRenderRoot() { return this; }
 
   @state() private appState: AppState = "loading";
-  @state() private tab: DashTab = "tasks";
+  @state() private tab: DashTab = "home";
+  @state() private selectedProjectId = "";
+  @state() private openProjectCreate = false;
+  @state() private pendingPrompt = "";
   @state() private user: UserInfo | null = null;
   @state() private tenantList: TenantSummary[] = [];
   @state() private tenant: TenantSummary | null = null;
@@ -44,6 +48,10 @@ export class CclApp extends LitElement {
     window.addEventListener("ccl:unauthorized", this.handleUnauthorized);
     window.addEventListener("ccl:exit-admin", this.handleExitAdmin);
     window.addEventListener("ccl:impersonate", this.handleImpersonate as EventListener);
+    window.addEventListener("ccl:open-project", this.handleOpenProject as EventListener);
+    window.addEventListener("ccl:new-project", this.handleNewProject);
+    window.addEventListener("ccl:navigate", this.handleNavigate as EventListener);
+    window.addEventListener("ccl:dashboard-prompt", this.handleDashboardPrompt as EventListener);
   }
 
   override disconnectedCallback() {
@@ -51,6 +59,10 @@ export class CclApp extends LitElement {
     window.removeEventListener("ccl:unauthorized", this.handleUnauthorized);
     window.removeEventListener("ccl:exit-admin", this.handleExitAdmin);
     window.removeEventListener("ccl:impersonate", this.handleImpersonate as EventListener);
+    window.removeEventListener("ccl:open-project", this.handleOpenProject as EventListener);
+    window.removeEventListener("ccl:new-project", this.handleNewProject);
+    window.removeEventListener("ccl:navigate", this.handleNavigate as EventListener);
+    window.removeEventListener("ccl:dashboard-prompt", this.handleDashboardPrompt as EventListener);
   }
 
   override updated(changed: PropertyValues) {
@@ -171,6 +183,25 @@ export class CclApp extends LitElement {
     this.appState = "workspace-picker";
   }
 
+  private handleOpenProject = (e: CustomEvent<{ projectId: string }>) => {
+    this.selectedProjectId = e.detail.projectId;
+    this.tab = "projects";
+  };
+
+  private handleNewProject = () => {
+    this.openProjectCreate = true;
+    this.tab = "projects";
+  };
+
+  private handleNavigate = (e: CustomEvent<{ tab: DashTab }>) => {
+    this.tab = e.detail.tab;
+  };
+
+  private handleDashboardPrompt = (e: CustomEvent<{ prompt: string }>) => {
+    this.pendingPrompt = e.detail.prompt;
+    this.tab = "tasks";
+  };
+
   private setTab(t: DashTab) {
     if (this.tab === t) return;
     this.tab = t;
@@ -184,15 +215,24 @@ export class CclApp extends LitElement {
     let view: HTMLElement;
 
     switch (this.tab) {
-      case "tasks": {
-        const el = document.createElement("ccl-tasks") as unknown as HTMLElement & { tenantId?: string };
+      case "home": {
+        const el = document.createElement("ccl-dashboard") as unknown as HTMLElement & { tenantId?: string };
         el.tenantId = tenantId;
         view = el;
         break;
       }
-      case "projects": {
-        const el = document.createElement("ccl-projects") as unknown as HTMLElement & { tenantId?: string };
+      case "tasks": {
+        const el = document.createElement("ccl-tasks") as unknown as HTMLElement & { tenantId?: string; openTaskPrompt?: string };
         el.tenantId = tenantId;
+        if (this.pendingPrompt) { el.openTaskPrompt = this.pendingPrompt; this.pendingPrompt = ""; }
+        view = el;
+        break;
+      }
+      case "projects": {
+        const el = document.createElement("ccl-projects") as unknown as HTMLElement & { tenantId?: string; selectedProjectId?: string; openCreate?: boolean };
+        el.tenantId = tenantId;
+        if (this.selectedProjectId) { el.selectedProjectId = this.selectedProjectId; this.selectedProjectId = ""; }
+        if (this.openProjectCreate) { el.openCreate = true; this.openProjectCreate = false; }
         view = el;
         break;
       }
@@ -249,6 +289,7 @@ export class CclApp extends LitElement {
 
   private svgIcon(name: string) {
     const paths: Record<string, string> = {
+      home: `<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>`,
       projects: `<rect x="2" y="3" width="7" height="7"/><rect x="15" y="3" width="7" height="7"/><rect x="2" y="14" width="7" height="7"/><rect x="15" y="14" width="7" height="7"/>`,
       tasks: `<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>`,
       claws: `<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/>`,
@@ -445,8 +486,9 @@ export class CclApp extends LitElement {
 
   private renderDashboard() {
     const navItems: Array<{ id: DashTab; label: string; icon: string }> = [
-      { id: "tasks",     label: "Tasks",     icon: "tasks"     },
+      { id: "home",      label: "Dashboard", icon: "home"      },
       { id: "projects",  label: "Projects",  icon: "projects"  },
+      { id: "tasks",     label: "Tasks",     icon: "tasks"     },
       { id: "claws",     label: "Claws",     icon: "claws"     },
       { id: "skills",    label: "Skills",    icon: "skills"    },
       { id: "workspace", label: "Workspace", icon: "workspace" },

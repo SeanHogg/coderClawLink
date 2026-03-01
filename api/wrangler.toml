@@ -13,6 +13,7 @@ CORS_ORIGINS = "https://app.coderclaw.ai,https://coderclaw.ai,https://www.coderc
 ENVIRONMENT  = "production"
 # JWT_SECRET must be set via: wrangler secret put JWT_SECRET
 # OPENROUTER_API_KEY must be set via: wrangler secret put OPENROUTER_API_KEY
+# OPENROUTER_API_KEY_PRO must be set via: wrangler secret put OPENROUTER_API_KEY_PRO
 # Do NOT put the real value here – use a long random string (32+ chars).
 
 # Wrangler dev overrides (local only, never committed)

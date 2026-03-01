@@ -465,6 +465,21 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
     return c.json({ ok: true, directoryId: directory.id });
   });
 
+  // GET /api/claws/:id/sessions – list sessions for this claw (stub)
+  router.get('/:id/sessions', authMiddleware as never, async (c) => {
+    return c.json({ sessions: [] });
+  });
+
+  // GET /api/claws/:id/cron – list cron jobs for this claw (stub)
+  router.get('/:id/cron', authMiddleware as never, async (c) => {
+    return c.json({ jobs: [] });
+  });
+
+  // GET /api/claws/:id/channels – list connected channels for this claw (stub)
+  router.get('/:id/channels', authMiddleware as never, async (c) => {
+    return c.json({ channels: [] });
+  });
+
   // -------------------------------------------------------------------------
   // PATCH /api/claws/:id/heartbeat – claw keepalive, updates lastSeenAt
   // Called periodically by ClawLinkRelayService via HTTP alongside the WS.

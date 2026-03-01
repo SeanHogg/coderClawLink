@@ -1,4 +1,11 @@
-import { TenantId, TenantStatus, TenantRole } from '../shared/types';
+import {
+  TenantId,
+  TenantStatus,
+  TenantRole,
+  TenantPlan,
+  TenantBillingCycle,
+  TenantBillingStatus,
+} from '../shared/types';
 import { ValidationError, ForbiddenError } from '../shared/errors';
 
 export interface TenantMemberProps {
@@ -13,6 +20,13 @@ export interface TenantProps {
   name: string;
   slug: string;
   status: TenantStatus;
+  plan: TenantPlan;
+  billingCycle: TenantBillingCycle | null;
+  billingStatus: TenantBillingStatus;
+  billingEmail: string | null;
+  billingPaymentBrand: string | null;
+  billingPaymentLast4: string | null;
+  billingUpdatedAt: Date | null;
   members: TenantMemberProps[];
   createdAt: Date;
   updatedAt: Date;
@@ -45,6 +59,13 @@ export class Tenant {
       name: name.trim(),
       slug,
       status: TenantStatus.ACTIVE,
+      plan: TenantPlan.FREE,
+      billingCycle: null,
+      billingStatus: TenantBillingStatus.NONE,
+      billingEmail: null,
+      billingPaymentBrand: null,
+      billingPaymentLast4: null,
+      billingUpdatedAt: null,
       members: [
         { userId: ownerUserId, role: TenantRole.OWNER, isActive: true, joinedAt: now },
       ],
@@ -65,6 +86,13 @@ export class Tenant {
   get name(): string { return this.props.name; }
   get slug(): string { return this.props.slug; }
   get status(): TenantStatus { return this.props.status; }
+  get plan(): TenantPlan { return this.props.plan; }
+  get billingCycle(): TenantBillingCycle | null { return this.props.billingCycle; }
+  get billingStatus(): TenantBillingStatus { return this.props.billingStatus; }
+  get billingEmail(): string | null { return this.props.billingEmail; }
+  get billingPaymentBrand(): string | null { return this.props.billingPaymentBrand; }
+  get billingPaymentLast4(): string | null { return this.props.billingPaymentLast4; }
+  get billingUpdatedAt(): Date | null { return this.props.billingUpdatedAt; }
   get members(): readonly TenantMemberProps[] { return this.props.members; }
   get createdAt(): Date { return this.props.createdAt; }
   get updatedAt(): Date { return this.props.updatedAt; }
@@ -114,6 +142,63 @@ export class Tenant {
 
   suspend(): Tenant {
     return new Tenant({ ...this.props, status: TenantStatus.SUSPENDED, updatedAt: new Date() });
+  }
+
+  hasActiveBilling(): boolean {
+    return this.props.billingStatus === TenantBillingStatus.ACTIVE;
+  }
+
+  effectivePlan(): TenantPlan {
+    if (this.props.plan === TenantPlan.PRO && this.hasActiveBilling()) {
+      return TenantPlan.PRO;
+    }
+    return TenantPlan.FREE;
+  }
+
+  activateProSubscription(input: {
+    billingCycle: TenantBillingCycle;
+    billingEmail: string;
+    billingPaymentBrand: string;
+    billingPaymentLast4: string;
+  }): Tenant {
+    if (!input.billingEmail.trim()) {
+      throw new ValidationError('billingEmail is required for Pro plan');
+    }
+    if (!/^[0-9]{4}$/.test(input.billingPaymentLast4)) {
+      throw new ValidationError('billingPaymentLast4 must be 4 digits');
+    }
+
+    return new Tenant({
+      ...this.props,
+      plan: TenantPlan.PRO,
+      billingCycle: input.billingCycle,
+      billingStatus: TenantBillingStatus.ACTIVE,
+      billingEmail: input.billingEmail.trim().toLowerCase(),
+      billingPaymentBrand: input.billingPaymentBrand.trim() || 'card',
+      billingPaymentLast4: input.billingPaymentLast4,
+      billingUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  downgradeToFree(): Tenant {
+    return new Tenant({
+      ...this.props,
+      plan: TenantPlan.FREE,
+      billingCycle: null,
+      billingStatus: TenantBillingStatus.NONE,
+      billingUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  markBillingInactive(status: TenantBillingStatus.PAST_DUE | TenantBillingStatus.CANCELLED): Tenant {
+    return new Tenant({
+      ...this.props,
+      billingStatus: status,
+      billingUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    });
   }
 
   toPlain(): TenantProps {

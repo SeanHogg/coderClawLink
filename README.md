@@ -81,6 +81,17 @@ coderClawLink/
 
 ---
 
+## Contributing
+
+Before opening a PR, follow the required checklist in [CONTRIBUTING.md](./CONTRIBUTING.md), especially:
+
+- Run `pnpm --filter app build`
+- Run `pnpm --filter app type-check`
+- Run `pnpm --filter api exec tsc --noEmit`
+- Keep PR scope focused and describe what changed + why
+
+---
+
 ## API Reference
 
 All protected routes require `Authorization: Bearer <jwt>`.
@@ -119,9 +130,21 @@ All protected routes require `Authorization: Bearer <jwt>`.
 | `GET` | `/api/tenants` | List tenants |
 | `POST` | `/api/tenants` | Create tenant |
 | `GET` | `/api/tenants/:id` | Get tenant |
+| `GET` | `/api/tenants/:id/subscription` | Get tenant subscription and pricing |
+| `POST` | `/api/tenants/:id/subscription/pro` | Upgrade to Pro (billing details required) |
+| `POST` | `/api/tenants/:id/subscription/free` | Downgrade to Free |
 | `POST` | `/api/tenants/:id/members` | Add member |
 | `DELETE` | `/api/tenants/:id/members/:userId` | Remove member |
 | `DELETE` | `/api/tenants/:id` | Delete tenant |
+
+### coderClawLLM / coderClawLLMPro
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/llm/v1/chat/completions` | Tenant-aware LLM chat proxy (free/pro model pools) |
+| `GET` | `/llm/v1/models` | List model pool for caller’s effective plan |
+| `GET` | `/llm/v1/usage?days=30` | Tenant and user consumption metrics |
+| `GET` | `/llm/v1/health` | LLM proxy health |
 
 ### Agents & Skills
 

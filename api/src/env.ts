@@ -12,6 +12,8 @@ export interface Env {
   JWT_SECRET: string;
   /** OpenRouter API key for coderClawLLM proxy.  Set via `wrangler secret put OPENROUTER_API_KEY`. */
   OPENROUTER_API_KEY: string;
+  /** OpenRouter API key for coderClawLLMPro proxy.  Set via `wrangler secret put OPENROUTER_API_KEY_PRO`. */
+  OPENROUTER_API_KEY_PRO: string;
 }
 
 /** Variables injected into Hono context by the auth middleware. */

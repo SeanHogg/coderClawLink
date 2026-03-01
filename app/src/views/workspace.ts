@@ -1,6 +1,14 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { getTenantToken, tenants, type Tenant, type TenantSummary } from "../api.js";
+import {
+  getTenantToken,
+  tenants,
+  llm,
+  type Tenant,
+  type TenantSummary,
+  type TenantSubscription,
+  type TenantLlmUsage,
+} from "../api.js";
 
 const ROLES = ["owner", "manager", "developer", "viewer"];
 
@@ -14,6 +22,14 @@ export class CclWorkspace extends LitElement {
   @state() private loading = true;
   @state() private error = "";
   @state() private tab: "members" | "settings" = "members";
+  @state() private subscription: TenantSubscription | null = null;
+  @state() private usage: TenantLlmUsage | null = null;
+  @state() private usageDays = 30;
+  @state() private updatingPlan = false;
+  @state() private billingCycle: "monthly" | "yearly" = "monthly";
+  @state() private billingEmail = "";
+  @state() private billingBrand = "visa";
+  @state() private billingLast4 = "";
   @state() private showTenantToken = false;
   @state() private copiedTenantToken = false;
   @state() private copiedPluginEnv = false;
@@ -31,9 +47,59 @@ export class CclWorkspace extends LitElement {
   private async load() {
     if (!this.tenant) return;
     this.loading = true;
-    try { this.detail = await tenants.get(this.tenant.id); }
+    try {
+      const [detail, subscription, usage] = await Promise.all([
+        tenants.get(this.tenant.id),
+        tenants.subscription(this.tenant.id),
+        llm.usage(this.usageDays),
+      ]);
+      this.detail = detail;
+      this.subscription = subscription;
+      this.usage = usage;
+      this.billingEmail = subscription.billingEmail ?? "";
+      this.billingBrand = subscription.billingPaymentBrand ?? "visa";
+      this.billingLast4 = subscription.billingPaymentLast4 ?? "";
+      this.billingCycle = subscription.billingCycle ?? "monthly";
+    }
     catch (e) { this.error = (e as Error).message; }
     finally { this.loading = false; }
+  }
+
+  private canManageBilling() {
+    const role = this.tenant?.role?.toLowerCase();
+    return role === "owner" || role === "manager";
+  }
+
+  private async changePlanToPro(e: Event) {
+    e.preventDefault();
+    if (!this.tenant || !this.canManageBilling()) return;
+    this.updatingPlan = true;
+    try {
+      await tenants.upgradeToPro(this.tenant.id, {
+        billingCycle: this.billingCycle,
+        billingEmail: this.billingEmail,
+        billingPaymentBrand: this.billingBrand,
+        billingPaymentLast4: this.billingLast4,
+      });
+      await this.load();
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.updatingPlan = false;
+    }
+  }
+
+  private async changePlanToFree() {
+    if (!this.tenant || !this.canManageBilling()) return;
+    this.updatingPlan = true;
+    try {
+      await tenants.downgradeToFree(this.tenant.id);
+      await this.load();
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.updatingPlan = false;
+    }
   }
 
   private async invite(e: Event) {
@@ -220,8 +286,97 @@ export class CclWorkspace extends LitElement {
 
   private renderSettings() {
     const tenantToken = getTenantToken() ?? "";
+    const sub = this.subscription;
+    const usage = this.usage;
+    const canManageBilling = this.canManageBilling();
     return html`
       <div style="display:grid;gap:16px;max-width:680px">
+        <div class="card" style="max-width:680px">
+          <div class="card-title" style="margin-bottom:16px">coderClawLLM Plan</div>
+          ${sub ? html`
+            <div style="display:grid;gap:10px;margin-bottom:14px">
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <span style="color:var(--muted)">Current plan</span>
+                <span style="color:var(--text-strong);font-weight:600">${sub.effectivePlan === "pro" ? "Pro" : "Free"}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <span style="color:var(--muted)">Configured plan</span>
+                <span style="color:var(--text-strong);font-weight:500">${sub.plan}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <span style="color:var(--muted)">Billing status</span>
+                <span style="color:var(--text-strong);font-weight:500">${sub.billingStatus}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <span style="color:var(--muted)">Pro pricing</span>
+                <span style="color:var(--text-strong);font-weight:500">$${sub.pricing.pro.monthly}/mo or $${sub.pricing.pro.yearly}/yr</span>
+              </div>
+            </div>
+
+            ${canManageBilling ? html`
+              <form @submit=${this.changePlanToPro} style="display:grid;gap:10px;margin-bottom:10px">
+                <div style="font-size:12px;color:var(--muted)">Upgrade to Pro requires billing info. If billing is not active, workspace usage automatically falls back to Free.</div>
+                <div class="field">
+                  <label class="label">Billing cycle</label>
+                  <select class="select" .value=${this.billingCycle} @change=${(e: Event) => { this.billingCycle = (e.target as HTMLSelectElement).value as "monthly" | "yearly"; }}>
+                    <option value="monthly">Monthly ($${sub.pricing.pro.monthly})</option>
+                    <option value="yearly">Yearly ($${sub.pricing.pro.yearly})</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="label">Billing email</label>
+                  <input class="input" type="email" required .value=${this.billingEmail} @input=${(e: InputEvent) => { this.billingEmail = (e.target as HTMLInputElement).value; }} />
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                  <div class="field">
+                    <label class="label">Card brand</label>
+                    <input class="input" required .value=${this.billingBrand} @input=${(e: InputEvent) => { this.billingBrand = (e.target as HTMLInputElement).value; }} />
+                  </div>
+                  <div class="field">
+                    <label class="label">Card last 4</label>
+                    <input class="input" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" required .value=${this.billingLast4} @input=${(e: InputEvent) => { this.billingLast4 = (e.target as HTMLInputElement).value.replace(/\D/g, "").slice(0, 4); }} />
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn btn-primary btn-sm" type="submit" ?disabled=${this.updatingPlan}>${this.updatingPlan ? "Updating…" : "Activate Pro"}</button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click=${this.changePlanToFree} ?disabled=${this.updatingPlan}>Switch to Free</button>
+                </div>
+              </form>
+            ` : html`<div style="font-size:12px;color:var(--muted)">Only owner/manager can change billing or plan.</div>`}
+          ` : html`<div style="color:var(--muted);font-size:13px">Loading subscription…</div>`}
+        </div>
+
+        <div class="card" style="max-width:680px">
+          <div class="card-title" style="margin-bottom:8px">coderClawLLM Consumption</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+            <label style="font-size:12px;color:var(--muted)">Window</label>
+            <select class="select" style="max-width:130px" @change=${(e: Event) => { this.usageDays = Number((e.target as HTMLSelectElement).value); void this.load(); }}>
+              ${[7, 14, 30, 60, 90].map((days) => html`<option value="${days}" ?selected=${this.usageDays === days}>${days} days</option>`) }
+            </select>
+          </div>
+          ${usage ? html`
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:10px">
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="font-size:11px;color:var(--muted)">Workspace requests</div>
+                <div style="font-size:18px;font-weight:600">${usage.totals.requests.toLocaleString()}</div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="font-size:11px;color:var(--muted)">Workspace tokens</div>
+                <div style="font-size:18px;font-weight:600">${usage.totals.totalTokens.toLocaleString()}</div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="font-size:11px;color:var(--muted)">Your requests</div>
+                <div style="font-size:18px;font-weight:600">${usage.mine.requests.toLocaleString()}</div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="font-size:11px;color:var(--muted)">Your tokens</div>
+                <div style="font-size:18px;font-weight:600">${usage.mine.totalTokens.toLocaleString()}</div>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--muted)">Top model: ${usage.byModel[0]?.model ?? "—"} · Product: ${usage.byModel[0]?.llmProduct ?? "coderClawLLM"}</div>
+          ` : html`<div style="color:var(--muted);font-size:13px">Loading usage…</div>`}
+        </div>
+
         <div class="card" style="max-width:680px">
           <div class="card-title" style="margin-bottom:16px">Workspace details</div>
           <div style="display:grid;gap:10px">

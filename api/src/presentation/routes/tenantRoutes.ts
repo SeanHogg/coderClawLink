@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { TenantService } from '../../application/tenant/TenantService';
-import { TenantRole } from '../../domain/shared/types';
+import { TenantRole, TenantBillingCycle } from '../../domain/shared/types';
 import type { HonoEnv } from '../../env';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware';
 import { webAuthMiddleware } from '../middleware/webAuthMiddleware';
@@ -43,6 +43,58 @@ export function createTenantRoutes(tenantService: TenantService, db: Db): Hono<H
     const id = Number(c.req.param('id'));
     const tenant = await tenantService.getTenant(id);
     return c.json(tenant.toPlain());
+  });
+
+  // GET /api/tenants/:id/subscription
+  router.get('/:id/subscription', async (c) => {
+    const tenantId = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (tenantId !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+
+    const subscription = await tenantService.getSubscription(tenantId);
+    return c.json(subscription);
+  });
+
+  // POST /api/tenants/:id/subscription/pro
+  router.post('/:id/subscription/pro', requireRole(TenantRole.MANAGER), async (c) => {
+    const tenantId = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (tenantId !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+
+    const body = await c.req.json<{
+      billingCycle: TenantBillingCycle;
+      billingEmail: string;
+      billingPaymentBrand: string;
+      billingPaymentLast4: string;
+    }>();
+
+    if (
+      !body.billingCycle ||
+      !body.billingEmail ||
+      !body.billingPaymentBrand ||
+      !body.billingPaymentLast4
+    ) {
+      return c.json({ error: 'billingCycle, billingEmail, billingPaymentBrand and billingPaymentLast4 are required' }, 400);
+    }
+
+    const updated = await tenantService.activateProSubscription(tenantId, {
+      billingCycle: body.billingCycle,
+      billingEmail: body.billingEmail,
+      billingPaymentBrand: body.billingPaymentBrand,
+      billingPaymentLast4: body.billingPaymentLast4,
+    });
+
+    return c.json({ tenant: updated.toPlain() });
+  });
+
+  // POST /api/tenants/:id/subscription/free
+  router.post('/:id/subscription/free', requireRole(TenantRole.MANAGER), async (c) => {
+    const tenantId = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (tenantId !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+
+    const updated = await tenantService.downgradeToFree(tenantId);
+    return c.json({ tenant: updated.toPlain() });
   });
 
   // GET /api/tenants/:id/claws?status=online

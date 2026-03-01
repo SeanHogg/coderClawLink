@@ -255,6 +255,10 @@ export class CclAdmin extends LitElement {
           <div class="health-value">${h.platform.tenantCount}</div>
         </div>
         <div class="health-card">
+          <div class="health-label">Paid Workspaces</div>
+          <div class="health-value">${h.platform.paidTenantCount}</div>
+        </div>
+        <div class="health-card">
           <div class="health-label">Claws</div>
           <div class="health-value">${h.platform.clawCount}</div>
         </div>
@@ -550,6 +554,8 @@ export class CclAdmin extends LitElement {
               <th>Name</th>
               <th>Slug</th>
               <th>Status</th>
+              <th>Plan</th>
+              <th>Billing</th>
               <th>Members</th>
               <th>Claws</th>
               <th>Created</th>
@@ -565,6 +571,12 @@ export class CclAdmin extends LitElement {
                     ${t.status}
                   </span>
                 </td>
+                <td>
+                  <span class="badge ${t.effectivePlan === "pro" ? "badge-danger" : "badge-neutral"}">
+                    ${t.effectivePlan}
+                  </span>
+                </td>
+                <td class="text-muted">${t.billingStatus}</td>
                 <td>${t.memberCount}</td>
                 <td>${t.clawCount}</td>
                 <td class="text-muted">${this.fmtDate(t.createdAt)}</td>

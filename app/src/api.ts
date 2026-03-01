@@ -88,10 +88,68 @@ export interface TenantSummary {
   slug: string;
   role: string;
   status: string;
+  plan?: "free" | "pro";
+  effectivePlan?: "free" | "pro";
+  billingStatus?: "none" | "pending" | "active" | "past_due" | "cancelled";
 }
 
 export interface Tenant extends TenantSummary {
   members: TenantMember[];
+}
+
+export interface TenantSubscription {
+  plan: "free" | "pro";
+  effectivePlan: "free" | "pro";
+  billingCycle: "monthly" | "yearly" | null;
+  billingStatus: "none" | "pending" | "active" | "past_due" | "cancelled";
+  billingEmail: string | null;
+  billingPaymentBrand: string | null;
+  billingPaymentLast4: string | null;
+  billingUpdatedAt: string | null;
+  pricing: {
+    currency: string;
+    pro: { monthly: number; yearly: number; yearlySavingsPercent: number };
+  };
+}
+
+export interface TenantLlmUsage {
+  days: number;
+  tenantId: number;
+  plan: "free" | "pro";
+  effectivePlan: "free" | "pro";
+  billingStatus: "none" | "pending" | "active" | "past_due" | "cancelled";
+  totals: {
+    requests: number;
+    totalTokens: number;
+    promptTokens: number;
+    completionTokens: number;
+  };
+  mine: {
+    userId: string | null;
+    requests: number;
+    totalTokens: number;
+    promptTokens: number;
+    completionTokens: number;
+  };
+  byModel: Array<{
+    llmProduct: string;
+    model: string;
+    requests: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    retries: number;
+  }>;
+  byDay: Array<{
+    day: string;
+    requests: number;
+    total_tokens: number;
+  }>;
+  byUser: Array<{
+    user_id: string;
+    requests: number;
+    total_tokens: number;
+  }>;
 }
 
 export interface TenantMember {
@@ -271,6 +329,32 @@ export const tenants = {
 
   async removeMember(id: string, userId: string): Promise<void> {
     return request(`/api/tenants/${id}/members/${userId}`, { method: "DELETE" });
+  },
+
+  async subscription(id: string): Promise<TenantSubscription> {
+    return request(`/api/tenants/${id}/subscription`);
+  },
+
+  async upgradeToPro(
+    id: string,
+    data: {
+      billingCycle: "monthly" | "yearly";
+      billingEmail: string;
+      billingPaymentBrand: string;
+      billingPaymentLast4: string;
+    },
+  ): Promise<{ tenant: Tenant }> {
+    return request(`/api/tenants/${id}/subscription/pro`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async downgradeToFree(id: string): Promise<{ tenant: Tenant }> {
+    return request(`/api/tenants/${id}/subscription/free`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
   },
 };
 
@@ -463,7 +547,7 @@ export const skillAssignments = {
   async assignClaw(clawId: string, slug: string): Promise<void> {
     return request(`/api/skill-assignments/claws/${clawId}`, {
       method: "POST",
-      body: JSON.stringify({ slug }),
+      body: JSON.stringify({ skillSlug: slug }),
     });
   },
 };
@@ -492,7 +576,10 @@ export const llm = {
   ): Promise<LlmChatCompletionResponse> {
     const res = await fetch(`${BASE}/llm/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(getTenantToken() ? { Authorization: `Bearer ${getTenantToken()}` } : {}),
+      },
       body: JSON.stringify({
         messages,
         stream: false,
@@ -513,6 +600,12 @@ export const llm = {
     }
 
     return res.json() as Promise<LlmChatCompletionResponse>;
+  },
+
+  async usage(days = 30): Promise<TenantLlmUsage> {
+    const q = new URLSearchParams();
+    q.set("days", String(days));
+    return request<TenantLlmUsage>(`/llm/v1/usage?${q.toString()}`);
   },
 };
 
@@ -535,6 +628,10 @@ export interface AdminTenant {
   name:         string;
   slug:         string;
   status:       string;
+  plan:         "free" | "pro";
+  effectivePlan: "free" | "pro";
+  billingStatus: "none" | "pending" | "active" | "past_due" | "cancelled";
+  isPaid:       boolean;
   createdAt:    string;
   memberCount:  number;
   clawCount:    number;
@@ -543,7 +640,7 @@ export interface AdminTenant {
 export interface AdminHealth {
   status:    string;
   db:        { ok: boolean; latencyMs: number };
-  platform:  { userCount: number; tenantCount: number; clawCount: number; executionCount: number; errorCount: number };
+  platform:  { userCount: number; tenantCount: number; clawCount: number; executionCount: number; errorCount: number; paidTenantCount: number };
   llm:       { pool: number; models: Array<{ model: string; preferred: boolean; available: boolean; cooldownUntil?: number }> };
   timestamp: string;
 }

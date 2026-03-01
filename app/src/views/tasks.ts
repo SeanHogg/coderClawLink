@@ -23,6 +23,10 @@ export class CclTasks extends LitElement {
   override createRenderRoot() { return this; }
 
   @property() tenantId = "";
+  /** When set, pre-filters and locks the view to this project. */
+  @property() projectId = "";
+  /** When set, opens the create modal pre-filled with this title (one-shot). */
+  @property() openTaskPrompt = "";
 
   @state() private items: Task[] = [];
   @state() private projects: Project[] = [];
@@ -53,7 +57,19 @@ export class CclTasks extends LitElement {
 
   override connectedCallback() {
     super.connectedCallback();
+    if (this.projectId) this.filterProject = this.projectId;
     this.load();
+  }
+
+  override updated(changed: Map<string, unknown>) {
+    if (changed.has("projectId") && this.projectId) {
+      this.filterProject = this.projectId;
+    }
+    if (changed.has("openTaskPrompt") && this.openTaskPrompt) {
+      this.editTarget = null;
+      this.form = { status: "todo", priority: "medium", title: this.openTaskPrompt };
+      this.showModal = true;
+    }
   }
 
   private async load() {
@@ -313,6 +329,14 @@ export class CclTasks extends LitElement {
                       : ""}
                     ${t.dueDate ? html`<span style="font-size:11px;color:var(--muted);margin-left:auto">${this.formatDate(t.dueDate)}</span>` : ""}
                   </div>
+                  <div style="display:flex;justify-content:flex-end;margin-top:8px;padding-top:6px;border-top:1px solid var(--border)"
+                    @click=${(e: Event) => e.stopPropagation()}>
+                    <button class="btn btn-ghost btn-sm" style="font-size:11px;gap:4px"
+                      @click=${() => this.openDrawer(t)}>
+                      View
+                      <svg viewBox="0 0 24 24" style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                  </div>
                 </div>
               `)}
               <button
@@ -365,6 +389,7 @@ export class CclTasks extends LitElement {
                 <td style="font-size:12px;color:var(--muted)">${this.formatDate(t.dueDate)}</td>
                 <td>
                   <div style="display:flex;gap:4px" @click=${(e: Event) => e.stopPropagation()}>
+                    <button class="btn btn-ghost btn-sm" @click=${() => this.openDrawer(t)}>View</button>
                     <button class="btn btn-ghost btn-sm" @click=${(e: Event) => this.openEdit(t, e)}>Edit</button>
                     <button class="btn btn-danger btn-sm" @click=${(e: Event) => this.removeTask(t, e)}>Delete</button>
                   </div>

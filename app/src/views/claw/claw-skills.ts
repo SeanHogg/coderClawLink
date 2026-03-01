@@ -40,7 +40,12 @@ export class CclClawSkills extends LitElement {
         headers: { Authorization: `Bearer ${getTenantToken() ?? ""}` },
       });
       if (!res.ok) return [];
-      return res.json();
+      const data = await res.json() as { assignments?: Array<{ skillSlug: string; skillName?: string | null; assignedAt: string }> };
+      return (data.assignments ?? []).map(a => ({
+        slug: a.skillSlug,
+        name: a.skillName ?? a.skillSlug,
+        assignedAt: a.assignedAt,
+      }));
     } catch { return []; }
   }
 

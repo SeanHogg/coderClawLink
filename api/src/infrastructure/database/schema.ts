@@ -45,6 +45,18 @@ export const tenantRoleEnum = pgEnum('tenant_role', [
   'owner', 'manager', 'developer', 'viewer',
 ]);
 
+export const tenantPlanEnum = pgEnum('tenant_plan', [
+  'free', 'pro',
+]);
+
+export const tenantBillingCycleEnum = pgEnum('tenant_billing_cycle', [
+  'monthly', 'yearly',
+]);
+
+export const tenantBillingStatusEnum = pgEnum('tenant_billing_status', [
+  'none', 'pending', 'active', 'past_due', 'cancelled',
+]);
+
 export const executionStatusEnum = pgEnum('execution_status', [
   'pending', 'submitted', 'running', 'completed', 'failed', 'cancelled',
 ]);
@@ -96,6 +108,9 @@ export const apiErrorLog = pgTable('api_error_log', {
 
 export const llmUsageLog = pgTable('llm_usage_log', {
   id:               serial('id').primaryKey(),
+  tenantId:         integer('tenant_id').references(() => tenants.id, { onDelete: 'set null' }),
+  userId:           varchar('user_id', { length: 36 }).references(() => users.id, { onDelete: 'set null' }),
+  llmProduct:       varchar('llm_product', { length: 32 }).notNull().default('coderClawLLM'),
   model:            varchar('model', { length: 200 }).notNull(),
   promptTokens:     integer('prompt_tokens').notNull().default(0),
   completionTokens: integer('completion_tokens').notNull().default(0),
@@ -148,12 +163,19 @@ export const marketplaceSkillLikes = pgTable('marketplace_skill_likes', {
 // ---------------------------------------------------------------------------
 
 export const tenants = pgTable('tenants', {
-  id:        serial('id').primaryKey(),
-  name:      varchar('name', { length: 255 }).notNull(),
-  slug:      varchar('slug', { length: 255 }).notNull().unique(),
-  status:    tenantStatusEnum('status').notNull().default('active'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  id:                     serial('id').primaryKey(),
+  name:                   varchar('name', { length: 255 }).notNull(),
+  slug:                   varchar('slug', { length: 255 }).notNull().unique(),
+  status:                 tenantStatusEnum('status').notNull().default('active'),
+  plan:                   tenantPlanEnum('plan').notNull().default('free'),
+  billingCycle:           tenantBillingCycleEnum('billing_cycle'),
+  billingStatus:          tenantBillingStatusEnum('billing_status').notNull().default('none'),
+  billingEmail:           varchar('billing_email', { length: 255 }),
+  billingPaymentBrand:    varchar('billing_payment_brand', { length: 50 }),
+  billingPaymentLast4:    varchar('billing_payment_last4', { length: 4 }),
+  billingUpdatedAt:       timestamp('billing_updated_at'),
+  createdAt:              timestamp('created_at').notNull().defaultNow(),
+  updatedAt:              timestamp('updated_at').notNull().defaultNow(),
 });
 
 export const tenantMembers = pgTable('tenant_members', {

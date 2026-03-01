@@ -1,7 +1,15 @@
 import { eq, inArray } from 'drizzle-orm';
 import { ITenantRepository } from '../../domain/tenant/ITenantRepository';
 import { Tenant, TenantMemberProps } from '../../domain/tenant/Tenant';
-import { TenantId, TenantStatus, TenantRole, asTenantId } from '../../domain/shared/types';
+import {
+  TenantId,
+  TenantStatus,
+  TenantRole,
+  TenantPlan,
+  TenantBillingCycle,
+  TenantBillingStatus,
+  asTenantId,
+} from '../../domain/shared/types';
 import { tenants as tenantsTable, tenantMembers as membersTable } from '../database/schema';
 import type { Db } from '../database/connection';
 
@@ -49,7 +57,18 @@ export class TenantRepository implements ITenantRepository {
     const plain = tenant.toPlain();
     const [inserted] = await this.db
       .insert(tenantsTable)
-      .values({ name: plain.name, slug: plain.slug, status: plain.status })
+      .values({
+        name: plain.name,
+        slug: plain.slug,
+        status: plain.status,
+        plan: plain.plan,
+        billingCycle: plain.billingCycle,
+        billingStatus: plain.billingStatus,
+        billingEmail: plain.billingEmail,
+        billingPaymentBrand: plain.billingPaymentBrand,
+        billingPaymentLast4: plain.billingPaymentLast4,
+        billingUpdatedAt: plain.billingUpdatedAt,
+      })
       .returning();
     if (!inserted) throw new Error('Insert returned no rows');
 
@@ -74,7 +93,18 @@ export class TenantRepository implements ITenantRepository {
     const plain = tenant.toPlain();
     await this.db
       .update(tenantsTable)
-      .set({ name: plain.name, status: plain.status, updatedAt: plain.updatedAt })
+      .set({
+        name: plain.name,
+        status: plain.status,
+        plan: plain.plan,
+        billingCycle: plain.billingCycle,
+        billingStatus: plain.billingStatus,
+        billingEmail: plain.billingEmail,
+        billingPaymentBrand: plain.billingPaymentBrand,
+        billingPaymentLast4: plain.billingPaymentLast4,
+        billingUpdatedAt: plain.billingUpdatedAt,
+        updatedAt: plain.updatedAt,
+      })
       .where(eq(tenantsTable.id, plain.id));
 
     // Replace members: delete all then re-insert
@@ -123,6 +153,13 @@ export class TenantRepository implements ITenantRepository {
       name:      row.name,
       slug:      row.slug,
       status:    row.status as TenantStatus,
+      plan:      row.plan as TenantPlan,
+      billingCycle: row.billingCycle as TenantBillingCycle | null,
+      billingStatus: row.billingStatus as TenantBillingStatus,
+      billingEmail: row.billingEmail,
+      billingPaymentBrand: row.billingPaymentBrand,
+      billingPaymentLast4: row.billingPaymentLast4,
+      billingUpdatedAt: row.billingUpdatedAt,
       members,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

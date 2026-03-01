@@ -40,10 +40,19 @@ export const FREE_MODEL_POOL = [
   'google/gemma-3-12b-it:free',                               // 32k ctx
 ] as const;
 
+export const PRO_MODEL_POOL = [
+  'openai/gpt-4.1-mini',
+  'anthropic/claude-3.7-sonnet',
+  'google/gemini-2.0-flash-001',
+  'x-ai/grok-3-mini',
+] as const;
+
 /** Number of models at the top of the pool that form the primary round-robin group. */
 export const PREFERRED_POOL_SIZE = 2;
 
 export type FreeModel = (typeof FREE_MODEL_POOL)[number];
+export type ProModel = (typeof PRO_MODEL_POOL)[number];
+type AnyPoolModel = FreeModel | ProModel;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,9 +180,22 @@ const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions';
 
 export class LlmProxyService {
   private readonly apiKey: string;
+  private readonly modelPool: readonly AnyPoolModel[];
+  private readonly preferredPoolSize: number;
+  private readonly productName: 'coderClawLLM' | 'coderClawLLMPro';
 
-  constructor(apiKey: string) {
+  constructor(
+    apiKey: string,
+    options?: {
+      modelPool?: readonly AnyPoolModel[];
+      preferredPoolSize?: number;
+      productName?: 'coderClawLLM' | 'coderClawLLMPro';
+    },
+  ) {
     this.apiKey = apiKey;
+    this.modelPool = options?.modelPool ?? FREE_MODEL_POOL;
+    this.preferredPoolSize = Math.min(options?.preferredPoolSize ?? PREFERRED_POOL_SIZE, this.modelPool.length);
+    this.productName = options?.productName ?? 'coderClawLLM';
   }
 
   /**
@@ -190,13 +212,13 @@ export class LlmProxyService {
     body: ChatCompletionRequest,
     requestHeaders?: Record<string, string>,
   ): Promise<ProxyResult> {
-    const preferredPool = FREE_MODEL_POOL.slice(0, PREFERRED_POOL_SIZE) as FreeModel[];
-    const fallbackPool  = FREE_MODEL_POOL.slice(PREFERRED_POOL_SIZE)    as FreeModel[];
+    const preferredPool = this.modelPool.slice(0, this.preferredPoolSize) as AnyPoolModel[];
+    const fallbackPool  = this.modelPool.slice(this.preferredPoolSize) as AnyPoolModel[];
 
     const preferredAvailable = preferredPool.filter((m) => !isOnCooldown(m));
     const fallbackAvailable  = fallbackPool.filter((m)  => !isOnCooldown(m));
 
-    let candidates: FreeModel[];
+    let candidates: AnyPoolModel[];
     if (preferredAvailable.length > 0) {
       // Round-robin within the preferred pool; fallbacks appended after
       const start = requestCursor % preferredAvailable.length;
@@ -209,7 +231,7 @@ export class LlmProxyService {
       candidates = fallbackAvailable;
     } else {
       // Everything on cooldown — try all in original order as last resort
-      candidates = [...FREE_MODEL_POOL] as FreeModel[];
+      candidates = [...this.modelPool] as AnyPoolModel[];
     }
     requestCursor++;
 
@@ -224,7 +246,7 @@ export class LlmProxyService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
           'HTTP-Referer': 'https://coderclaw.ai',
-          'X-Title': 'coderClawLLM',
+          'X-Title': this.productName,
           ...(requestHeaders ?? {}),
         },
         body: JSON.stringify({ ...body, model }),
@@ -309,7 +331,7 @@ export class LlmProxyService {
         status: 429,
         headers: { 'content-type': 'application/json' },
       }),
-      resolvedModel: candidates[candidates.length - 1] ?? FREE_MODEL_POOL[0],
+      resolvedModel: candidates[candidates.length - 1] ?? this.modelPool[0] ?? FREE_MODEL_POOL[0],
       retries,
       failovers,
     };
@@ -317,12 +339,12 @@ export class LlmProxyService {
 
   /** Return the current model pool with cooldown status. */
   status(): Array<{ model: string; preferred: boolean; available: boolean; cooldownUntil?: number }> {
-    return FREE_MODEL_POOL.map((model, i) => {
+    return this.modelPool.map((model, i) => {
       const until = cooldowns.get(model);
       const available = !until || Date.now() >= until;
       return {
         model,
-        preferred: i < PREFERRED_POOL_SIZE,
+        preferred: i < this.preferredPoolSize,
         available,
         ...(until && !available ? { cooldownUntil: until } : {}),
       };

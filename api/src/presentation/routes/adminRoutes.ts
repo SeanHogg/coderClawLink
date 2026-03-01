@@ -69,13 +69,17 @@ export function createAdminRoutes(): Hono<HonoEnv> {
         t.name,
         t.slug,
         t.status,
+        t.plan,
+        t.billing_status AS "billingStatus",
+        CASE WHEN t.plan = 'pro' AND t.billing_status = 'active' THEN true ELSE false END AS "isPaid",
+        CASE WHEN t.plan = 'pro' AND t.billing_status = 'active' THEN 'pro' ELSE 'free' END AS "effectivePlan",
         t.created_at AS "createdAt",
         COUNT(DISTINCT tm.user_id)::int  AS "memberCount",
         COUNT(DISTINCT ci.id)::int       AS "clawCount"
       FROM tenants t
       LEFT JOIN tenant_members tm ON tm.tenant_id = t.id AND tm.is_active = true
       LEFT JOIN coderclaw_instances ci ON ci.tenant_id = t.id
-      GROUP BY t.id, t.name, t.slug, t.status, t.created_at
+      GROUP BY t.id, t.name, t.slug, t.status, t.plan, t.billing_status, t.created_at
       ORDER BY t.created_at DESC
       LIMIT 500
     `);
@@ -105,10 +109,11 @@ export function createAdminRoutes(): Hono<HonoEnv> {
         (SELECT COUNT(*)::int FROM tenants)                 AS "tenantCount",
         (SELECT COUNT(*)::int FROM coderclaw_instances)     AS "clawCount",
         (SELECT COUNT(*)::int FROM executions)              AS "executionCount",
-        (SELECT COUNT(*)::int FROM api_error_log)           AS "errorCount"
+        (SELECT COUNT(*)::int FROM api_error_log)           AS "errorCount",
+        (SELECT COUNT(*)::int FROM tenants WHERE plan = 'pro' AND billing_status = 'active') AS "paidTenantCount"
     `)).rows as Array<{
       userCount: number; tenantCount: number; clawCount: number;
-      executionCount: number; errorCount: number;
+      executionCount: number; errorCount: number; paidTenantCount: number;
     }>;
 
     // LLM model pool — use live cooldown state when key is available

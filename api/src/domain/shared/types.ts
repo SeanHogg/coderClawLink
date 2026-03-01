@@ -64,6 +64,24 @@ export enum TenantRole {
   VIEWER    = 'viewer',
 }
 
+export enum TenantPlan {
+  FREE = 'free',
+  PRO = 'pro',
+}
+
+export enum TenantBillingCycle {
+  MONTHLY = 'monthly',
+  YEARLY = 'yearly',
+}
+
+export enum TenantBillingStatus {
+  NONE = 'none',
+  PENDING = 'pending',
+  ACTIVE = 'active',
+  PAST_DUE = 'past_due',
+  CANCELLED = 'cancelled',
+}
+
 // Role hierarchy – higher index = more authority.
 export const ROLE_ORDER: TenantRole[] = [
   TenantRole.VIEWER,
