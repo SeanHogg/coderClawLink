@@ -1,6 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { claws as clawsApi, getTenantToken, type Claw, type ClawRegistration } from "../api.js";
+import { claws as clawsApi, getTenantToken, tenants, type Claw, type ClawRegistration } from "../api.js";
 import "./claw/chat.js";
 import "./claw/agents.js";
 import "./claw/config.js";
@@ -52,6 +52,8 @@ export class ClawsView extends LitElement {
   @state() private panelOpen = false;
   @state() private activeClaw: Claw | null = null;
   @state() private activeTab: Tab = "chat";
+  @state() private defaultClawId: number | null = null;
+  @state() private savingDefaultClaw = false;
   @state() private deleteConfirmId: string | null = null;
   @state() private deleting = false;
 
@@ -72,9 +74,29 @@ export class ClawsView extends LitElement {
   private async loadClaws() {
     this.loading = true;
     this.error = "";
-    try { this.clawList = await clawsApi.list(); }
+    try {
+      const [claws, defaultClaw] = await Promise.all([
+        clawsApi.list(),
+        this.tenantId ? tenants.defaultClaw(this.tenantId) : Promise.resolve({ defaultClawId: null }),
+      ]);
+      this.clawList = claws;
+      this.defaultClawId = defaultClaw.defaultClawId;
+    }
     catch (e: unknown) { this.error = (e as Error).message ?? "Failed to load claws"; }
     finally { this.loading = false; }
+  }
+
+  private async saveDefaultClaw() {
+    if (!this.tenantId) return;
+    this.savingDefaultClaw = true;
+    try {
+      const res = await tenants.setDefaultClaw(this.tenantId, this.defaultClawId);
+      this.defaultClawId = res.defaultClawId;
+    } catch (e: unknown) {
+      this.error = (e as Error).message ?? "Failed to save default claw";
+    } finally {
+      this.savingDefaultClaw = false;
+    }
   }
 
   private startPresenceRefresh() {
@@ -353,7 +375,25 @@ export class ClawsView extends LitElement {
       <div>
         <div class="page-header">
           <div><div class="page-title">Claws</div><div class="page-sub">${this.clawList.length} registered</div></div>
-          <button class="btn btn-primary" @click=${() => { this.showManualRegister = false; this.showRegisterModal = true; }}>Register claw</button>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+            <label style="font-size:12px;color:var(--muted)">Default claw</label>
+            <select
+              class="select"
+              style="min-width:220px"
+              .value=${this.defaultClawId == null ? "" : String(this.defaultClawId)}
+              @change=${(e: Event) => {
+                const value = (e.target as HTMLSelectElement).value;
+                this.defaultClawId = value ? Number(value) : null;
+              }}
+            >
+              <option value="">No default claw</option>
+              ${this.clawList.map((claw) => html`<option value=${claw.id}>${claw.name}</option>`)}
+            </select>
+            <button class="btn btn-secondary" @click=${this.saveDefaultClaw} ?disabled=${this.savingDefaultClaw || !this.tenantId}>
+              ${this.savingDefaultClaw ? "Saving…" : "Save default"}
+            </button>
+            <button class="btn btn-primary" @click=${() => { this.showManualRegister = false; this.showRegisterModal = true; }}>Register claw</button>
+          </div>
         </div>
         ${this.error ? html`<div class="error-banner">${this.error}</div>` : ""}
         ${this.loading ? html`<div class="empty-state">Loading…</div>` : ""}

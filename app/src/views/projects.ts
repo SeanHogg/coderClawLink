@@ -1,48 +1,111 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { projects as projectsApi, type Project } from "../api.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import {
+  llm,
+  projects as projectsApi,
+  tasks as tasksApi,
+  claws as clawsApi,
+  type Project,
+  type Task,
+  type Claw,
+  type TaskPriority,
+  type TaskStatus,
+} from "../api.js";
+
+const STATUSES: TaskStatus[] = ["todo", "in_progress", "in_review", "done", "blocked"];
+const STATUS_LABELS: Record<TaskStatus, string> = {
+  todo: "To Do",
+  in_progress: "In Progress",
+  in_review: "In Review",
+  done: "Done",
+  blocked: "Blocked",
+};
+
+type WorkspaceTab = "details" | "board" | "tasks" | "prds" | "brain";
+type BrainRole = "user" | "assistant";
+
+type ProjectBrainAction =
+  | {
+      type: "create_task";
+      title: string;
+      description?: string;
+      priority?: TaskPriority;
+      status?: TaskStatus;
+      dueDate?: string;
+      assignedClawId?: string;
+      assignedClawName?: string;
+    }
+  | {
+      type: "assign_task";
+      taskId?: string;
+      taskKey?: string;
+      taskTitle?: string;
+      assignedClawId?: string;
+      assignedClawName?: string;
+    }
+  | {
+      type: "save_prd";
+      title?: string;
+      content: string;
+    };
+
+interface BrainMessage {
+  id: string;
+  role: BrainRole;
+  text: string;
+}
+
+interface BrainActionState {
+  action: ProjectBrainAction;
+  status: "idle" | "running" | "done" | "error";
+  result?: string;
+}
 
 @customElement("ccl-projects")
 export class CclProjects extends LitElement {
   override createRenderRoot() { return this; }
 
   @property() tenantId = "";
-  /** Pre-select a project to open its detail view (passed from dashboard or app). */
-  @property() selectedProjectId = "";
-  /** When true, open the create modal on mount (passed from dashboard). */
-  @property({ type: Boolean }) openCreate = false;
 
   @state() private items: Project[] = [];
-  @state() private selectedProject: Project | null = null;
   @state() private loading = true;
   @state() private error = "";
   @state() private showModal = false;
   @state() private editTarget: Project | null = null;
-  @state() private form = { name: "", description: "", rootWorkingDirectory: "" };
+  @state() private form = { name: "", description: "" };
   @state() private saving = false;
+
+  @state() private panelOpen = false;
+  @state() private activeProject: Project | null = null;
+  @state() private workspaceLoading = false;
+  @state() private workspaceTab: WorkspaceTab = "details";
+  @state() private projectTasks: Task[] = [];
+  @state() private projectClaws: Claw[] = [];
+  @state() private taskForm = {
+    title: "",
+    description: "",
+    priority: "medium" as TaskPriority,
+    status: "todo" as TaskStatus,
+    assignedClawId: "",
+    dueDate: "",
+  };
+  @state() private taskSaving = false;
+
+  @state() private prdTitle = "Project PRD";
+  @state() private prdMarkdown = "";
+  @state() private prdUpdatedAt = "";
+
+  @state() private brainInput = "";
+  @state() private brainSending = false;
+  @state() private brainMessages: BrainMessage[] = [];
+  @state() private brainActions: BrainActionState[] = [];
 
   override connectedCallback() {
     super.connectedCallback();
-    this.load();
-  }
-
-  override updated(changed: Map<string, unknown>) {
-    if (changed.has("openCreate") && this.openCreate) {
-      this.openCreateModal();
-    }
-    if (changed.has("selectedProjectId") && this.selectedProjectId && this.items.length > 0) {
-      this.selectProject(this.selectedProjectId);
-    }
-    // Also handle when items load after selectedProjectId was already set
-    if (changed.has("items") && this.selectedProjectId && !this.selectedProject) {
-      this.selectProject(this.selectedProjectId);
-    }
-  }
-
-  private selectProject(id: string) {
-    const found = this.items.find(p => String(p.id) === id) ?? null;
-    this.selectedProject = found;
-    if (found) this.mountTasks(found);
+    void this.load();
   }
 
   private async load() {
@@ -56,15 +119,15 @@ export class CclProjects extends LitElement {
     }
   }
 
-  private openCreateModal() {
+  private openCreate() {
     this.editTarget = null;
-    this.form = { name: "", description: "", rootWorkingDirectory: "" };
+    this.form = { name: "", description: "" };
     this.showModal = true;
   }
 
   private openEdit(p: Project) {
     this.editTarget = p;
-    this.form = { name: p.name, description: p.description ?? "", rootWorkingDirectory: p.rootWorkingDirectory ?? "" };
+    this.form = { name: p.name, description: p.description ?? "" };
     this.showModal = true;
   }
 
@@ -75,7 +138,7 @@ export class CclProjects extends LitElement {
       if (this.editTarget) {
         const updated = await projectsApi.update(this.editTarget.id, this.form);
         this.items = this.items.map(i => i.id === updated.id ? updated : i);
-        if (this.selectedProject?.id === updated.id) this.selectedProject = updated;
+        if (this.activeProject?.id === updated.id) this.activeProject = updated;
       } else {
         const created = await projectsApi.create(this.form);
         this.items = [created, ...this.items];
@@ -94,45 +157,316 @@ export class CclProjects extends LitElement {
     try {
       await projectsApi.remove(p.id);
       this.items = this.items.filter(i => i.id !== p.id);
-      if (this.selectedProject?.id === p.id) this.selectedProject = null;
+      if (this.activeProject?.id === p.id) this.closeWorkspace();
     } catch (e) {
       this.error = (e as Error).message;
     }
   }
 
-  private mountTasks(project: Project) {
-    // Defer so the DOM has rendered the tasks host
-    requestAnimationFrame(() => {
-      const host = this.querySelector("#project-tasks-host");
-      if (!host) return;
-      const el = document.createElement("ccl-tasks") as HTMLElement & { tenantId: string; projectId: string };
-      el.tenantId = this.tenantId;
-      el.projectId = String(project.id);
-      host.replaceChildren(el);
-    });
+  private projectTaskList() {
+    if (!this.activeProject) return [];
+    return this.projectTasks.filter((task) => String(task.projectId ?? "") === String(this.activeProject?.id));
   }
 
-  private statusBadge(s: string) {
+  private statusBadge(s: TaskStatus | string) {
     const map: Record<string, string> = {
-      active: "badge-green", completed: "badge-blue",
-      archived: "badge-gray", on_hold: "badge-yellow",
+      todo: "badge-gray",
+      in_progress: "badge-blue",
+      in_review: "badge-yellow",
+      done: "badge-green",
+      blocked: "badge-red",
+      active: "badge-green",
+      completed: "badge-blue",
+      archived: "badge-gray",
+      on_hold: "badge-yellow",
     };
-    return html`<span class="badge ${map[s] ?? "badge-gray"}">${s.replace("_", " ")}</span>`;
+    const label = STATUS_LABELS[s as TaskStatus] ?? s.replace("_", " ");
+    return html`<span class="badge ${map[s] ?? "badge-gray"}">${label}</span>`;
+  }
+
+  private clawName(id?: string) {
+    return id ? (this.projectClaws.find((claw) => claw.id === id)?.name ?? id) : "Unassigned";
+  }
+
+  private priorityBadge(p: TaskPriority) {
+    const map: Record<TaskPriority, string> = {
+      low: "badge-gray",
+      medium: "badge-blue",
+      high: "badge-yellow",
+      critical: "badge-red",
+    };
+    return html`<span class="badge ${map[p]}">${p}</span>`;
+  }
+
+  private formatDate(d?: string) {
+    if (!d) return "";
+    return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  private renderMarkdown(text: string) {
+    const raw = marked.parse(text, { gfm: true, breaks: true });
+    const htmlString = typeof raw === "string" ? raw : "";
+    const clean = DOMPurify.sanitize(htmlString);
+    return html`<div class="md-content">${unsafeHTML(clean)}</div>`;
+  }
+
+  private async openWorkspace(project: Project) {
+    this.panelOpen = true;
+    this.workspaceTab = "details";
+    this.activeProject = project;
+    await this.loadWorkspace();
+  }
+
+  private closeWorkspace() {
+    this.panelOpen = false;
+    this.activeProject = null;
+    this.projectTasks = [];
+    this.projectClaws = [];
+    this.workspaceTab = "details";
+  }
+
+  private async loadWorkspace() {
+    if (!this.activeProject) return;
+    this.workspaceLoading = true;
+    try {
+      const [tasks, claws] = await Promise.all([tasksApi.list(), clawsApi.list()]);
+      this.projectTasks = tasks.filter((task) => String(task.projectId ?? "") === String(this.activeProject?.id));
+      this.projectClaws = claws;
+    } catch (e) {
+      this.error = (e as Error).message;
+    } finally {
+      this.workspaceLoading = false;
+    }
+  }
+
+  private async reassignTask(task: Task, clawId: string) {
+    try {
+      const updated = await tasksApi.update(task.id, { assignedClawId: clawId || "" });
+      this.projectTasks = this.projectTasks.map((item) => (item.id === task.id ? updated : item));
+    } catch (e) {
+      this.error = (e as Error).message;
+    }
+  }
+
+  private async createTask() {
+    if (!this.activeProject || !this.taskForm.title.trim() || this.taskSaving) return;
+    this.taskSaving = true;
+    try {
+      const created = await tasksApi.create({
+        projectId: String(this.activeProject.id),
+        title: this.taskForm.title.trim(),
+        description: this.taskForm.description || undefined,
+        priority: this.taskForm.priority,
+        status: this.taskForm.status,
+        assignedClawId: this.taskForm.assignedClawId || undefined,
+        dueDate: this.taskForm.dueDate || undefined,
+      });
+      this.projectTasks = [created, ...this.projectTasks];
+      this.taskForm = {
+        title: "",
+        description: "",
+        priority: "medium",
+        status: "todo",
+        assignedClawId: "",
+        dueDate: "",
+      };
+    } catch (e) {
+      this.error = (e as Error).message;
+    } finally {
+      this.taskSaving = false;
+    }
+  }
+
+  private projectBrainContext() {
+    return {
+      project: this.activeProject
+        ? {
+            id: this.activeProject.id,
+            key: this.activeProject.key,
+            name: this.activeProject.name,
+            status: this.activeProject.status,
+            description: this.activeProject.description ?? "",
+          }
+        : null,
+      tasks: this.projectTaskList().map((task) => ({
+        id: task.id,
+        key: task.key,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        assignedClawId: task.assignedClawId ?? null,
+      })),
+      claws: this.projectClaws.map((claw) => ({ id: claw.id, name: claw.name, status: claw.status })),
+    };
+  }
+
+  private parseBrainActions(text: string): ProjectBrainAction[] {
+    const match = text.match(/<ccl-actions>([\s\S]*?)<\/ccl-actions>/i);
+    if (!match) return [];
+    try {
+      const parsed = JSON.parse(match[1]) as { actions?: ProjectBrainAction[] };
+      if (!Array.isArray(parsed.actions)) return [];
+      return parsed.actions.filter((action) => (
+        action &&
+        typeof action === "object" &&
+        (action.type === "create_task" || action.type === "assign_task" || action.type === "save_prd")
+      ));
+    } catch {
+      return [];
+    }
+  }
+
+  private stripBrainActions(text: string): string {
+    return text.replace(/<ccl-actions>[\s\S]*?<\/ccl-actions>/gi, "").trim();
+  }
+
+  private brainMessagesPayload() {
+    const systemPrompt = [
+      "You are Brain helping inside a project workspace.",
+      "Respond in markdown.",
+      "When useful, include machine-readable actions in <ccl-actions>{\"actions\":[...]}</ccl-actions>.",
+      "Allowed actions:",
+      "- create_task: { type, title, description?, priority?, status?, dueDate?, assignedClawId?, assignedClawName? }",
+      "- assign_task: { type, taskId?, taskKey?, taskTitle?, assignedClawId?, assignedClawName? }",
+      "- save_prd: { type, title?, content }",
+      "Keep output concise and execution oriented.",
+    ].join("\n");
+
+    return [
+      { role: "system" as const, content: systemPrompt },
+      { role: "system" as const, content: `Project context JSON:\n${JSON.stringify(this.projectBrainContext())}` },
+      ...this.brainMessages.slice(-14).map((message) => ({ role: message.role, content: message.text })),
+    ];
+  }
+
+  private quickBrainPrompt(kind: "describe" | "prd" | "tasks") {
+    if (!this.activeProject) return;
+    if (kind === "describe") {
+      this.brainInput = `Summarize project ${this.activeProject.name} and current task health.`;
+      return;
+    }
+    if (kind === "prd") {
+      this.brainInput = `Draft a complete PRD for ${this.activeProject.name} and include a save_prd action.`;
+      return;
+    }
+    this.brainInput = `Create an execution-ready task plan for ${this.activeProject.name} with create_task actions and assignee suggestions.`;
+  }
+
+  private async sendBrain() {
+    const text = this.brainInput.trim();
+    if (!text || this.brainSending || !this.activeProject) return;
+
+    this.brainMessages = [...this.brainMessages, { id: crypto.randomUUID(), role: "user", text }];
+    this.brainInput = "";
+    this.brainSending = true;
+
+    try {
+      const response = await llm.chat(this.brainMessagesPayload(), { temperature: 0.25, maxTokens: 1800 });
+      const content = response.choices?.[0]?.message?.content?.trim() ?? "I could not generate a response.";
+      const actions = this.parseBrainActions(content);
+      if (actions.length) {
+        this.brainActions = actions.map((action) => ({ action, status: "idle" }));
+      }
+      const cleanContent = this.stripBrainActions(content) || "Done.";
+      this.brainMessages = [...this.brainMessages, { id: crypto.randomUUID(), role: "assistant", text: cleanContent }];
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      this.brainMessages = [...this.brainMessages, { id: crypto.randomUUID(), role: "assistant", text: `Error: ${message}` }];
+    } finally {
+      this.brainSending = false;
+    }
+  }
+
+  private resolveClaw(action: { assignedClawId?: string; assignedClawName?: string }) {
+    if (action.assignedClawId) {
+      const byId = this.projectClaws.find((claw) => claw.id === action.assignedClawId);
+      if (byId) return byId;
+    }
+    if (action.assignedClawName) {
+      const byName = this.projectClaws.find((claw) => claw.name.toLowerCase() === action.assignedClawName?.toLowerCase());
+      if (byName) return byName;
+    }
+    return null;
+  }
+
+  private async applyBrainAction(index: number) {
+    const entry = this.brainActions[index];
+    if (!entry || entry.status === "running" || !this.activeProject) return;
+
+    this.brainActions = this.brainActions.map((action, i) => (i === index ? { ...action, status: "running", result: undefined } : action));
+
+    try {
+      if (entry.action.type === "save_prd") {
+        this.prdTitle = entry.action.title?.trim() || "Project PRD";
+        this.prdMarkdown = entry.action.content;
+        this.prdUpdatedAt = new Date().toISOString();
+        this.brainActions = this.brainActions.map((action, i) => (i === index ? { ...action, status: "done", result: "Saved PRD draft" } : action));
+        return;
+      }
+
+      if (entry.action.type === "create_task") {
+        const claw = this.resolveClaw(entry.action);
+        const created = await tasksApi.create({
+          projectId: String(this.activeProject.id),
+          title: entry.action.title,
+          description: entry.action.description,
+          priority: entry.action.priority ?? "medium",
+          status: entry.action.status ?? "todo",
+          dueDate: entry.action.dueDate,
+          assignedClawId: claw?.id,
+        });
+        this.projectTasks = [created, ...this.projectTasks];
+        this.brainActions = this.brainActions.map((action, i) => (i === index ? { ...action, status: "done", result: `Created task ${created.key}` } : action));
+        return;
+      }
+
+      const action = entry.action;
+      const task = this.projectTaskList().find((item) => (
+        (action.taskId && item.id === action.taskId) ||
+        (action.taskKey && item.key.toLowerCase() === action.taskKey.toLowerCase()) ||
+        (action.taskTitle && item.title.toLowerCase() === action.taskTitle.toLowerCase())
+      ));
+
+      if (!task) {
+        throw new Error("Task not found in this project for assignment");
+      }
+
+      const claw = this.resolveClaw(action);
+      if (!claw) {
+        throw new Error("Target claw not found for assignment");
+      }
+
+      const updated = await tasksApi.update(task.id, { assignedClawId: claw.id });
+      this.projectTasks = this.projectTasks.map((item) => (item.id === updated.id ? updated : item));
+      this.brainActions = this.brainActions.map((item, i) => (i === index ? { ...item, status: "done", result: `Assigned ${updated.key} → ${claw.name}` } : item));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      this.brainActions = this.brainActions.map((action, i) => (i === index ? { ...action, status: "error", result: message } : action));
+    }
+  }
+
+  private async applyAllBrainActions() {
+    for (let i = 0; i < this.brainActions.length; i++) {
+      if (this.brainActions[i]?.status === "idle" || this.brainActions[i]?.status === "error") {
+        await this.applyBrainAction(i);
+      }
+    }
+  }
+
+  private clearBrain() {
+    this.brainInput = "";
+    this.brainMessages = [];
+    this.brainActions = [];
   }
 
   override render() {
-    if (this.selectedProject) return this.renderDetail(this.selectedProject);
-    return this.renderList();
-  }
-
-  private renderList() {
     return html`
       <div class="page-header">
         <div>
           <div class="page-title">Projects</div>
           <div class="page-sub">Organize work into projects</div>
         </div>
-        <button class="btn btn-primary" @click=${this.openCreateModal}>
+        <button class="btn btn-primary" @click=${this.openCreate}>
           <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           New project
         </button>
@@ -148,13 +482,13 @@ export class CclProjects extends LitElement {
               <div class="empty-state-icon">📁</div>
               <div class="empty-state-title">No projects yet</div>
               <div class="empty-state-sub">Create a project to start organizing tasks</div>
-              <button class="btn btn-primary" style="margin-top:16px" @click=${this.openCreateModal}>Create project</button>
+              <button class="btn btn-primary" style="margin-top:16px" @click=${this.openCreate}>Create project</button>
             </div>`
           : html`
             <div class="grid grid-3">
               ${this.items.map(p => html`
                 <div class="card" style="cursor:pointer;transition:border-color .15s"
-                  @click=${() => { this.selectedProject = p; this.mountTasks(p); }}
+                  @click=${() => void this.openWorkspace(p)}
                   @mouseenter=${(e: Event) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--accent)"; }}
                   @mouseleave=${(e: Event) => { (e.currentTarget as HTMLElement).style.borderColor = ""; }}>
                   <div class="card-header">
@@ -173,55 +507,295 @@ export class CclProjects extends LitElement {
                       : ""}
                     <div style="flex:1"></div>
                     <button class="btn btn-ghost btn-sm" @click=${(e: Event) => { e.stopPropagation(); this.openEdit(p); }}>Edit</button>
-                    <button class="btn btn-danger btn-sm" @click=${(e: Event) => { e.stopPropagation(); this.removeProject(p); }}>Delete</button>
+                    <button class="btn btn-danger btn-sm" @click=${(e: Event) => { e.stopPropagation(); void this.removeProject(p); }}>Delete</button>
                   </div>
                 </div>
               `)}
             </div>`}
 
       ${this.showModal ? this.renderModal() : ""}
+      ${this.panelOpen && this.activeProject ? this.renderWorkspacePanel() : ""}
     `;
   }
 
-  private renderDetail(p: Project) {
+  private renderWorkspacePanel() {
+    const project = this.activeProject!;
+    const tasks = this.projectTaskList();
+
     return html`
-      <!-- Back breadcrumb -->
-      <div style="margin-bottom:20px">
-        <button class="btn btn-ghost btn-sm"
-          style="display:inline-flex;align-items:center;gap:6px;color:var(--muted)"
-          @click=${() => { this.selectedProject = null; }}>
-          <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2"><polyline points="15 18 9 12 15 6"/></svg>
-          Projects
+      <div class="panel-overlay" @click=${() => this.closeWorkspace()}></div>
+      <div class="panel-drawer" style="--panel-width:min(1100px,96vw)">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">${project.name}</div>
+            <div style="font-size:11px;font-family:var(--mono);color:var(--muted)">${project.key}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${this.statusBadge(project.status)}
+            <button class="panel-close" @click=${() => this.closeWorkspace()}>
+              <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="panel-tabs">
+          ${([
+            ["details", "Project details"],
+            ["board", "Task board"],
+            ["tasks", "Tasks"],
+            ["prds", "PRDs"],
+            ["brain", "Brain"],
+          ] as Array<[WorkspaceTab, string]>).map(([tab, label]) => html`
+            <button class="panel-tab ${this.workspaceTab === tab ? "active" : ""}" @click=${() => { this.workspaceTab = tab; }}>${label}</button>
+          `)}
+        </div>
+
+        <div class="panel-body" style="padding:18px">
+          ${this.workspaceLoading
+            ? html`<div style="color:var(--muted);font-size:13px">Loading workspace…</div>`
+            : this.workspaceTab === "details"
+              ? this.renderProjectDetails(project, tasks)
+              : this.workspaceTab === "board"
+                ? this.renderTaskBoard(tasks)
+                : this.workspaceTab === "tasks"
+                  ? this.renderTasksTab(tasks)
+                  : this.workspaceTab === "prds"
+                    ? this.renderPrdsTab()
+                    : this.renderBrainTab()}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderProjectDetails(project: Project, tasks: Task[]) {
+    const openCount = tasks.filter((task) => task.status !== "done").length;
+    return html`
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="card-title" style="margin-bottom:10px">Overview</div>
+          <div style="font-size:13px;line-height:1.6;color:var(--text)">
+            ${project.description || "No project description yet."}
+          </div>
+          <div style="display:grid;gap:8px;margin-top:14px">
+            <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Project key</span><span>${project.key}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Status</span><span>${project.status.replace("_", " ")}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Tasks</span><span>${tasks.length}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Open tasks</span><span>${openCount}</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="margin-bottom:10px">Workspace actions</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" @click=${() => { this.workspaceTab = "tasks"; }}>Create task</button>
+            <button class="btn btn-secondary btn-sm" @click=${() => { this.workspaceTab = "brain"; this.quickBrainPrompt("tasks"); }}>Plan with Brain</button>
+            <button class="btn btn-secondary btn-sm" @click=${() => { this.workspaceTab = "brain"; this.quickBrainPrompt("prd"); }}>Draft PRD</button>
+            <button class="btn btn-ghost btn-sm" @click=${() => this.openEdit(project)}>Edit project</button>
+          </div>
+          <div style="margin-top:12px;font-size:12px;color:var(--muted)">Use Brain to generate PRDs and executable task actions for this project.</div>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderTaskBoard(tasks: Task[]) {
+    return html`
+      <div class="kanban">
+        ${STATUSES.map((status) => html`
+          <div class="kanban-col">
+            <div class="kanban-col-header">
+              <div class="kanban-col-title">${STATUS_LABELS[status]}</div>
+              <div class="kanban-col-count">${tasks.filter((task) => task.status === status).length}</div>
+            </div>
+            <div class="kanban-col-body">
+              ${tasks.filter((task) => task.status === status).map((task) => html`
+                <div class="task-card">
+                  <div class="task-card-title">${task.title}</div>
+                  <div class="task-card-meta">
+                    <span class="task-key">${task.key}</span>
+                    ${this.priorityBadge(task.priority)}
+                    <span style="font-size:11px;color:var(--muted)">${this.clawName(task.assignedClawId)}</span>
+                  </div>
+                </div>
+              `)}
+            </div>
+          </div>
+        `)}
+      </div>
+    `;
+  }
+
+  private renderTasksTab(tasks: Task[]) {
+    return html`
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:10px">Create task</div>
+        <div class="grid grid-2">
+          <div class="field">
+            <label class="label">Title</label>
+            <input class="input" .value=${this.taskForm.title} @input=${(e: InputEvent) => { this.taskForm = { ...this.taskForm, title: (e.target as HTMLInputElement).value }; }}>
+          </div>
+          <div class="field">
+            <label class="label">Assign claw</label>
+            <select class="select" .value=${this.taskForm.assignedClawId} @change=${(e: Event) => { this.taskForm = { ...this.taskForm, assignedClawId: (e.target as HTMLSelectElement).value }; }}>
+              <option value="">Unassigned</option>
+              ${this.projectClaws.map((claw) => html`<option value=${claw.id}>${claw.name}</option>`) }
+            </select>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:10px">
+          <label class="label">Description</label>
+          <textarea class="textarea" .value=${this.taskForm.description} @input=${(e: InputEvent) => { this.taskForm = { ...this.taskForm, description: (e.target as HTMLTextAreaElement).value }; }}></textarea>
+        </div>
+
+        <div class="grid grid-3" style="margin-top:10px">
+          <div class="field">
+            <label class="label">Priority</label>
+            <select class="select" .value=${this.taskForm.priority} @change=${(e: Event) => { this.taskForm = { ...this.taskForm, priority: (e.target as HTMLSelectElement).value as TaskPriority }; }}>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="critical">critical</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label">Status</label>
+            <select class="select" .value=${this.taskForm.status} @change=${(e: Event) => { this.taskForm = { ...this.taskForm, status: (e.target as HTMLSelectElement).value as TaskStatus }; }}>
+              ${STATUSES.map((status) => html`<option value=${status}>${STATUS_LABELS[status]}</option>`) }
+            </select>
+          </div>
+          <div class="field">
+            <label class="label">Due date</label>
+            <input class="input" type="date" .value=${this.taskForm.dueDate} @change=${(e: Event) => { this.taskForm = { ...this.taskForm, dueDate: (e.target as HTMLInputElement).value }; }}>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:10px">
+          <button class="btn btn-primary" ?disabled=${this.taskSaving || !this.taskForm.title.trim()} @click=${() => void this.createTask()}>
+            ${this.taskSaving ? "Creating…" : "Create task"}
+          </button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Assigned</th>
+              <th>Due</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tasks.map((task) => html`
+              <tr>
+                <td>
+                  <div style="font-weight:500;color:var(--text-strong)">${task.title}</div>
+                  <div style="font-size:11px;font-family:var(--mono);color:var(--muted)">${task.key}</div>
+                </td>
+                <td>${this.statusBadge(task.status)}</td>
+                <td>${this.priorityBadge(task.priority)}</td>
+                <td>
+                  <select class="select" style="min-width:150px" .value=${task.assignedClawId ?? ""} @change=${(e: Event) => void this.reassignTask(task, (e.target as HTMLSelectElement).value)}>
+                    <option value="">Unassigned</option>
+                    ${this.projectClaws.map((claw) => html`<option value=${claw.id}>${claw.name}</option>`) }
+                  </select>
+                </td>
+                <td style="font-size:12px;color:var(--muted)">${this.formatDate(task.dueDate)}</td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  private renderPrdsTab() {
+    return html`
+      <div class="card" style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="card-title" style="margin:0">${this.prdTitle}</div>
+          <div style="flex:1"></div>
+          <button class="btn btn-secondary btn-sm" @click=${() => { this.workspaceTab = "brain"; this.quickBrainPrompt("prd"); }}>Generate with Brain</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">
+          ${this.prdUpdatedAt ? `Updated ${new Date(this.prdUpdatedAt).toLocaleString()}` : "No PRD saved yet. Use Brain to draft one."}
+        </div>
+      </div>
+
+      ${this.prdMarkdown
+        ? this.renderMarkdown(this.prdMarkdown)
+        : html`<div class="empty-state"><div class="empty-state-title">No PRD yet</div><div class="empty-state-sub">Ask Brain to draft and save a PRD for this project.</div></div>`}
+    `;
+  }
+
+  private renderBrainTab() {
+    return html`
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-ghost btn-sm" @click=${() => this.quickBrainPrompt("describe")}>Describe project</button>
+        <button class="btn btn-ghost btn-sm" @click=${() => this.quickBrainPrompt("prd")}>Draft PRD</button>
+        <button class="btn btn-ghost btn-sm" @click=${() => this.quickBrainPrompt("tasks")}>Generate tasks</button>
+        <button class="btn btn-ghost btn-sm" @click=${() => this.clearBrain()}>New chat</button>
+      </div>
+
+      <div class="chat-messages" style="padding:12px 0;max-height:380px;overflow:auto">
+        ${this.brainMessages.length === 0
+          ? html`<div class="empty-state" style="padding:30px 12px"><div class="empty-state-title">Project Brain ready</div><div class="empty-state-sub">Generate PRDs, tasks, and assignments for this project.</div></div>`
+          : this.brainMessages.map((message) => html`
+            <div class="msg ${message.role === "user" ? "msg-user" : ""}">
+              <div class="msg-bubble ${message.role === "user" ? "msg-bubble-user" : "msg-bubble-assistant"}">
+                ${this.renderMarkdown(message.text)}
+              </div>
+              <div class="msg-meta">${message.role}</div>
+            </div>
+          `)}
+      </div>
+
+      ${this.brainActions.length > 0 ? html`
+        <div class="card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div class="card-title" style="margin:0">Proposed actions</div>
+            <div style="flex:1"></div>
+            <button class="btn btn-secondary btn-sm" @click=${() => void this.applyAllBrainActions()}>Apply all</button>
+          </div>
+          <div style="display:grid;gap:8px">
+            ${this.brainActions.map((entry, index) => html`
+              <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:10px;display:grid;gap:8px">
+                <div style="font-size:12px;color:var(--text)">
+                  ${entry.action.type === "create_task"
+                    ? `Create task: ${entry.action.title}`
+                    : entry.action.type === "assign_task"
+                      ? `Assign task: ${entry.action.taskKey ?? entry.action.taskTitle ?? entry.action.taskId ?? "task"}`
+                      : `Save PRD: ${entry.action.title ?? "Project PRD"}`}
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <button class="btn btn-ghost btn-sm" ?disabled=${entry.status === "running" || entry.status === "done"} @click=${() => void this.applyBrainAction(index)}>
+                    ${entry.status === "running" ? "Applying…" : entry.status === "done" ? "Applied" : "Apply"}
+                  </button>
+                  <span class="badge ${entry.status === "done" ? "badge-green" : entry.status === "error" ? "badge-red" : entry.status === "running" ? "badge-yellow" : "badge-gray"}">${entry.status}</span>
+                  ${entry.result ? html`<span style="font-size:11px;color:var(--muted)">${entry.result}</span>` : ""}
+                </div>
+              </div>
+            `)}
+          </div>
+        </div>
+      ` : ""}
+
+      <div class="chat-input-row" style="padding:0;border-top:none">
+        <textarea class="chat-textarea" rows="3" placeholder="Ask Brain for project help…" .value=${this.brainInput}
+          @input=${(e: InputEvent) => { this.brainInput = (e.target as HTMLTextAreaElement).value; }}
+          @keydown=${(e: KeyboardEvent) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void this.sendBrain();
+            }
+          }}></textarea>
+        <button class="btn btn-primary" ?disabled=${this.brainSending || !this.brainInput.trim()} @click=${() => void this.sendBrain()}>
+          ${this.brainSending ? "Thinking…" : "Send"}
         </button>
       </div>
-
-      <!-- Project header -->
-      <div class="page-header" style="margin-bottom:24px">
-        <div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <div class="page-title">${p.name}</div>
-            ${this.statusBadge(p.status)}
-          </div>
-          <div style="font-size:12px;font-family:var(--mono);color:var(--muted);margin-top:2px">${p.key}</div>
-          ${p.description
-            ? html`<div style="font-size:13px;color:var(--muted);margin-top:6px;line-height:1.5">${p.description}</div>`
-            : ""}
-          ${p.rootWorkingDirectory
-            ? html`<div style="font-size:12px;color:var(--muted);margin-top:6px">Root directory: ${p.rootWorkingDirectory}</div>`
-            : html`<div style="font-size:12px;color:var(--muted);margin-top:6px">Root directory: not set</div>`}
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost btn-sm" @click=${() => this.openEdit(p)}>Edit project</button>
-          <button class="btn btn-danger btn-sm" @click=${() => this.removeProject(p)}>Delete</button>
-        </div>
-      </div>
-
-      ${this.error ? html`<div class="error-banner">${this.error}</div>` : ""}
-
-      <!-- Tasks host — populated imperatively via mountTasks() -->
-      <div id="project-tasks-host"></div>
-
-      ${this.showModal ? this.renderModal() : ""}
     `;
   }
 
@@ -243,12 +817,6 @@ export class CclProjects extends LitElement {
               <textarea class="textarea" placeholder="What is this project about?"
                 .value=${this.form.description}
                 @input=${(e: InputEvent) => { this.form = { ...this.form, description: (e.target as HTMLTextAreaElement).value }; }}></textarea>
-            </div>
-            <div class="field">
-              <label class="label">Root working directory <span class="label-hint">(optional)</span></label>
-              <input class="input" placeholder="/Users/you/dev/my-repo"
-                .value=${this.form.rootWorkingDirectory}
-                @input=${(e: InputEvent) => { this.form = { ...this.form, rootWorkingDirectory: (e.target as HTMLInputElement).value }; }}>
             </div>
             <div class="modal-footer">
               <button class="btn btn-ghost" type="button" @click=${() => this.showModal = false}>Cancel</button>

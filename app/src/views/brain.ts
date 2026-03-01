@@ -1,5 +1,8 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import {
   llm,
   projects as projectsApi,
@@ -281,6 +284,13 @@ export class CclBrain extends LitElement {
     this.input = "";
   }
 
+  private renderMarkdown(text: string) {
+    const raw = marked.parse(text, { gfm: true, breaks: true });
+    const htmlString = typeof raw === "string" ? raw : "";
+    const clean = DOMPurify.sanitize(htmlString);
+    return html`<div class="md-content">${unsafeHTML(clean)}</div>`;
+  }
+
   private onKeydown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -329,7 +339,7 @@ export class CclBrain extends LitElement {
             </div>
           ` : this.messages.map((m) => html`
             <div class="msg ${m.role === "user" ? "msg-user" : ""}">
-              <div class="msg-bubble ${m.role === "user" ? "msg-bubble-user" : "msg-bubble-assistant"}" style="white-space:pre-wrap">${m.text}</div>
+              <div class="msg-bubble ${m.role === "user" ? "msg-bubble-user" : "msg-bubble-assistant"}">${this.renderMarkdown(m.text)}</div>
               <div class="msg-meta">${m.role}</div>
             </div>
           `)}

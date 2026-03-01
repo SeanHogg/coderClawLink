@@ -418,7 +418,7 @@ export const projects = {
 export const tasks = {
   async list(params?: { projectId?: string; status?: string; archived?: boolean }): Promise<Task[]> {
     const q = new URLSearchParams();
-    if (params?.projectId) q.set("projectId", params.projectId);
+    if (params?.projectId) q.set("project_id", params.projectId);
     if (params?.status)    q.set("status", params.status);
     if (params?.archived)  q.set("archived", "true");
     const res = await request<{ tasks: Array<Task & { assignedClawId?: number | string | null }> }>(`/api/tasks${q.size ? `?${q}` : ""}`);
@@ -431,6 +431,10 @@ export const tasks = {
   async create(data: Partial<Task>): Promise<Task> {
     const payload = {
       ...data,
+      projectId:
+        data.projectId === undefined
+          ? undefined
+          : Number(data.projectId),
       assignedClawId:
         data.assignedClawId === undefined
           ? undefined
@@ -451,6 +455,10 @@ export const tasks = {
   async update(id: string, data: Partial<Task>): Promise<Task> {
     const payload = {
       ...data,
+      projectId:
+        data.projectId === undefined
+          ? undefined
+          : Number(data.projectId),
       assignedClawId:
         data.assignedClawId === undefined
           ? undefined

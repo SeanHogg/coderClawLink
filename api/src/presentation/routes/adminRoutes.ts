@@ -23,7 +23,7 @@ import {
   llmUsageLog,
 } from '../../infrastructure/database/schema';
 import { signJwt } from '../../infrastructure/auth/JwtService';
-import { LlmProxyService, FREE_MODEL_POOL, PREFERRED_POOL_SIZE } from '../../application/llm/LlmProxyService';
+import { LlmProxyService, FREE_MODEL_POOL, PRO_MODEL_POOL, PREFERRED_POOL_SIZE } from '../../application/llm/LlmProxyService';
 import { llmFailoverLog } from '../../infrastructure/database/schema';
 
 export function createAdminRoutes(): Hono<HonoEnv> {
@@ -116,11 +116,27 @@ export function createAdminRoutes(): Hono<HonoEnv> {
       executionCount: number; errorCount: number; paidTenantCount: number;
     }>;
 
-    // LLM model pool — use live cooldown state when key is available
-    const apiKey = c.env.OPENROUTER_API_KEY;
-    const modelPool = apiKey
-      ? new LlmProxyService(apiKey).status()
+    // LLM model pool — include both Free + Pro pools, with live cooldown state when keys are available
+    const freeApiKey = c.env.OPENROUTER_API_KEY;
+    const proApiKey = c.env.OPENROUTER_API_KEY_PRO;
+
+    const freeModelPool = freeApiKey
+      ? new LlmProxyService(freeApiKey, {
+          modelPool: FREE_MODEL_POOL,
+          preferredPoolSize: Math.min(PREFERRED_POOL_SIZE, FREE_MODEL_POOL.length),
+          productName: 'coderClawLLM',
+        }).status()
       : FREE_MODEL_POOL.map((m, i) => ({ model: m, preferred: i < PREFERRED_POOL_SIZE, available: true }));
+
+    const proModelPool = proApiKey
+      ? new LlmProxyService(proApiKey, {
+          modelPool: PRO_MODEL_POOL,
+          preferredPoolSize: Math.min(PREFERRED_POOL_SIZE, PRO_MODEL_POOL.length),
+          productName: 'coderClawLLMPro',
+        }).status()
+      : PRO_MODEL_POOL.map((m, i) => ({ model: m, preferred: i < PREFERRED_POOL_SIZE, available: true }));
+
+    const modelPool = [...freeModelPool, ...proModelPool];
 
     return c.json({
       status:       dbOk ? 'ok' : 'degraded',

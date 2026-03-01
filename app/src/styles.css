@@ -589,6 +589,62 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .msg-meta { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px; }
 .msg-thinking { font-size:12px; color:var(--muted); font-style:italic; padding:8px 14px; }
 
+.md-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.md-content > :first-child { margin-top: 0; }
+.md-content > :last-child { margin-bottom: 0; }
+
+.md-content p,
+.md-content ul,
+.md-content ol,
+.md-content blockquote,
+.md-content pre,
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+  margin: 0 0 10px 0;
+}
+
+.md-content ul,
+.md-content ol {
+  padding-left: 18px;
+}
+
+.md-content code {
+  font-family: var(--mono);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 12px;
+}
+
+.md-content pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  overflow-x: auto;
+}
+
+.md-content pre code {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.md-content a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 /* ============================================================
    Brain
    ============================================================ */
