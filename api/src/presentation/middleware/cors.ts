@@ -31,7 +31,11 @@ export const corsMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
 
   await next();
 
-  if (isAllowed) {
+  // WebSocket upgrade responses (101 Switching Protocols) are immutable in
+  // Cloudflare Workers — attempting to set headers throws. Skip CORS headers
+  // for WebSocket upgrades; the browser does not enforce CORS on WS responses.
+  const isWebSocket = c.req.header('Upgrade')?.toLowerCase() === 'websocket';
+  if (isAllowed && !isWebSocket) {
     c.res.headers.set('Access-Control-Allow-Origin', origin);
     c.res.headers.set('Vary', 'Origin');
   }
