@@ -50,6 +50,11 @@ type ProjectBrainAction =
       type: "save_prd";
       title?: string;
       content: string;
+    }
+  | {
+      type: "set_project_details";
+      description?: string;
+      rootWorkingDirectory?: string;
     };
 
 interface BrainMessage {
@@ -69,13 +74,15 @@ export class CclProjects extends LitElement {
   override createRenderRoot() { return this; }
 
   @property() tenantId = "";
+  @property() selectedProjectId = "";
+  @property({ type: Boolean }) openCreate = false;
 
   @state() private items: Project[] = [];
   @state() private loading = true;
   @state() private error = "";
   @state() private showModal = false;
   @state() private editTarget: Project | null = null;
-  @state() private form = { name: "", description: "" };
+  @state() private form = { name: "", description: "", rootWorkingDirectory: "" };
   @state() private saving = false;
 
   @state() private panelOpen = false;
@@ -108,6 +115,22 @@ export class CclProjects extends LitElement {
     void this.load();
   }
 
+  override updated(changed: Map<string, unknown>) {
+    if (changed.has("openCreate") && this.openCreate) {
+      this.openCreateProject();
+    }
+
+    if (this.items.length > 0 && changed.has("selectedProjectId") && this.selectedProjectId) {
+      const selected = this.items.find((item) => String(item.id) === this.selectedProjectId);
+      if (selected) void this.openWorkspace(selected);
+    }
+
+    if (this.items.length > 0 && changed.has("items") && this.selectedProjectId && !this.panelOpen) {
+      const selected = this.items.find((item) => String(item.id) === this.selectedProjectId);
+      if (selected) void this.openWorkspace(selected);
+    }
+  }
+
   private async load() {
     this.loading = true;
     try {
@@ -119,15 +142,19 @@ export class CclProjects extends LitElement {
     }
   }
 
-  private openCreate() {
+  private openCreateProject() {
     this.editTarget = null;
-    this.form = { name: "", description: "" };
+    this.form = { name: "", description: "", rootWorkingDirectory: "" };
     this.showModal = true;
   }
 
   private openEdit(p: Project) {
     this.editTarget = p;
-    this.form = { name: p.name, description: p.description ?? "" };
+    this.form = {
+      name: p.name,
+      description: p.description ?? "",
+      rootWorkingDirectory: p.rootWorkingDirectory ?? "",
+    };
     this.showModal = true;
   }
 
@@ -214,12 +241,25 @@ export class CclProjects extends LitElement {
     this.panelOpen = true;
     this.workspaceTab = "details";
     this.activeProject = project;
+    this.selectedProjectId = String(project.id);
     await this.loadWorkspace();
+
+    if (!project.rootWorkingDirectory && this.brainMessages.length === 0) {
+      this.workspaceTab = "brain";
+      this.brainMessages = [
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: "To onboard this project, I need the project root path where `.coderClaw` should live. Reply with the path and I will save it to project details.",
+        },
+      ];
+    }
   }
 
   private closeWorkspace() {
     this.panelOpen = false;
     this.activeProject = null;
+    this.selectedProjectId = "";
     this.projectTasks = [];
     this.projectClaws = [];
     this.workspaceTab = "details";
@@ -286,6 +326,7 @@ export class CclProjects extends LitElement {
             name: this.activeProject.name,
             status: this.activeProject.status,
             description: this.activeProject.description ?? "",
+            rootWorkingDirectory: this.activeProject.rootWorkingDirectory ?? "",
           }
         : null,
       tasks: this.projectTaskList().map((task) => ({
@@ -309,7 +350,7 @@ export class CclProjects extends LitElement {
       return parsed.actions.filter((action) => (
         action &&
         typeof action === "object" &&
-        (action.type === "create_task" || action.type === "assign_task" || action.type === "save_prd")
+        (action.type === "create_task" || action.type === "assign_task" || action.type === "save_prd" || action.type === "set_project_details")
       ));
     } catch {
       return [];
@@ -329,6 +370,8 @@ export class CclProjects extends LitElement {
       "- create_task: { type, title, description?, priority?, status?, dueDate?, assignedClawId?, assignedClawName? }",
       "- assign_task: { type, taskId?, taskKey?, taskTitle?, assignedClawId?, assignedClawName? }",
       "- save_prd: { type, title?, content }",
+      "- set_project_details: { type, description?, rootWorkingDirectory? }",
+      "If rootWorkingDirectory is missing, ask for it and include set_project_details action once user provides it.",
       "Keep output concise and execution oriented.",
     ].join("\n");
 
@@ -396,6 +439,17 @@ export class CclProjects extends LitElement {
     this.brainActions = this.brainActions.map((action, i) => (i === index ? { ...action, status: "running", result: undefined } : action));
 
     try {
+      if (entry.action.type === "set_project_details") {
+        const updated = await projectsApi.update(this.activeProject.id, {
+          description: entry.action.description ?? this.activeProject.description,
+          rootWorkingDirectory: entry.action.rootWorkingDirectory ?? this.activeProject.rootWorkingDirectory,
+        });
+        this.activeProject = updated;
+        this.items = this.items.map((item) => (item.id === updated.id ? updated : item));
+        this.brainActions = this.brainActions.map((action, i) => (i === index ? { ...action, status: "done", result: "Updated project details" } : action));
+        return;
+      }
+
       if (entry.action.type === "save_prd") {
         this.prdTitle = entry.action.title?.trim() || "Project PRD";
         this.prdMarkdown = entry.action.content;
@@ -466,7 +520,7 @@ export class CclProjects extends LitElement {
           <div class="page-title">Projects</div>
           <div class="page-sub">Organize work into projects</div>
         </div>
-        <button class="btn btn-primary" @click=${this.openCreate}>
+        <button class="btn btn-primary" @click=${this.openCreateProject}>
           <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           New project
         </button>
@@ -482,7 +536,7 @@ export class CclProjects extends LitElement {
               <div class="empty-state-icon">📁</div>
               <div class="empty-state-title">No projects yet</div>
               <div class="empty-state-sub">Create a project to start organizing tasks</div>
-              <button class="btn btn-primary" style="margin-top:16px" @click=${this.openCreate}>Create project</button>
+              <button class="btn btn-primary" style="margin-top:16px" @click=${this.openCreateProject}>Create project</button>
             </div>`
           : html`
             <div class="grid grid-3">
@@ -499,7 +553,10 @@ export class CclProjects extends LitElement {
                     ${this.statusBadge(p.status)}
                   </div>
                   ${p.description
-                    ? html`<div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px">${p.description}</div>`
+                    ? html`<div
+                        title=${p.description}
+                        style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;"
+                      >${p.description}</div>`
                     : ""}
                   <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
                     ${p.taskCount != null
@@ -579,6 +636,7 @@ export class CclProjects extends LitElement {
           <div style="display:grid;gap:8px;margin-top:14px">
             <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Project key</span><span>${project.key}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Status</span><span>${project.status.replace("_", " ")}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;gap:12px"><span style="color:var(--muted)">Root path</span><span class="truncate" title=${project.rootWorkingDirectory ?? ""}>${project.rootWorkingDirectory ?? "Not set"}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Tasks</span><span>${tasks.length}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Open tasks</span><span>${openCount}</span></div>
           </div>
@@ -768,7 +826,9 @@ export class CclProjects extends LitElement {
                     ? `Create task: ${entry.action.title}`
                     : entry.action.type === "assign_task"
                       ? `Assign task: ${entry.action.taskKey ?? entry.action.taskTitle ?? entry.action.taskId ?? "task"}`
-                      : `Save PRD: ${entry.action.title ?? "Project PRD"}`}
+                      : entry.action.type === "save_prd"
+                        ? `Save PRD: ${entry.action.title ?? "Project PRD"}`
+                        : `Update project details${entry.action.rootWorkingDirectory ? ` (${entry.action.rootWorkingDirectory})` : ""}`}
                 </div>
                 <div style="display:flex;gap:8px;align-items:center">
                   <button class="btn btn-ghost btn-sm" ?disabled=${entry.status === "running" || entry.status === "done"} @click=${() => void this.applyBrainAction(index)}>
@@ -817,6 +877,12 @@ export class CclProjects extends LitElement {
               <textarea class="textarea" placeholder="What is this project about?"
                 .value=${this.form.description}
                 @input=${(e: InputEvent) => { this.form = { ...this.form, description: (e.target as HTMLTextAreaElement).value }; }}></textarea>
+            </div>
+            <div class="field">
+              <label class="label">Root working directory <span class="label-hint">(optional)</span></label>
+              <input class="input" placeholder="/Users/you/dev/my-repo"
+                .value=${this.form.rootWorkingDirectory}
+                @input=${(e: InputEvent) => { this.form = { ...this.form, rootWorkingDirectory: (e.target as HTMLInputElement).value }; }}>
             </div>
             <div class="modal-footer">
               <button class="btn btn-ghost" type="button" @click=${() => this.showModal = false}>Cancel</button>

@@ -2,6 +2,9 @@ import { MiddlewareHandler } from 'hono';
 import type { HonoEnv } from '../../env';
 import { UnauthorizedError } from '../../domain/shared/errors';
 import { verifyWebJwt } from '../../infrastructure/auth/JwtService';
+import { buildDatabase } from '../../infrastructure/database/connection';
+import { authTokens, authUserSessions } from '../../infrastructure/database/schema';
+import { and, eq, isNull, gt, sql } from 'drizzle-orm';
 
 /**
  * Web/marketplace JWT middleware.
@@ -26,6 +29,61 @@ export const webAuthMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => 
     throw new UnauthorizedError('Invalid or expired token');
   }
 
+  if (payload.jti) {
+    const db = buildDatabase(c.env);
+    const [activeToken] = await db
+      .select({
+        jti: authTokens.jti,
+        sessionId: authTokens.sessionId,
+      })
+      .from(authTokens)
+      .where(
+        and(
+          eq(authTokens.jti, payload.jti),
+          eq(authTokens.userId, payload.sub),
+          isNull(authTokens.revokedAt),
+          gt(authTokens.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+
+    if (!activeToken) {
+      throw new UnauthorizedError('Token has been revoked or expired');
+    }
+
+    if (activeToken.sessionId) {
+      const [session] = await db
+        .select({ id: authUserSessions.id })
+        .from(authUserSessions)
+        .where(
+          and(
+            eq(authUserSessions.id, activeToken.sessionId),
+            eq(authUserSessions.userId, payload.sub),
+            eq(authUserSessions.isActive, true),
+            isNull(authUserSessions.revokedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!session) {
+        throw new UnauthorizedError('Session has been revoked');
+      }
+
+      await db
+        .update(authUserSessions)
+        .set({ lastSeenAt: sql`now()` })
+        .where(eq(authUserSessions.id, activeToken.sessionId));
+    }
+
+    await db
+      .update(authTokens)
+      .set({ lastSeenAt: sql`now()` })
+      .where(eq(authTokens.jti, payload.jti));
+
+    c.set('tokenJti', payload.jti);
+  }
+
   c.set('userId', payload.sub);
+  if (payload.sid) c.set('sessionId', payload.sid);
   await next();
 };

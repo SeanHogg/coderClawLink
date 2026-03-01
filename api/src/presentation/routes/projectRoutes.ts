@@ -1,11 +1,24 @@
-import { Hono } from 'hono';
-import { and, eq } from 'drizzle-orm';
+import { Hono, type Context } from 'hono';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import { ProjectService } from '../../application/project/ProjectService';
 import type { HonoEnv } from '../../env';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware';
 import { ProjectStatus, TenantRole } from '../../domain/shared/types';
 import type { Db } from '../../infrastructure/database/connection';
-import { clawProjects, coderclawInstances, projects, tenants } from '../../infrastructure/database/schema';
+import { clawProjects, coderclawInstances, projects, tasks, tenants } from '../../infrastructure/database/schema';
+
+type ProjectRecommendation = {
+  name: string;
+  description: string;
+};
+
+type ChatCompletionPayload = {
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+    };
+  }>;
+};
 
 /**
  * Presentation layer: Project HTTP routes.
@@ -38,10 +51,116 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
     return title.split(' ').slice(0, 6).join(' ').replace(/^[a-z]/, (c) => c.toUpperCase());
   };
 
+  const deriveFallbackNameFromPrompt = (prompt: string) => {
+    const domainMatch = prompt.match(/https?:\/\/(?:www\.)?([a-zA-Z0-9-]+)(?:\.[a-zA-Z0-9.-]+)+/);
+    if (domainMatch?.[1]) {
+      return domainMatch[1].trim();
+    }
+    return deriveProjectName(prompt);
+  };
+
+  const extractJsonObject = (content: string): string | null => {
+    const trimmed = content.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed;
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) return null;
+    return trimmed.slice(start, end + 1);
+  };
+
+  const summarizePrompt = (prompt: string) => {
+    const singleLine = prompt.replace(/\s+/g, ' ').trim();
+    return singleLine.length > 420 ? `${singleLine.slice(0, 417)}...` : singleLine;
+  };
+
+  const recommendProjectFromPrompt = async (
+    c: Context<HonoEnv>,
+    prompt: string,
+  ): Promise<ProjectRecommendation | null> => {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return null;
+
+    const llmUrl = new URL('/llm/v1/chat/completions', c.req.url).toString();
+    const systemPrompt = [
+      'You are a product planning assistant for software projects.',
+      'Given a raw user prompt, produce a concise project name and summary.',
+      'Return ONLY valid JSON with this exact shape:',
+      '{"name":"string","description":"string"}',
+      'Rules:',
+      '- name: 1-4 words, concise, product-like, no punctuation suffixes.',
+      '- If a domain is provided (e.g. burnrateos.com), infer the product name from it.',
+      '- description: 1-3 sentences summarizing what should be built.',
+      '- Do not include markdown or code fences.',
+    ].join('\n');
+
+    const llmResponse = await fetch(llmUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        stream: false,
+        temperature: 0.2,
+        max_tokens: 280,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
+
+    if (!llmResponse.ok) return null;
+
+    const payload = await llmResponse.json() as ChatCompletionPayload;
+    const content = payload.choices?.[0]?.message?.content?.trim();
+    if (!content) return null;
+
+    const candidateJson = extractJsonObject(content);
+    if (!candidateJson) return null;
+
+    const parsed = JSON.parse(candidateJson) as Partial<ProjectRecommendation>;
+    const name = parsed.name?.trim();
+    const description = parsed.description?.trim();
+    if (!name || !description) return null;
+
+    return { name, description };
+  };
+
   // GET /api/projects
   router.get('/', async (c) => {
-    const projects = await projectService.listProjects(c.get('tenantId'));
-    return c.json({ projects: projects.map(p => p.toPlain()) });
+    const projectList = await projectService.listProjects(c.get('tenantId'));
+    const plainProjects = projectList.map((project) => project.toPlain());
+
+    if (plainProjects.length === 0) {
+      return c.json({ projects: [] });
+    }
+
+    const projectIds = plainProjects.map((project) => project.id);
+    const taskCounts = await db
+      .select({
+        projectId: tasks.projectId,
+        taskCount: count(),
+      })
+      .from(tasks)
+      .where(
+        and(
+          inArray(tasks.projectId, projectIds),
+          eq(tasks.archived, false),
+        ),
+      )
+      .groupBy(tasks.projectId);
+
+    const taskCountByProject = new Map<number, number>(
+      taskCounts.map((row) => [row.projectId, Number(row.taskCount)]),
+    );
+
+    return c.json({
+      projects: plainProjects.map((project) => ({
+        ...project,
+        taskCount: taskCountByProject.get(project.id) ?? 0,
+      })),
+    });
   });
 
   // GET /api/projects/:id
@@ -137,7 +256,15 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
     const prompt = body.prompt?.trim();
     if (!prompt) return c.json({ error: 'prompt is required' }, 400);
 
-    const name = deriveProjectName(prompt);
+    let recommendation: ProjectRecommendation | null = null;
+    try {
+      recommendation = await recommendProjectFromPrompt(c, prompt);
+    } catch {
+      recommendation = null;
+    }
+
+    const name = recommendation?.name?.trim() || deriveFallbackNameFromPrompt(prompt);
+    const description = recommendation?.description?.trim() || summarizePrompt(prompt);
     const rootWorkingDirectory = body.rootWorkingDirectory?.trim() || null;
 
     const existingProjects = await projectService.listProjects(tenantId);
@@ -146,14 +273,14 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
     const project = existing
       ? await projectService.updateProject(
           existing.id,
-          { description: prompt, rootWorkingDirectory },
+          { description, rootWorkingDirectory },
           tenantId,
         )
       : await projectService.createProject({
           tenantId,
           key: buildProjectKey(tenantId, name),
           name,
-          description: prompt,
+          description,
           rootWorkingDirectory,
         });
 

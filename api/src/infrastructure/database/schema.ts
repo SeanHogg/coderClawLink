@@ -57,6 +57,10 @@ export const tenantBillingStatusEnum = pgEnum('tenant_billing_status', [
   'none', 'pending', 'active', 'past_due', 'cancelled',
 ]);
 
+export const authTokenTypeEnum = pgEnum('auth_token_type', [
+  'web', 'tenant', 'api', 'claw',
+]);
+
 export const executionStatusEnum = pgEnum('execution_status', [
   'pending', 'submitted', 'running', 'completed', 'failed', 'cancelled',
 ]);
@@ -92,9 +96,50 @@ export const users = pgTable('users', {
   avatarUrl:     varchar('avatar_url', { length: 500 }),
   bio:           text('bio'),
   passwordHash:  varchar('password_hash', { length: 255 }),
+  mfaEnabled:    boolean('mfa_enabled').notNull().default(false),
+  mfaSecretEnc:  text('mfa_secret_enc'),
+  mfaTempSecretEnc: text('mfa_temp_secret_enc'),
+  mfaTempExpiresAt: timestamp('mfa_temp_expires_at'),
+  mfaEnabledAt:  timestamp('mfa_enabled_at'),
+  mfaRecoveryGeneratedAt: timestamp('mfa_recovery_generated_at'),
+  mfaLastVerifiedAt: timestamp('mfa_last_verified_at'),
   isSuperadmin:  boolean('is_superadmin').notNull().default(false),
   createdAt:     timestamp('created_at').notNull().defaultNow(),
   updatedAt:     timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const userMfaRecoveryCodes = pgTable('user_mfa_recovery_codes', {
+  id:          serial('id').primaryKey(),
+  userId:      varchar('user_id', { length: 36 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  codeHash:    varchar('code_hash', { length: 64 }).notNull(),
+  usedAt:      timestamp('used_at'),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+});
+
+export const authUserSessions = pgTable('auth_user_sessions', {
+  id:          uuid('id').primaryKey(),
+  userId:      varchar('user_id', { length: 36 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sessionName: varchar('session_name', { length: 120 }),
+  userAgent:   text('user_agent'),
+  ipAddress:   varchar('ip_address', { length: 64 }),
+  isActive:    boolean('is_active').notNull().default(true),
+  revokedAt:   timestamp('revoked_at'),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+  lastSeenAt:  timestamp('last_seen_at').notNull().defaultNow(),
+});
+
+export const authTokens = pgTable('auth_tokens', {
+  jti:         varchar('jti', { length: 64 }).primaryKey(),
+  userId:      varchar('user_id', { length: 36 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sessionId:   uuid('session_id').references(() => authUserSessions.id, { onDelete: 'set null' }),
+  tenantId:    integer('tenant_id').references(() => tenants.id, { onDelete: 'set null' }),
+  tokenType:   authTokenTypeEnum('token_type').notNull(),
+  issuedAt:    timestamp('issued_at').notNull().defaultNow(),
+  expiresAt:   timestamp('expires_at').notNull(),
+  revokedAt:   timestamp('revoked_at'),
+  userAgent:   text('user_agent'),
+  ipAddress:   varchar('ip_address', { length: 64 }),
+  lastSeenAt:  timestamp('last_seen_at').notNull().defaultNow(),
 });
 
 export const apiErrorLog = pgTable('api_error_log', {

@@ -23,7 +23,7 @@ import {
   llmUsageLog,
 } from '../../infrastructure/database/schema';
 import { signJwt } from '../../infrastructure/auth/JwtService';
-import { LlmProxyService, FREE_MODEL_POOL, PRO_MODEL_POOL, PREFERRED_POOL_SIZE } from '../../application/llm/LlmProxyService';
+import { LlmProxyService, FREE_MODEL_POOL, PRO_PAID_MODEL_POOL, PREFERRED_POOL_SIZE } from '../../application/llm/LlmProxyService';
 import { llmFailoverLog } from '../../infrastructure/database/schema';
 
 export function createAdminRoutes(): Hono<HonoEnv> {
@@ -71,6 +71,8 @@ export function createAdminRoutes(): Hono<HonoEnv> {
         t.status,
         t.plan,
         t.billing_status AS "billingStatus",
+        t.billing_email AS "billingEmail",
+        t.billing_updated_at AS "billingUpdatedAt",
         CASE WHEN t.plan = 'pro' AND t.billing_status = 'active' THEN true ELSE false END AS "isPaid",
         CASE WHEN t.plan = 'pro' AND t.billing_status = 'active' THEN 'pro' ELSE 'free' END AS "effectivePlan",
         t.created_at AS "createdAt",
@@ -79,7 +81,7 @@ export function createAdminRoutes(): Hono<HonoEnv> {
       FROM tenants t
       LEFT JOIN tenant_members tm ON tm.tenant_id = t.id AND tm.is_active = true
       LEFT JOIN coderclaw_instances ci ON ci.tenant_id = t.id
-      GROUP BY t.id, t.name, t.slug, t.status, t.plan, t.billing_status, t.created_at
+      GROUP BY t.id, t.name, t.slug, t.status, t.plan, t.billing_status, t.billing_email, t.billing_updated_at, t.created_at
       ORDER BY t.created_at DESC
       LIMIT 500
     `);
@@ -130,11 +132,11 @@ export function createAdminRoutes(): Hono<HonoEnv> {
 
     const proModelPool = proApiKey
       ? new LlmProxyService(proApiKey, {
-          modelPool: PRO_MODEL_POOL,
-          preferredPoolSize: Math.min(PREFERRED_POOL_SIZE, PRO_MODEL_POOL.length),
+          modelPool: PRO_PAID_MODEL_POOL,
+          preferredPoolSize: Math.min(PREFERRED_POOL_SIZE, PRO_PAID_MODEL_POOL.length),
           productName: 'coderClawLLMPro',
         }).status()
-      : PRO_MODEL_POOL.map((m, i) => ({ model: m, preferred: i < PREFERRED_POOL_SIZE, available: true }));
+      : PRO_PAID_MODEL_POOL.map((m, i) => ({ model: m, preferred: i < PREFERRED_POOL_SIZE, available: true }));
 
     const modelPool = [...freeModelPool, ...proModelPool];
 

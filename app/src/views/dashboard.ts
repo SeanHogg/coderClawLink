@@ -12,7 +12,6 @@ export class CclDashboard extends LitElement {
   @state() private claws: Claw[] = [];
   @state() private loading = true;
   @state() private prompt = "";
-  @state() private rootWorkingDirectory = "";
 
   override connectedCallback() {
     super.connectedCallback();
@@ -41,10 +40,7 @@ export class CclDashboard extends LitElement {
     e.preventDefault();
     const p = this.prompt.trim();
     if (!p) return;
-    this.dispatch("ccl:dashboard-prompt", {
-      prompt: p,
-      rootWorkingDirectory: this.rootWorkingDirectory.trim() || null,
-    });
+    this.dispatch("ccl:dashboard-prompt", { prompt: p });
     this.prompt = "";
   }
 
@@ -84,13 +80,6 @@ export class CclDashboard extends LitElement {
                 Send to Claw
               </button>
             </div>
-            <input
-              class="input"
-              style="font-size:13px;padding:8px 12px"
-              placeholder="Root working directory (optional), e.g. /Users/you/dev/my-repo"
-              .value=${this.rootWorkingDirectory}
-              @input=${(e: InputEvent) => { this.rootWorkingDirectory = (e.target as HTMLInputElement).value; }}
-            >
           </form>
           <div style="margin-top:10px;font-size:12px;color:var(--muted)">
             ${connectedClaws.length > 0

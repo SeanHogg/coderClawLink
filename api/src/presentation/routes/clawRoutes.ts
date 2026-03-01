@@ -8,7 +8,7 @@
  * All routes require a tenant-scoped JWT (authMiddleware).
  */
 import { Hono } from 'hono';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/authMiddleware';
 import {
   coderclawInstances,
@@ -144,6 +144,23 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
         status:    coderclawInstances.status,
         createdAt: coderclawInstances.createdAt,
       });
+
+    if (!inserted) {
+      return c.json({ error: 'Failed to register claw' }, 500);
+    }
+
+    await db
+      .update(tenants)
+      .set({
+        defaultClawId: inserted.id,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(tenants.id, tenantId),
+          isNull(tenants.defaultClawId),
+        ),
+      );
 
     return c.json({
       claw:   inserted,

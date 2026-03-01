@@ -49,6 +49,111 @@ if (!DATABASE_URL) {
 
 const sql = neon(DATABASE_URL);
 
+function splitSqlStatements(input) {
+  const statements = [];
+  let current = '';
+  let i = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let dollarTag = null;
+
+  while (i < input.length) {
+    const ch = input[i];
+    const next = input[i + 1];
+
+    if (inLineComment) {
+      current += ch;
+      if (ch === '\n') inLineComment = false;
+      i += 1;
+      continue;
+    }
+
+    if (inBlockComment) {
+      current += ch;
+      if (ch === '*' && next === '/') {
+        current += '/';
+        i += 2;
+        inBlockComment = false;
+      } else {
+        i += 1;
+      }
+      continue;
+    }
+
+    if (!inSingle && !inDouble && dollarTag !== null) {
+      if (input.startsWith(dollarTag, i)) {
+        current += dollarTag;
+        i += dollarTag.length;
+        dollarTag = null;
+      } else {
+        current += ch;
+        i += 1;
+      }
+      continue;
+    }
+
+    if (!inSingle && !inDouble && ch === '-' && next === '-') {
+      current += '--';
+      i += 2;
+      inLineComment = true;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && ch === '/' && next === '*') {
+      current += '/*';
+      i += 2;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (!inDouble && ch === "'") {
+      if (inSingle && next === "'") {
+        current += "''";
+        i += 2;
+        continue;
+      }
+      inSingle = !inSingle;
+      current += ch;
+      i += 1;
+      continue;
+    }
+
+    if (!inSingle && ch === '"') {
+      inDouble = !inDouble;
+      current += ch;
+      i += 1;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && ch === '$') {
+      const match = input.slice(i).match(/^\$[A-Za-z0-9_]*\$/);
+      if (match) {
+        dollarTag = match[0];
+        current += dollarTag;
+        i += dollarTag.length;
+        continue;
+      }
+    }
+
+    if (!inSingle && !inDouble && dollarTag === null && ch === ';') {
+      const trimmed = current.trim();
+      if (trimmed) statements.push(trimmed);
+      current = '';
+      i += 1;
+      continue;
+    }
+
+    current += ch;
+    i += 1;
+  }
+
+  const final = current.trim();
+  if (final) statements.push(final);
+  return statements;
+}
+
 // ---------------------------------------------------------------------------
 // Migration tracking table
 // ---------------------------------------------------------------------------
@@ -89,11 +194,7 @@ for (const file of files) {
 
   const sqlText = readFileSync(join(migrationsDir, file), 'utf8');
 
-  // Split on ';' and run each non-empty statement individually
-  const stmts = sqlText
-    .split(';')
-    .map(s => s.replace(/--[^\n]*/g, '').trim())  // strip line comments
-    .filter(Boolean);
+  const stmts = splitSqlStatements(sqlText);
 
   for (const stmt of stmts) {
     await sql(stmt);

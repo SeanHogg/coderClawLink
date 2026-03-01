@@ -80,6 +80,57 @@ export interface UserInfo {
   username?:     string;
   displayName?:  string | null;
   isSuperadmin?: boolean;
+  mfaEnabled?:   boolean;
+}
+
+export interface AuthSuccess {
+  token: string;
+  expiresIn?: number;
+  user: UserInfo;
+  mfaRequired?: false;
+}
+
+export interface MfaChallenge {
+  mfaRequired: true;
+  mfaToken: string;
+  expiresIn: number;
+  user: UserInfo;
+  methods: string[];
+}
+
+export interface MfaStatus {
+  enabled: boolean;
+  setupPending: boolean;
+  enabledAt: string | null;
+  recoveryGeneratedAt: string | null;
+}
+
+export interface AuthSessionInfo {
+  id: string;
+  sessionName?: string | null;
+  userAgent?: string | null;
+  ipAddress?: string | null;
+  isActive: boolean;
+  revokedAt?: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  activeTokens: number;
+  isCurrent: boolean;
+}
+
+export interface AuthTokenInfo {
+  jti: string;
+  tokenType: "web" | "tenant" | "api" | "claw";
+  tenantId?: number | null;
+  sessionId?: string | null;
+  issuedAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+  userAgent?: string | null;
+  ipAddress?: string | null;
+  lastSeenAt: string;
+  isCurrent: boolean;
+  isActive: boolean;
 }
 
 export interface TenantSummary {
@@ -289,7 +340,7 @@ export interface LlmChatCompletionResponse {
 // ---------------------------------------------------------------------------
 
 export const auth = {
-  async register(email: string, username: string, password: string): Promise<{ token: string; user: UserInfo }> {
+  async register(email: string, username: string, password: string): Promise<AuthSuccess> {
     return request("/api/auth/web/register", {
       method: "POST",
       body: JSON.stringify({ email, username, password }),
@@ -297,10 +348,21 @@ export const auth = {
     });
   },
 
-  async login(email: string, password: string): Promise<{ token: string; user: UserInfo }> {
+  async login(email: string, password: string, sessionName?: string): Promise<AuthSuccess | MfaChallenge> {
     return request("/api/auth/web/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, sessionName }),
+      token: null,
+    });
+  },
+
+  async loginMfa(
+    mfaToken: string,
+    data: { code?: string; recoveryCode?: string; sessionName?: string },
+  ): Promise<AuthSuccess> {
+    return request("/api/auth/web/login/mfa", {
+      method: "POST",
+      body: JSON.stringify({ mfaToken, ...data }),
       token: null,
     });
   },
@@ -315,6 +377,57 @@ export const auth = {
   async listTenants(): Promise<TenantSummary[]> {
     const res = await request<{ tenants: TenantSummary[] }>("/api/tenants/mine");
     return res.tenants;
+  },
+
+  async mfaStatus(): Promise<MfaStatus> {
+    return request("/api/auth/mfa/status", { method: "GET" });
+  },
+
+  async mfaSetup(): Promise<{ otpauthUrl: string; manualEntryKey: string; expiresIn: number }> {
+    return request("/api/auth/mfa/setup", { method: "POST", body: JSON.stringify({}) });
+  },
+
+  async mfaEnable(code: string): Promise<{ enabled: boolean; recoveryCodes: string[] }> {
+    return request("/api/auth/mfa/enable", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  async mfaDisable(data: { code?: string; recoveryCode?: string }): Promise<{ enabled: boolean }> {
+    return request("/api/auth/mfa/disable", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async mfaRegenerateRecoveryCodes(data: { code?: string; recoveryCode?: string }): Promise<{ recoveryCodes: string[] }> {
+    return request("/api/auth/mfa/recovery-codes/regenerate", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async listSessions(): Promise<AuthSessionInfo[]> {
+    const res = await request<{ sessions: AuthSessionInfo[] }>("/api/auth/sessions", { method: "GET" });
+    return res.sessions;
+  },
+
+  async revokeSession(sessionId: string): Promise<void> {
+    return request(`/api/auth/sessions/${sessionId}/revoke`, { method: "POST", body: JSON.stringify({}) });
+  },
+
+  async revokeOtherSessions(): Promise<void> {
+    return request("/api/auth/sessions/revoke-others", { method: "POST", body: JSON.stringify({}) });
+  },
+
+  async listTokens(): Promise<AuthTokenInfo[]> {
+    const res = await request<{ tokens: AuthTokenInfo[] }>("/api/auth/tokens", { method: "GET" });
+    return res.tokens;
+  },
+
+  async revokeToken(jti: string): Promise<void> {
+    return request(`/api/auth/tokens/${jti}/revoke`, { method: "POST", body: JSON.stringify({}) });
   },
 };
 
@@ -665,6 +778,8 @@ export interface AdminTenant {
   plan:         "free" | "pro";
   effectivePlan: "free" | "pro";
   billingStatus: "none" | "pending" | "active" | "past_due" | "cancelled";
+  billingEmail: string | null;
+  billingUpdatedAt: string | null;
   isPaid:       boolean;
   createdAt:    string;
   memberCount:  number;

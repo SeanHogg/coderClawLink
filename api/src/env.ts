@@ -21,6 +21,8 @@ export interface Vars {
   userId:   string;
   tenantId: number;
   role:     TenantRole;
+  sessionId?: string;
+  tokenJti?: string;
 }
 
 /** Combined Hono environment type used across the app. */

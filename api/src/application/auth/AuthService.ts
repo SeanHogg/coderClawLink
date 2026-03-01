@@ -163,7 +163,7 @@ export class AuthService {
    * Issue a tenant-scoped JWT for a web user who has already authenticated.
    * The web JWT is validated upstream; here we just verify membership.
    */
-  async tenantToken(userId: string, tenantId: number): Promise<LoginResult> {
+  async tenantToken(userId: string, tenantId: number, sessionId?: string): Promise<LoginResult> {
     const tenant = await this.tenants.findById(asTenantId(tenantId));
     if (!tenant) throw new UnauthorizedError('Tenant not found');
 
@@ -172,7 +172,7 @@ export class AuthService {
 
     const expiresIn = 3600;
     const token = await signJwt(
-      { sub: userId, tid: tenantId, role: member.role },
+      { sub: userId, tid: tenantId, role: member.role, sid: sessionId },
       this.jwtSecret,
       expiresIn,
     );

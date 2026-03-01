@@ -197,18 +197,17 @@ export class CclApp extends LitElement {
     this.tab = e.detail.tab;
   };
 
-  private handleDashboardPrompt = (e: CustomEvent<{ prompt: string; rootWorkingDirectory?: string | null }>) => {
-    void this.startDashboardScaffold(e.detail.prompt, e.detail.rootWorkingDirectory);
+  private handleDashboardPrompt = (e: CustomEvent<{ prompt: string }>) => {
+    void this.startDashboardScaffold(e.detail.prompt);
   };
 
-  private async startDashboardScaffold(promptRaw: string, rootWorkingDirectory?: string | null) {
+  private async startDashboardScaffold(promptRaw: string) {
     const prompt = promptRaw.trim();
     if (!prompt) return;
 
     try {
       const scaffold = await projectsApi.scaffold({
         prompt,
-        rootWorkingDirectory: rootWorkingDirectory?.trim() || null,
       });
 
       const titleSeed = prompt.split(/[.!?\n]/)[0]?.trim() || prompt;
@@ -225,11 +224,21 @@ export class CclApp extends LitElement {
       if (scaffold.scaffold.wip) {
         this.selectedProjectId = scaffold.project.id;
         this.tab = "projects";
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("ccl:brain-open", {
+            detail: { prompt, projectId: String(scaffold.project.id) },
+          }));
+        }, 0);
         return;
       }
 
       this.selectedProjectId = scaffold.project.id;
       this.tab = "projects";
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("ccl:brain-open", {
+          detail: { prompt, projectId: String(scaffold.project.id) },
+        }));
+      }, 0);
     } catch {
       this.pendingPrompt = prompt;
       this.tab = "tasks";

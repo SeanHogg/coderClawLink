@@ -54,6 +54,7 @@ export class ClawsView extends LitElement {
   @state() private activeTab: Tab = "chat";
   @state() private defaultClawId: number | null = null;
   @state() private savingDefaultClaw = false;
+  @state() private defaultActionClawId: string | null = null;
   @state() private deleteConfirmId: string | null = null;
   @state() private deleting = false;
 
@@ -86,16 +87,22 @@ export class ClawsView extends LitElement {
     finally { this.loading = false; }
   }
 
-  private async saveDefaultClaw() {
+  private isDefaultClaw(claw: Claw): boolean {
+    return this.defaultClawId !== null && Number(claw.id) === this.defaultClawId;
+  }
+
+  private async setDefaultClaw(clawId: number | null, clawRowId?: string) {
     if (!this.tenantId) return;
     this.savingDefaultClaw = true;
+    this.defaultActionClawId = clawRowId ?? null;
     try {
-      const res = await tenants.setDefaultClaw(this.tenantId, this.defaultClawId);
+      const res = await tenants.setDefaultClaw(this.tenantId, clawId);
       this.defaultClawId = res.defaultClawId;
     } catch (e: unknown) {
       this.error = (e as Error).message ?? "Failed to save default claw";
     } finally {
       this.savingDefaultClaw = false;
+      this.defaultActionClawId = null;
     }
   }
 
@@ -118,6 +125,7 @@ export class ClawsView extends LitElement {
     this.activeClaw = claw;
     this.activeTab = "chat";
     this.panelOpen = true;
+    this.error = "";
     document.body.style.overflow = "hidden";
   }
 
@@ -135,6 +143,9 @@ export class ClawsView extends LitElement {
       const result = await clawsApi.register(this.registerName.trim());
       this.newClaw = result;
       this.clawList = [...this.clawList, result];
+      if (this.defaultClawId == null) {
+        this.defaultClawId = Number(result.id);
+      }
       this.registerName = "";
     } catch (e: unknown) {
       this.registerError = (e as Error).message ?? "Registration failed";
@@ -338,8 +349,17 @@ export class ClawsView extends LitElement {
           border-bottom:1px solid var(--border,#e4e4e7);flex-shrink:0;">
           <button class="btn btn-ghost btn-sm" @click=${this.closePanel}>← Close</button>
           <span style="font-weight:600;font-size:1rem;">${claw.name}</span>
+          ${this.isDefaultClaw(claw) ? html`<span class="badge badge-blue">Default</span>` : ""}
           ${this.statusBadge(claw)}
           <span style="font-size:0.75rem;color:var(--muted,#71717a);font-family:monospace;">${claw.slug}</span>
+          ${!this.isDefaultClaw(claw) && this.tenantId ? html`
+            <button
+              class="btn btn-secondary btn-sm"
+              style="margin-left:auto"
+              ?disabled=${this.savingDefaultClaw}
+              @click=${() => void this.setDefaultClaw(Number(claw.id), claw.id)}
+            >${this.defaultActionClawId === claw.id ? "Setting…" : "Set as default"}</button>
+          ` : html`<span style="margin-left:auto"></span>`}
         </div>
         <div style="display:flex;border-bottom:1px solid var(--border,#e4e4e7);flex-shrink:0;overflow-x:auto;">
           ${TABS.map(t => html`
@@ -376,22 +396,6 @@ export class ClawsView extends LitElement {
         <div class="page-header">
           <div><div class="page-title">Claws</div><div class="page-sub">${this.clawList.length} registered</div></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-            <label style="font-size:12px;color:var(--muted)">Default claw</label>
-            <select
-              class="select"
-              style="min-width:220px"
-              .value=${this.defaultClawId == null ? "" : String(this.defaultClawId)}
-              @change=${(e: Event) => {
-                const value = (e.target as HTMLSelectElement).value;
-                this.defaultClawId = value ? Number(value) : null;
-              }}
-            >
-              <option value="">No default claw</option>
-              ${this.clawList.map((claw) => html`<option value=${claw.id}>${claw.name}</option>`)}
-            </select>
-            <button class="btn btn-secondary" @click=${this.saveDefaultClaw} ?disabled=${this.savingDefaultClaw || !this.tenantId}>
-              ${this.savingDefaultClaw ? "Saving…" : "Save default"}
-            </button>
             <button class="btn btn-primary" @click=${() => { this.showManualRegister = false; this.showRegisterModal = true; }}>Register claw</button>
           </div>
         </div>
@@ -413,14 +417,25 @@ export class ClawsView extends LitElement {
               <thead><tr><th></th><th>Name</th><th>Slug</th><th>Status</th><th>Last seen</th><th></th></tr></thead>
               <tbody>
                 ${this.clawList.map(claw => html`
-                  <tr>
+                  <tr class="claw-row">
                     <td style="width:2rem;">${this.connectedDot(claw)}</td>
                     <td style="font-weight:500;">${claw.name}</td>
                     <td style="font-family:monospace;font-size:0.8125rem;color:var(--muted,#71717a);">${claw.slug}</td>
                     <td>${this.statusBadge(claw)}</td>
                     <td style="font-size:0.8125rem;color:var(--muted,#71717a);">${claw.lastSeenAt ? new Date(claw.lastSeenAt).toLocaleString() : "never"}</td>
                     <td>
-                      <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                      <div class="claw-row-actions">
+                        ${this.isDefaultClaw(claw)
+                          ? html`<span class="badge badge-blue">Default</span>`
+                          : (this.tenantId
+                              ? html`
+                                <button
+                                  class="btn btn-secondary btn-sm claw-default-action"
+                                  ?disabled=${this.savingDefaultClaw}
+                                  @click=${() => void this.setDefaultClaw(Number(claw.id), claw.id)}
+                                >${this.defaultActionClawId === claw.id ? "Setting…" : "Set default"}</button>
+                              `
+                              : "")}
                         <button class="btn btn-primary btn-sm" @click=${() => this.openPanel(claw)}>Open</button>
                         <button class="btn btn-danger btn-sm" @click=${() => { this.deleteConfirmId = claw.id; }}>Delete</button>
                       </div>

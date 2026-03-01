@@ -1,6 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { auth, claws as clawsApi, type UserInfo } from "../api.js";
+import { auth, claws as clawsApi, type UserInfo, type MfaChallenge, type AuthSuccess } from "../api.js";
 import "./quickstart.js";
 
 @customElement("ccl-auth")
@@ -13,6 +13,12 @@ export class CclAuth extends LitElement {
   @state() private password = "";
   @state() private loading = false;
   @state() private error = "";
+  @state() private mfaStep = false;
+  @state() private mfaToken = "";
+  @state() private mfaCode = "";
+  @state() private recoveryCode = "";
+  @state() private mfaMethod: "totp" | "recovery" = "totp";
+  @state() private pendingUser: UserInfo | null = null;
   @state() private showRegisterQuickstart = false;
   @state() private checkingQuickstartVisibility = false;
 
@@ -52,17 +58,64 @@ export class CclAuth extends LitElement {
     this.error = "";
     try {
       const res = this.mode === "login"
-        ? await auth.login(this.email, this.password)
+        ? await auth.login(this.email, this.password, "Web App")
         : await auth.register(this.email, this.username || this.email.split("@")[0], this.password);
+
+      if (this.mode === "login" && "mfaRequired" in res && res.mfaRequired) {
+        const challenge = res as MfaChallenge;
+        this.mfaStep = true;
+        this.mfaToken = challenge.mfaToken;
+        this.pendingUser = challenge.user;
+        this.mfaCode = "";
+        this.recoveryCode = "";
+        return;
+      }
+
+      const success = res as AuthSuccess;
+
       this.dispatchEvent(new CustomEvent<{ token: string; user: UserInfo }>(
         this.mode === "register" ? "register" : "login",
-        { detail: res, bubbles: true, composed: true }
+        { detail: { token: success.token, user: success.user }, bubbles: true, composed: true }
       ));
     } catch (err) {
       this.error = (err as Error).message ?? "An error occurred";
     } finally {
       this.loading = false;
     }
+  }
+
+  private async submitMfa(e: Event) {
+    e.preventDefault();
+    if (!this.mfaToken) return;
+    if (this.mfaMethod === "totp" && !this.mfaCode.trim()) return;
+    if (this.mfaMethod === "recovery" && !this.recoveryCode.trim()) return;
+
+    this.loading = true;
+    this.error = "";
+    try {
+      const res = await auth.loginMfa(this.mfaToken, {
+        code: this.mfaMethod === "totp" ? this.mfaCode.trim() : undefined,
+        recoveryCode: this.mfaMethod === "recovery" ? this.recoveryCode.trim() : undefined,
+        sessionName: "Web App",
+      });
+      this.dispatchEvent(new CustomEvent<{ token: string; user: UserInfo }>(
+        "login",
+        { detail: { token: res.token, user: res.user }, bubbles: true, composed: true }
+      ));
+    } catch (err) {
+      this.error = (err as Error).message ?? "MFA verification failed";
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private resetMfaStep() {
+    this.mfaStep = false;
+    this.mfaToken = "";
+    this.mfaCode = "";
+    this.recoveryCode = "";
+    this.mfaMethod = "totp";
+    this.pendingUser = null;
   }
 
   override render() {
@@ -77,12 +130,86 @@ export class CclAuth extends LitElement {
             </div>
           </div>
 
-          <div class="auth-title">${this.mode === "login" ? "Welcome back" : "Create account"}</div>
-          <div class="auth-sub">${this.mode === "login" ? "Sign in to your workspace" : "Get started with CoderClawLink"}</div>
+          <div class="auth-title">
+            ${this.mfaStep
+              ? "Multi-factor verification"
+              : this.mode === "login" ? "Welcome back" : "Create account"}
+          </div>
+          <div class="auth-sub">
+            ${this.mfaStep
+              ? `Verify ${this.pendingUser?.email ?? this.email} to continue`
+              : this.mode === "login" ? "Sign in to your workspace" : "Get started with CoderClawLink"}
+          </div>
 
           ${this.error ? html`<div class="error-banner">${this.error}</div>` : ""}
 
-          <form @submit=${this.submit} style="display:grid;gap:14px">
+          ${this.mfaStep ? html`
+            <form @submit=${this.submitMfa} style="display:grid;gap:14px">
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button
+                  type="button"
+                  class="btn ${this.mfaMethod === "totp" ? "btn-primary" : "btn-secondary"} btn-sm"
+                  @click=${() => { this.mfaMethod = "totp"; this.error = ""; }}
+                >
+                  Authenticator app
+                </button>
+                <button
+                  type="button"
+                  class="btn ${this.mfaMethod === "recovery" ? "btn-primary" : "btn-secondary"} btn-sm"
+                  @click=${() => { this.mfaMethod = "recovery"; this.error = ""; }}
+                >
+                  Recovery code
+                </button>
+              </div>
+
+              ${this.mfaMethod === "totp" ? html`
+                <div class="field">
+                  <label class="label">6-digit code</label>
+                  <input
+                    class="input"
+                    type="text"
+                    placeholder="123456"
+                    .value=${this.mfaCode}
+                    @input=${(e: InputEvent) => { this.mfaCode = (e.target as HTMLInputElement).value; }}
+                    autocomplete="one-time-code"
+                    inputmode="numeric"
+                    required
+                  >
+                </div>
+              ` : html`
+                <div class="field">
+                  <label class="label">Recovery code</label>
+                  <input
+                    class="input"
+                    type="text"
+                    placeholder="ABCD-EFGH"
+                    .value=${this.recoveryCode}
+                    @input=${(e: InputEvent) => { this.recoveryCode = (e.target as HTMLInputElement).value; }}
+                    autocomplete="off"
+                    required
+                  >
+                </div>
+              `}
+
+              <button
+                class="btn btn-primary btn-full btn-lg"
+                type="submit"
+                ?disabled=${this.loading}
+              >
+                ${this.loading ? "Verifying…" : "Verify and sign in"}
+              </button>
+
+              <button
+                class="btn btn-secondary btn-full"
+                type="button"
+                @click=${() => { this.resetMfaStep(); }}
+                ?disabled=${this.loading}
+              >
+                Back
+              </button>
+            </form>
+          ` : html`
+            <form @submit=${this.submit} style="display:grid;gap:14px">
             <div class="field">
               <label class="label">Email</label>
               <input
@@ -130,16 +257,17 @@ export class CclAuth extends LitElement {
                 ? "Please wait…"
                 : this.mode === "login" ? "Sign in" : "Create account"}
             </button>
-          </form>
+            </form>
+          `}
 
           <div class="auth-toggle">
             ${this.mode === "login"
-              ? html`Don't have an account? <a @click=${() => { this.mode = "register"; this.error = ""; }}>Sign up</a>`
-              : html`Already have an account? <a @click=${() => { this.mode = "login"; this.error = ""; }}>Sign in</a>`}
+              ? html`Don't have an account? <a @click=${() => { this.mode = "register"; this.error = ""; this.resetMfaStep(); }}>Sign up</a>`
+              : html`Already have an account? <a @click=${() => { this.mode = "login"; this.error = ""; this.resetMfaStep(); }}>Sign in</a>`}
           </div>
         </div>
 
-        ${this.mode === "register" && this.showRegisterQuickstart
+        ${this.mode === "register" && this.showRegisterQuickstart && !this.mfaStep
           ? html`
             <div style="margin-top:20px;width:min(980px,95vw)">
               <ccl-quickstart></ccl-quickstart>

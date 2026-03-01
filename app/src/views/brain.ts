@@ -57,6 +57,7 @@ export class CclBrain extends LitElement {
   @property() tenantId = "";
   @property() page: DashboardPage = "tasks";
 
+  @state() private focusProjectId = "";
   @state() private open = false;
   @state() private loadingContext = false;
   @state() private contextError = "";
@@ -69,20 +70,49 @@ export class CclBrain extends LitElement {
   @state() private tasks: Task[] = [];
   @state() private claws: Claw[] = [];
   @state() private skills: Skill[] = [];
+  @state() private pendingAutoPrompt = "";
 
   private msgEnd: HTMLElement | null = null;
 
   override connectedCallback() {
     super.connectedCallback();
+    window.addEventListener("ccl:brain-open", this.handleBrainOpen as EventListener);
     void this.refreshContext();
   }
 
+  override disconnectedCallback() {
+    super.disconnectedCallback();
+    window.removeEventListener("ccl:brain-open", this.handleBrainOpen as EventListener);
+  }
+
   override updated(changed: Map<string, unknown>) {
-    if (changed.has("tenantId") || changed.has("page")) {
+    if (changed.has("tenantId") || changed.has("page") || changed.has("focusProjectId")) {
       this.contextError = "";
       void this.refreshContext();
     }
+    if (this.pendingAutoPrompt && this.open && !this.sending) {
+      const prompt = this.pendingAutoPrompt;
+      this.pendingAutoPrompt = "";
+      void this.autoContinueFromPrompt(prompt);
+    }
     this.msgEnd?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  private handleBrainOpen = (e: CustomEvent<{ prompt?: string; projectId?: string }>) => {
+    this.open = true;
+    if (e.detail?.projectId) {
+      this.focusProjectId = e.detail.projectId;
+    }
+    if (e.detail?.prompt?.trim()) {
+      this.pendingAutoPrompt = e.detail.prompt.trim();
+    }
+  };
+
+  private async autoContinueFromPrompt(prompt: string) {
+    const expanded = `Continue scaffolding the selected project from this request:\n${prompt}\n\nProvide immediate next steps, ask for any missing onboarding details, and propose executable tasks.`;
+    this.input = expanded;
+    await this.refreshContext();
+    await this.send();
   }
 
   private pageLabel() {
@@ -103,8 +133,15 @@ export class CclBrain extends LitElement {
     this.contextError = "";
     try {
       if (this.page === "projects") {
-        this.projects = await projectsApi.list();
-        this.contextSummary = `${this.projects.length} project${this.projects.length !== 1 ? "s" : ""} in workspace`;
+        const [projects, tasks] = await Promise.all([projectsApi.list(), tasksApi.list()]);
+        this.projects = projects;
+        this.tasks = tasks;
+        const focused = this.focusProjectId
+          ? projects.find((project) => String(project.id) === String(this.focusProjectId))
+          : null;
+        this.contextSummary = focused
+          ? `${focused.name} · ${tasks.filter((task) => String(task.projectId ?? "") === String(focused.id)).length} task(s)`
+          : `${projects.length} project${projects.length !== 1 ? "s" : ""} in workspace`;
       } else if (this.page === "tasks") {
         const [tasks, projects] = await Promise.all([tasksApi.list(), projectsApi.list()]);
         this.tasks = tasks;
@@ -146,6 +183,7 @@ export class CclBrain extends LitElement {
     return {
       page: this.page,
       tenantId: this.tenantId,
+      focusProjectId: this.focusProjectId || null,
       summary: this.contextSummary,
       projects: this.projects.slice(0, 40).map((p) => ({ id: p.id, key: p.key, name: p.name, status: p.status, description: p.description ?? "" })),
       tasks: this.tasks.slice(0, 80).map((t) => ({ id: t.id, key: t.key, title: t.title, status: t.status, priority: t.priority, projectId: t.projectId ?? null })),

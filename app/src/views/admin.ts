@@ -8,7 +8,7 @@ import {
   type LlmUsageStats,
 } from "../api.js";
 
-type AdminTab = "health" | "users" | "tenants" | "errors" | "usage";
+type AdminTab = "health" | "billing" | "users" | "tenants" | "errors" | "usage";
 type LlmPoolTab = "coderClawLLM" | "coderClawLLMPro";
 
 @customElement("ccl-admin")
@@ -53,6 +53,13 @@ export class CclAdmin extends LitElement {
         this.errors = await adminApi.errors();
       } else if (tab === "usage") {
         this.llmUsage = await adminApi.llmUsage(this.usageDays);
+      } else if (tab === "billing") {
+        const [tenants, errors] = await Promise.all([
+          adminApi.tenants(),
+          adminApi.errors(),
+        ]);
+        this.tenants = tenants;
+        this.errors = errors;
       }
     } catch (e: unknown) {
       this.errorMsg = e instanceof Error ? e.message : String(e);
@@ -195,7 +202,7 @@ export class CclAdmin extends LitElement {
 
         <!-- Tabs -->
         <nav class="admin-tabs">
-          ${(["health", "usage", "users", "tenants", "errors"] as AdminTab[]).map(t => html`
+          ${(["health", "billing", "usage", "users", "tenants", "errors"] as AdminTab[]).map(t => html`
             <button
               class="admin-tab ${this.tab === t ? "active" : ""}"
               @click=${() => this.loadTab(t)}
@@ -219,11 +226,158 @@ export class CclAdmin extends LitElement {
 
   private renderTab() {
     if (this.tab === "health")  return this.renderHealth();
+    if (this.tab === "billing") return this.renderBilling();
     if (this.tab === "usage")   return this.renderUsage();
     if (this.tab === "users")   return this.renderUsers();
     if (this.tab === "tenants") return this.renderTenants();
     if (this.tab === "errors")  return this.renderErrors();
     return html``;
+  }
+
+  private composeMailto(email: string, subject: string, body: string) {
+    const q = new URLSearchParams({ subject, body });
+    return `mailto:${encodeURIComponent(email)}?${q.toString()}`;
+  }
+
+  private renderBilling() {
+    const activePaid = this.tenants.filter((tenant) => tenant.billingStatus === "active" && tenant.effectivePlan === "pro");
+    const pastDue = this.tenants.filter((tenant) => tenant.billingStatus === "past_due");
+    const pending = this.tenants.filter((tenant) => tenant.billingStatus === "pending");
+    const freeUpgradeLeads = this.tenants.filter((tenant) => tenant.effectivePlan === "free");
+    const invoiceQueue = this.tenants.filter((tenant) => ["active", "past_due", "pending"].includes(tenant.billingStatus));
+    const feedbackItems = this.errors.slice(0, 20);
+
+    const invoiceSubject = "CoderClaw billing invoice";
+    const invoiceBody = "Hi team,\n\nYour latest CoderClaw invoice is ready. Reply to this email if you need a detailed line-item breakdown.\n\nThanks,\nCoderClaw Billing";
+    const reminderSubject = "Action needed: billing update for your CoderClaw workspace";
+    const reminderBody = "Hi team,\n\nWe noticed your workspace billing needs attention. Please update payment details to keep Pro features active.\n\nThanks,\nCoderClaw Billing";
+    const upgradeSubject = "Unlock CoderClaw Pro for your workspace";
+    const upgradeBody = "Hi team,\n\nYour workspace is on Free. Upgrade to Pro for higher limits, stronger model access, and priority performance.\n\nReply if you want a quick recommendation for the best plan.\n\nThanks,\nCoderClaw Team";
+
+    return html`
+      <div class="billing-crm-grid">
+        <div class="health-card">
+          <div class="health-label">Paid Workspaces</div>
+          <div class="health-value">${activePaid.length}</div>
+          <div class="health-sub">Income-driving active subscriptions</div>
+        </div>
+        <div class="health-card ${pastDue.length ? "health-warn" : ""}">
+          <div class="health-label">Past Due</div>
+          <div class="health-value">${pastDue.length}</div>
+          <div class="health-sub">Need payment follow-up</div>
+        </div>
+        <div class="health-card ${pending.length ? "health-warn" : ""}">
+          <div class="health-label">Pending Billing</div>
+          <div class="health-value">${pending.length}</div>
+          <div class="health-sub">Pending payment activation</div>
+        </div>
+        <div class="health-card">
+          <div class="health-label">Upgrade Leads</div>
+          <div class="health-value">${freeUpgradeLeads.length}</div>
+          <div class="health-sub">Free workspaces to nurture</div>
+        </div>
+      </div>
+
+      <div class="table-header" style="margin-top:22px">
+        <span class="table-count">Invoice queue (${invoiceQueue.length})</span>
+        <button class="btn btn-ghost btn-sm" @click=${() => this.loadTab("billing")}>↻ Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Workspace</th>
+              <th>Plan</th>
+              <th>Billing</th>
+              <th>Billing Email</th>
+              <th>Updated</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${invoiceQueue.map(tenant => html`
+              <tr>
+                <td>${tenant.name}</td>
+                <td>
+                  <span class="badge ${tenant.effectivePlan === "pro" ? "badge-success" : "badge-neutral"}">
+                    ${tenant.effectivePlan}
+                  </span>
+                </td>
+                <td class="text-muted">${tenant.billingStatus}</td>
+                <td class="text-muted">${tenant.billingEmail ?? "—"}</td>
+                <td class="text-muted">${tenant.billingUpdatedAt ? this.fmtDateTime(tenant.billingUpdatedAt) : "—"}</td>
+                <td class="billing-actions-cell">
+                  ${tenant.billingEmail ? html`
+                    <a
+                      class="btn btn-ghost btn-xs"
+                      href=${this.composeMailto(tenant.billingEmail, invoiceSubject, invoiceBody)}
+                    >Send invoice</a>
+                    <a
+                      class="btn btn-ghost btn-xs"
+                      href=${this.composeMailto(tenant.billingEmail, reminderSubject, reminderBody)}
+                    >Payment reminder</a>
+                  ` : html`<span class="text-muted" style="font-size:12px">No billing email</span>`}
+                </td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-header" style="margin-top:22px">
+        <span class="table-count">Upgrade communications (${freeUpgradeLeads.length})</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Workspace</th>
+              <th>Status</th>
+              <th>Members</th>
+              <th>Claws</th>
+              <th>Billing Email</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${freeUpgradeLeads.slice(0, 200).map(tenant => html`
+              <tr>
+                <td>${tenant.name}</td>
+                <td><span class="badge badge-neutral">${tenant.status}</span></td>
+                <td>${tenant.memberCount}</td>
+                <td>${tenant.clawCount}</td>
+                <td class="text-muted">${tenant.billingEmail ?? "—"}</td>
+                <td>
+                  ${tenant.billingEmail
+                    ? html`<a class="btn btn-ghost btn-xs" href=${this.composeMailto(tenant.billingEmail, upgradeSubject, upgradeBody)}>Send upgrade message</a>`
+                    : html`<span class="text-muted" style="font-size:12px">No email on file</span>`}
+                </td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-header" style="margin-top:22px">
+        <span class="table-count">Feedback & issues (${feedbackItems.length})</span>
+        <button class="btn btn-ghost btn-sm" @click=${() => this.loadTab("errors")}>Open full error log</button>
+      </div>
+      <div class="error-log">
+        ${feedbackItems.length === 0
+          ? html`<div class="empty-state" style="padding:24px 0"><div class="empty-sub">No feedback/issues captured yet.</div></div>`
+          : feedbackItems.map(item => html`
+            <div class="error-entry">
+              <div class="error-entry-header">
+                <span class="error-method">${item.method ?? "N/A"}</span>
+                <span class="error-path">${item.path ?? "Unknown path"}</span>
+                <span class="error-msg">${item.message ?? "No message"}</span>
+                <span class="error-time text-muted">${this.fmtDateTime(item.createdAt)}</span>
+                <span class="error-chevron">•</span>
+              </div>
+            </div>
+          `)}
+      </div>
+    `;
   }
 
   private renderHealth() {

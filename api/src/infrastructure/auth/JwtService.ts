@@ -8,6 +8,8 @@ export interface JwtPayload {
   sub:  string;       // userId
   tid:  number;       // tenantId
   role: TenantRole;
+  jti?: string;
+  sid?: string;
   iat:  number;
   exp:  number;
 }
@@ -53,7 +55,13 @@ export async function signJwt(
   expiresInSeconds = 3600,
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const full: JwtPayload = { ...payload, iat: now, exp: now + expiresInSeconds };
+  const full: JwtPayload = {
+    ...payload,
+    jti: payload.jti ?? crypto.randomUUID(),
+    sid: payload.sid,
+    iat: now,
+    exp: now + expiresInSeconds,
+  };
 
   const header = strToB64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const body   = strToB64url(JSON.stringify(full));
@@ -106,6 +114,11 @@ export interface WebJwtPayload {
   email:    string;
   username: string;
   sa?:      boolean;  // true only for superadmins
+  jti?:     string;
+  sid?:     string;
+  mfa?:     boolean;
+  mfaPending?: boolean;
+  amr?:     string[];
   iat:      number;
   exp:      number;
 }
@@ -116,7 +129,13 @@ export async function signWebJwt(
   expiresInSeconds: number = 86_400, // 24 hours for web sessions
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const full: WebJwtPayload = { ...payload, iat: now, exp: now + expiresInSeconds };
+  const full: WebJwtPayload = {
+    ...payload,
+    jti: payload.jti ?? crypto.randomUUID(),
+    sid: payload.sid ?? (payload.mfaPending ? undefined : crypto.randomUUID()),
+    iat: now,
+    exp: now + expiresInSeconds,
+  };
 
   const header = strToB64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const body   = strToB64url(JSON.stringify(full));
@@ -147,4 +166,10 @@ export async function verifyWebJwt(token: string, secret: string): Promise<WebJw
   if (payload.exp < Math.floor(Date.now() / 1000)) throw new Error('Token expired');
 
   return payload;
+}
+
+export function decodeJwtPayload<T = Record<string, unknown>>(token: string): T {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new Error('Malformed token');
+  return JSON.parse(b64urlToStr(parts[1]!)) as T;
 }

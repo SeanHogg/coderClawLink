@@ -1,6 +1,7 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import {
+  auth,
   getTenantToken,
   tenants,
   claws,
@@ -10,7 +11,11 @@ import {
   type TenantSubscription,
   type TenantLlmUsage,
   type Claw,
+  type AuthSessionInfo,
+  type AuthTokenInfo,
+  type MfaStatus,
 } from "../api.js";
+import QRCode from "qrcode";
 
 const ROLES = ["owner", "manager", "developer", "viewer"];
 
@@ -40,6 +45,20 @@ export class CclWorkspace extends LitElement {
   @state() private copiedTenantToken = false;
   @state() private copiedPluginEnv = false;
   @state() private downloadedPluginEnv = false;
+  @state() private mfaStatus: MfaStatus | null = null;
+  @state() private mfaSetupBusy = false;
+  @state() private mfaEnableBusy = false;
+  @state() private mfaDisableBusy = false;
+  @state() private mfaRegenerateBusy = false;
+  @state() private mfaVerifyCode = "";
+  @state() private mfaRecoveryInput = "";
+  @state() private mfaMode: "totp" | "recovery" = "totp";
+  @state() private mfaManualKey = "";
+  @state() private mfaQrDataUrl = "";
+  @state() private recoveryCodes: string[] = [];
+  @state() private authSessions: AuthSessionInfo[] = [];
+  @state() private authTokens: AuthTokenInfo[] = [];
+  @state() private loadingSecurity = false;
 
   // Invite
   @state() private showInvite = false;
@@ -80,9 +99,149 @@ export class CclWorkspace extends LitElement {
       this.billingBrand = subscription.billingPaymentBrand ?? "visa";
       this.billingLast4 = subscription.billingPaymentLast4 ?? "";
       this.billingCycle = subscription.billingCycle ?? "monthly";
+      await this.loadSecurity();
     }
     catch (e) { this.error = (e as Error).message; }
     finally { this.loading = false; }
+  }
+
+  private async loadSecurity() {
+    this.loadingSecurity = true;
+    try {
+      const [status, sessions, tokens] = await Promise.all([
+        auth.mfaStatus(),
+        auth.listSessions(),
+        auth.listTokens(),
+      ]);
+      this.mfaStatus = status;
+      this.authSessions = sessions;
+      this.authTokens = tokens;
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.loadingSecurity = false;
+    }
+  }
+
+  private async startMfaSetup() {
+    this.mfaSetupBusy = true;
+    this.error = "";
+    try {
+      const setup = await auth.mfaSetup();
+      this.mfaManualKey = setup.manualEntryKey;
+      this.mfaQrDataUrl = await QRCode.toDataURL(setup.otpauthUrl, { width: 220, margin: 1 });
+      this.recoveryCodes = [];
+      await this.loadSecurity();
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.mfaSetupBusy = false;
+    }
+  }
+
+  private async enableMfa() {
+    if (!this.mfaVerifyCode.trim()) return;
+    this.mfaEnableBusy = true;
+    this.error = "";
+    try {
+      const res = await auth.mfaEnable(this.mfaVerifyCode.trim());
+      this.recoveryCodes = res.recoveryCodes;
+      this.mfaVerifyCode = "";
+      this.mfaQrDataUrl = "";
+      this.mfaManualKey = "";
+      await this.loadSecurity();
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.mfaEnableBusy = false;
+    }
+  }
+
+  private async disableMfa() {
+    if (this.mfaMode === "totp" && !this.mfaVerifyCode.trim()) return;
+    if (this.mfaMode === "recovery" && !this.mfaRecoveryInput.trim()) return;
+    this.mfaDisableBusy = true;
+    this.error = "";
+    try {
+      await auth.mfaDisable({
+        code: this.mfaMode === "totp" ? this.mfaVerifyCode.trim() : undefined,
+        recoveryCode: this.mfaMode === "recovery" ? this.mfaRecoveryInput.trim() : undefined,
+      });
+      this.mfaVerifyCode = "";
+      this.mfaRecoveryInput = "";
+      this.recoveryCodes = [];
+      await this.loadSecurity();
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.mfaDisableBusy = false;
+    }
+  }
+
+  private async regenerateRecoveryCodes() {
+    if (this.mfaMode === "totp" && !this.mfaVerifyCode.trim()) return;
+    if (this.mfaMode === "recovery" && !this.mfaRecoveryInput.trim()) return;
+    this.mfaRegenerateBusy = true;
+    this.error = "";
+    try {
+      const res = await auth.mfaRegenerateRecoveryCodes({
+        code: this.mfaMode === "totp" ? this.mfaVerifyCode.trim() : undefined,
+        recoveryCode: this.mfaMode === "recovery" ? this.mfaRecoveryInput.trim() : undefined,
+      });
+      this.recoveryCodes = res.recoveryCodes;
+      this.mfaRecoveryInput = "";
+      this.mfaVerifyCode = "";
+      await this.loadSecurity();
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.mfaRegenerateBusy = false;
+    }
+  }
+
+  private downloadRecoveryCodes() {
+    if (!this.recoveryCodes.length) return;
+    const content = this.recoveryCodes.join("\n");
+    const blob = new Blob([`${content}\n`], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "coderclawlink-recovery-codes.txt";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }
+
+  private async revokeSession(sessionId: string) {
+    if (!confirm("Revoke this session and sign it out?")) return;
+    try {
+      await auth.revokeSession(sessionId);
+      await this.loadSecurity();
+    } catch (err) {
+      this.error = (err as Error).message;
+    }
+  }
+
+  private async revokeOthers() {
+    if (!confirm("Revoke all other sessions?")) return;
+    try {
+      await auth.revokeOtherSessions();
+      await this.loadSecurity();
+    } catch (err) {
+      this.error = (err as Error).message;
+    }
+  }
+
+  private async revokeToken(jti: string) {
+    if (!confirm("Revoke this token?")) return;
+    try {
+      await auth.revokeToken(jti);
+      await this.loadSecurity();
+    } catch (err) {
+      this.error = (err as Error).message;
+    }
   }
 
   private canManageBilling() {
@@ -444,6 +603,100 @@ export class CclWorkspace extends LitElement {
                 <span style="color:var(--text-strong);font-weight:500">${val}</span>
               </div>`)}
           </div>
+        </div>
+
+        <div class="card" style="max-width:680px">
+          <div class="card-title" style="margin-bottom:8px">Account security</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">
+            MFA is optional. If disabled, login continues with email and password only.
+          </div>
+
+          ${this.loadingSecurity
+            ? html`<div style="color:var(--muted);font-size:13px">Loading security settings…</div>`
+            : html`
+              <div style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+                <div>
+                  <div style="font-size:13px;color:var(--text-strong);font-weight:600">Authenticator app MFA</div>
+                  <div style="font-size:12px;color:var(--muted)">${this.mfaStatus?.enabled ? "Enabled" : "Disabled"}</div>
+                </div>
+                ${this.mfaStatus?.enabled
+                  ? html`<button class="btn btn-danger btn-sm" @click=${this.disableMfa} ?disabled=${this.mfaDisableBusy}>${this.mfaDisableBusy ? "Disabling…" : "Disable"}</button>`
+                  : html`<button class="btn btn-primary btn-sm" @click=${this.startMfaSetup} ?disabled=${this.mfaSetupBusy}>${this.mfaSetupBusy ? "Preparing…" : "Set up MFA"}</button>`}
+              </div>
+
+              ${this.mfaQrDataUrl ? html`
+                <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;display:grid;gap:10px">
+                  <div style="font-size:12px;color:var(--muted)">Scan this QR with your authenticator app, then enter the 6-digit code.</div>
+                  <img alt="MFA QR" src=${this.mfaQrDataUrl} style="width:220px;height:220px;border:1px solid var(--border);border-radius:8px;background:#fff;padding:8px" />
+                  <div style="font-size:12px;color:var(--muted)">Manual key: <span style="font-family:var(--mono);color:var(--text-strong)">${this.mfaManualKey}</span></div>
+                </div>
+              ` : ""}
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                <button type="button" class="btn ${this.mfaMode === "totp" ? "btn-primary" : "btn-secondary"} btn-sm" @click=${() => { this.mfaMode = "totp"; }}>Use authenticator code</button>
+                <button type="button" class="btn ${this.mfaMode === "recovery" ? "btn-primary" : "btn-secondary"} btn-sm" @click=${() => { this.mfaMode = "recovery"; }}>Use recovery code</button>
+              </div>
+
+              ${this.mfaMode === "totp"
+                ? html`<input class="input" placeholder="6-digit code" .value=${this.mfaVerifyCode} @input=${(e: InputEvent) => { this.mfaVerifyCode = (e.target as HTMLInputElement).value; }} style="margin-bottom:8px" />`
+                : html`<input class="input" placeholder="ABCD-EFGH" .value=${this.mfaRecoveryInput} @input=${(e: InputEvent) => { this.mfaRecoveryInput = (e.target as HTMLInputElement).value; }} style="margin-bottom:8px" />`}
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                ${this.mfaQrDataUrl
+                  ? html`<button class="btn btn-primary btn-sm" @click=${this.enableMfa} ?disabled=${this.mfaEnableBusy || !this.mfaVerifyCode.trim()}>${this.mfaEnableBusy ? "Enabling…" : "Enable MFA"}</button>`
+                  : ""}
+                ${this.mfaStatus?.enabled
+                  ? html`<button class="btn btn-secondary btn-sm" @click=${this.regenerateRecoveryCodes} ?disabled=${this.mfaRegenerateBusy}>${this.mfaRegenerateBusy ? "Regenerating…" : "Regenerate recovery codes"}</button>`
+                  : ""}
+              </div>
+
+              ${this.recoveryCodes.length
+                ? html`
+                  <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
+                    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Save these one-time recovery codes now.</div>
+                    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:8px;font-family:var(--mono);font-size:12px;color:var(--text-strong)">
+                      ${this.recoveryCodes.map((code) => html`<div>${code}</div>`)}
+                    </div>
+                    <button class="btn btn-secondary btn-sm" @click=${this.downloadRecoveryCodes}>Download recovery codes</button>
+                  </div>
+                `
+                : ""}
+
+              <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 8px">
+                <div style="font-size:13px;color:var(--text-strong);font-weight:600">Active sessions</div>
+                <button class="btn btn-danger btn-sm" @click=${this.revokeOthers}>Revoke other sessions</button>
+              </div>
+              <div style="display:grid;gap:8px;margin-bottom:10px">
+                ${this.authSessions.length === 0
+                  ? html`<div style="font-size:12px;color:var(--muted)">No active sessions found.</div>`
+                  : this.authSessions.map((session) => html`
+                    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;display:grid;gap:6px">
+                      <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div style="font-size:13px;color:var(--text-strong);font-weight:600">${session.sessionName || "Session"}${session.isCurrent ? " (current)" : ""}</div>
+                        ${session.isCurrent ? html`<span class="badge badge-blue">Current</span>` : html`<button class="btn btn-danger btn-sm" @click=${() => this.revokeSession(session.id)}>Revoke</button>`}
+                      </div>
+                      <div style="font-size:12px;color:var(--muted)">${session.userAgent || "Unknown device"}</div>
+                      <div style="font-size:12px;color:var(--muted)">IP: ${session.ipAddress || "Unknown"} · Tokens: ${session.activeTokens} · Last seen: ${new Date(session.lastSeenAt).toLocaleString()}</div>
+                    </div>
+                  `)}
+              </div>
+
+              <div style="font-size:13px;color:var(--text-strong);font-weight:600;margin-bottom:8px">JWT tokens</div>
+              <div style="display:grid;gap:8px">
+                ${this.authTokens.slice(0, 20).map((token) => html`
+                  <div style="border:1px solid var(--border);border-radius:8px;padding:10px;display:grid;gap:6px">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                      <div style="font-size:12px;color:var(--text-strong);font-family:var(--mono)">${token.jti}</div>
+                      ${token.isCurrent ? html`<span class="badge badge-blue">Current</span>` : html`<button class="btn btn-danger btn-sm" @click=${() => this.revokeToken(token.jti)}>Revoke</button>`}
+                    </div>
+                    <div style="font-size:12px;color:var(--muted)">
+                      ${token.tokenType.toUpperCase()}${token.tenantId != null ? ` · Tenant ${token.tenantId}` : ""} · ${token.isActive ? "Active" : "Inactive"}
+                    </div>
+                    <div style="font-size:12px;color:var(--muted)">Expires: ${new Date(token.expiresAt).toLocaleString()}</div>
+                  </div>
+                `)}
+              </div>
+            `}
         </div>
 
         <div class="card" style="max-width:680px">

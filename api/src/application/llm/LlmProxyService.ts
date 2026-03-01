@@ -40,11 +40,21 @@ export const FREE_MODEL_POOL = [
   'google/gemma-3-12b-it:free',                               // 32k ctx
 ] as const;
 
-export const PRO_MODEL_POOL = [
-  'openai/gpt-4.1-mini',
+export const PRO_PAID_MODEL_POOL = [
   'anthropic/claude-3.7-sonnet',
-  'google/gemini-2.0-flash-001',
+  'openai/gpt-4.1',
+  'google/gemini-2.5-pro',
   'x-ai/grok-3-mini',
+] as const;
+
+/**
+ * Pro traffic strategy:
+ * - Try free coding models first (cost-optimized).
+ * - On rate-limit/provider errors, fail over to paid coding models.
+ */
+export const PRO_MODEL_POOL = [
+  ...FREE_MODEL_POOL,
+  ...PRO_PAID_MODEL_POOL,
 ] as const;
 
 /** Number of models at the top of the pool that form the primary round-robin group. */
