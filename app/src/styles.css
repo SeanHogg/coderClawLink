@@ -1,4 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import url("https://api.fontshare.com/v2/css?f[]=clash-display@700,600,500&f[]=satoshi@400,500,700&display=swap");
 
 /* ============================================================
    Design Tokens
@@ -892,6 +893,444 @@ button, input, textarea, select { font: inherit; color: inherit; }
 @media (max-width: 540px) {
   .landing-grid-4 { grid-template-columns: 1fr; }
   .landing-ctas { flex-direction: column; }
+}
+
+/* ============================================================
+   QuickStart (Exact coderclaw.ai)
+   ============================================================ */
+
+.quickstart-skin {
+  --bg-deep: #050810;
+  --bg-elevated: #111827;
+  --coral-bright: #4d9eff;
+  --coral-dark: #1e40af;
+  --cyan-bright: #00e5cc;
+  --text-primary: #f0f4ff;
+  --text-secondary: #8892b0;
+  --text-muted: #5a6480;
+  --border-subtle: rgba(136, 146, 176, 0.15);
+  --surface-overlay: rgba(0, 0, 0, 0.3);
+  --surface-interactive: rgba(255, 255, 255, 0.1);
+  --surface-interactive-hover: rgba(255, 255, 255, 0.2);
+  --surface-cyan-soft: rgba(0, 229, 204, 0.15);
+  --surface-coral-soft: rgba(77, 158, 255, 0.15);
+  --shadow-coral-mid: rgba(77, 158, 255, 0.25);
+  --shadow-coral-strong: rgba(77, 158, 255, 0.35);
+  --font-display: 'Clash Display', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+}
+
+:root[data-theme="light"] .quickstart-skin {
+  --bg-deep: #fcfeff;
+  --bg-elevated: #f5f9ff;
+  --coral-bright: #3b82f6;
+  --coral-dark: #1e40af;
+  --cyan-bright: #008f87;
+  --text-primary: #0b1220;
+  --text-secondary: #2e405c;
+  --text-muted: #5f7290;
+  --border-subtle: rgba(15, 23, 42, 0.16);
+  --surface-overlay: rgba(160, 174, 194, 0.26);
+  --surface-interactive: rgba(15, 23, 42, 0.1);
+  --surface-interactive-hover: rgba(15, 23, 42, 0.16);
+  --surface-cyan-soft: rgba(0, 143, 135, 0.16);
+  --surface-coral-soft: rgba(59, 130, 246, 0.16);
+  --shadow-coral-mid: rgba(59, 130, 246, 0.27);
+  --shadow-coral-strong: rgba(59, 130, 246, 0.33);
+}
+
+.quickstart-skin {
+  margin-bottom: 56px;
+  animation: quickstart-fadeInUp 0.8s ease-out 0.6s both;
+}
+
+.quickstart-skin .claw-accent {
+  color: var(--coral-bright);
+  font-weight: 700;
+}
+
+.quickstart-skin .section-title {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin-bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  color: var(--text-primary);
+}
+
+.quickstart-skin .code-block {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.quickstart-skin .code-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--surface-overlay);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.quickstart-skin .code-content {
+  padding: 16px 20px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.quickstart-skin .code-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.quickstart-skin .code-line.comment {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.quickstart-skin .code-line.cmd {
+  color: var(--text-primary);
+}
+
+.quickstart-skin .copy-line-btn {
+  opacity: 0.6;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: var(--surface-interactive);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.quickstart-skin .code-line:hover .copy-line-btn {
+  opacity: 1;
+}
+
+.quickstart-skin .copy-line-btn:hover {
+  background: var(--surface-interactive-hover);
+  color: var(--text-primary);
+}
+
+.quickstart-skin .copy-line-btn.copied {
+  opacity: 1;
+  background: var(--surface-cyan-soft);
+  color: var(--cyan-bright);
+}
+
+.quickstart-skin .copy-line-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.quickstart-skin .code-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.quickstart-skin .code-dot:nth-child(1) { background: #ff5f57; }
+.quickstart-skin .code-dot:nth-child(2) { background: #febc2e; }
+.quickstart-skin .code-dot:nth-child(3) { background: #28c840; }
+
+.quickstart-skin .mode-switch,
+.quickstart-skin .pm-switch,
+.quickstart-skin .hackable-switch,
+.quickstart-skin .os-switch,
+.quickstart-skin .win-shell-switch {
+  display: flex;
+  gap: 4px;
+  background: var(--surface-overlay);
+  padding: 3px;
+  border-radius: 6px;
+}
+
+.quickstart-skin .pm-switch,
+.quickstart-skin .hackable-switch,
+.quickstart-skin .os-switch,
+.quickstart-skin .win-shell-switch {
+  margin-left: auto;
+}
+
+.quickstart-skin .win-shell-switch {
+  margin-left: 8px;
+}
+
+.quickstart-skin .mode-btn,
+.quickstart-skin .pm-btn,
+.quickstart-skin .hackable-btn,
+.quickstart-skin .os-btn,
+.quickstart-skin .win-shell-btn {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quickstart-skin .mode-btn:hover,
+.quickstart-skin .pm-btn:hover,
+.quickstart-skin .hackable-btn:hover,
+.quickstart-skin .os-btn:hover,
+.quickstart-skin .win-shell-btn:hover {
+  color: var(--text-secondary);
+}
+
+.quickstart-skin .pm-btn.active,
+.quickstart-skin .hackable-btn.active,
+.quickstart-skin .os-btn.active,
+.quickstart-skin .win-shell-btn.active {
+  background: var(--coral-bright);
+  color: var(--bg-deep);
+  font-weight: 600;
+}
+
+.quickstart-skin .mode-btn.active {
+  background: var(--cyan-bright);
+  color: var(--bg-deep);
+  font-weight: 600;
+}
+
+.quickstart-skin .beta-switch {
+  margin-left: 8px;
+}
+
+.quickstart-skin .switch-placeholder {
+  display: none;
+  height: 26px;
+  margin-left: auto;
+}
+
+.quickstart-skin .beta-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 4px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quickstart-skin .beta-btn:hover {
+  border-color: var(--cyan-bright);
+  color: var(--cyan-bright);
+}
+
+.quickstart-skin .beta-btn.active {
+  background: var(--surface-cyan-soft);
+  border-color: var(--cyan-bright);
+  color: var(--cyan-bright);
+}
+
+.quickstart-skin .beta-label {
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.quickstart-skin .beta-text {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.quickstart-skin .pm-install {
+  color: var(--cyan-bright);
+}
+
+.quickstart-skin .code-prompt {
+  color: var(--coral-bright);
+  user-select: none;
+}
+
+.quickstart-skin .quickstart-note {
+  margin-top: 16px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.quickstart-skin .os-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.quickstart-skin .os-detected {
+  color: var(--text-secondary);
+}
+
+.quickstart-skin .os-change-btn {
+  background: none;
+  border: none;
+  color: var(--coral-bright);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.quickstart-skin .os-change-btn:hover {
+  background: var(--surface-coral-soft);
+  color: var(--cyan-bright);
+}
+
+.quickstart-skin .macos-app-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.quickstart-skin .macos-description {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quickstart-skin .macos-tagline {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.quickstart-skin .macos-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.quickstart-skin .macos-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 28px;
+  background: linear-gradient(135deg, var(--coral-bright) 0%, var(--coral-dark) 100%);
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 20px var(--shadow-coral-mid);
+}
+
+.quickstart-skin .macos-download-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px var(--shadow-coral-strong);
+}
+
+.quickstart-skin .macos-download-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.quickstart-skin .macos-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+@keyframes quickstart-fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .quickstart-skin .code-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .quickstart-skin .code-dot {
+    order: 0;
+  }
+
+  .quickstart-skin .os-indicator,
+  .quickstart-skin .os-switch,
+  .quickstart-skin .win-shell-switch,
+  .quickstart-skin .pm-switch,
+  .quickstart-skin .hackable-switch,
+  .quickstart-skin .beta-switch,
+  .quickstart-skin .switch-placeholder {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .quickstart-skin .win-shell-switch {
+    margin-left: 4px;
+  }
+
+  .quickstart-skin .mode-switch {
+    order: 2;
+    width: 100%;
+    justify-content: center;
+    margin-top: 4px;
+  }
+
+  .quickstart-skin .mode-btn {
+    padding: 6px 8px;
+    font-size: 0.65rem;
+  }
+
+  .quickstart-skin .os-btn,
+  .quickstart-skin .pm-btn,
+  .quickstart-skin .win-shell-btn {
+    padding: 4px 8px;
+    font-size: 0.65rem;
+  }
+
+  .quickstart-skin .code-content {
+    padding: 12px 14px;
+    font-size: 0.65rem;
+  }
+
+  .quickstart-skin .code-line {
+    gap: 6px;
+  }
+
+  .quickstart-skin .macos-download-btn {
+    padding: 12px 20px;
+    font-size: 0.9rem;
+  }
 }
 
 /* ============================================================

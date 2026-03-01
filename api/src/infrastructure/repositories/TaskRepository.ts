@@ -3,7 +3,7 @@ import { ITaskRepository } from '../../domain/task/ITaskRepository';
 import { Task } from '../../domain/task/Task';
 import {
   TaskId, ProjectId, TaskStatus, TaskPriority, AgentType,
-  asTaskId, asProjectId,
+  asTaskId, asProjectId, asClawId,
 } from '../../domain/shared/types';
 import { tasks as tasksTable } from '../database/schema';
 import type { Db } from '../database/connection';
@@ -57,6 +57,7 @@ export class TaskRepository implements ITaskRepository {
         status:            plain.status,
         priority:          plain.priority,
         assignedAgentType: plain.assignedAgentType ?? undefined,
+        assignedClawId: plain.assignedClawId ?? undefined,
         githubPrUrl:       plain.githubPrUrl ?? undefined,
         githubPrNumber:    plain.githubPrNumber ?? undefined,
         startDate:         plain.startDate ?? undefined,
@@ -79,6 +80,7 @@ export class TaskRepository implements ITaskRepository {
         status:            plain.status,
         priority:          plain.priority,
         assignedAgentType: plain.assignedAgentType ?? undefined,
+        assignedClawId: plain.assignedClawId ?? undefined,
         githubPrUrl:       plain.githubPrUrl ?? undefined,
         githubPrNumber:    plain.githubPrNumber ?? undefined,
         startDate:         plain.startDate ?? undefined,
@@ -114,6 +116,7 @@ function toDomain(row: Row): Task {
     status:            row.status as TaskStatus,
     priority:          row.priority as TaskPriority,
     assignedAgentType: (row.assignedAgentType as AgentType) ?? null,
+    assignedClawId: row.assignedClawId != null ? asClawId(row.assignedClawId) : null,
     githubPrUrl:       row.githubPrUrl ?? null,
     githubPrNumber:    row.githubPrNumber ?? null,
     startDate:         row.startDate ?? null,

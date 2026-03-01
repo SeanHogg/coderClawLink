@@ -1,6 +1,7 @@
 import { LitElement, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { auth, type UserInfo } from "../api.js";
+import { auth, claws as clawsApi, type UserInfo } from "../api.js";
+import "./quickstart.js";
 
 @customElement("ccl-auth")
 export class CclAuth extends LitElement {
@@ -12,6 +13,37 @@ export class CclAuth extends LitElement {
   @state() private password = "";
   @state() private loading = false;
   @state() private error = "";
+  @state() private showRegisterQuickstart = false;
+  @state() private checkingQuickstartVisibility = false;
+
+  override connectedCallback() {
+    super.connectedCallback();
+    void this.refreshRegisterQuickstartVisibility();
+  }
+
+  override updated(changed: Map<string, unknown>) {
+    if (changed.has("mode")) {
+      void this.refreshRegisterQuickstartVisibility();
+    }
+  }
+
+  private async refreshRegisterQuickstartVisibility() {
+    if (this.mode !== "register") {
+      this.showRegisterQuickstart = false;
+      return;
+    }
+    if (this.checkingQuickstartVisibility) return;
+
+    this.checkingQuickstartVisibility = true;
+    try {
+      const existingClaws = await clawsApi.list();
+      this.showRegisterQuickstart = existingClaws.length === 0;
+    } catch {
+      this.showRegisterQuickstart = true;
+    } finally {
+      this.checkingQuickstartVisibility = false;
+    }
+  }
 
   private async submit(e: Event) {
     e.preventDefault();
@@ -106,6 +138,14 @@ export class CclAuth extends LitElement {
               : html`Already have an account? <a @click=${() => { this.mode = "login"; this.error = ""; }}>Sign in</a>`}
           </div>
         </div>
+
+        ${this.mode === "register" && this.showRegisterQuickstart
+          ? html`
+            <div style="margin-top:20px;width:min(980px,95vw)">
+              <ccl-quickstart></ccl-quickstart>
+            </div>
+          `
+          : ""}
       </div>
     `;
   }

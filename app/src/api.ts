@@ -287,16 +287,51 @@ export const tasks = {
     if (params?.projectId) q.set("projectId", params.projectId);
     if (params?.status)    q.set("status", params.status);
     if (params?.archived)  q.set("archived", "true");
-    const res = await request<{ tasks: Task[] }>(`/api/tasks${q.size ? `?${q}` : ""}`);
-    return res.tasks;
+    const res = await request<{ tasks: Array<Task & { assignedClawId?: number | string | null }> }>(`/api/tasks${q.size ? `?${q}` : ""}`);
+    return res.tasks.map((task) => ({
+      ...task,
+      assignedClawId: task.assignedClawId == null ? undefined : String(task.assignedClawId),
+    }));
   },
 
   async create(data: Partial<Task>): Promise<Task> {
-    return request("/api/tasks", { method: "POST", body: JSON.stringify(data) });
+    const payload = {
+      ...data,
+      assignedClawId:
+        data.assignedClawId === undefined
+          ? undefined
+          : data.assignedClawId === ""
+            ? null
+            : Number(data.assignedClawId),
+    };
+    const created = await request<Task & { assignedClawId?: number | string | null }>("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return {
+      ...created,
+      assignedClawId: created.assignedClawId == null ? undefined : String(created.assignedClawId),
+    };
   },
 
   async update(id: string, data: Partial<Task>): Promise<Task> {
-    return request(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+    const payload = {
+      ...data,
+      assignedClawId:
+        data.assignedClawId === undefined
+          ? undefined
+          : data.assignedClawId === ""
+            ? null
+            : Number(data.assignedClawId),
+    };
+    const updated = await request<Task & { assignedClawId?: number | string | null }>(`/api/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    return {
+      ...updated,
+      assignedClawId: updated.assignedClawId == null ? undefined : String(updated.assignedClawId),
+    };
   },
 
   async remove(id: string): Promise<void> {

@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { IExecutionRepository } from '../../domain/execution/IExecutionRepository';
 import { Execution, ExecutionProps } from '../../domain/execution/Execution';
 import {
-  ExecutionId, TaskId, TenantId, AgentId, ExecutionStatus,
-  asExecutionId, asTaskId, asTenantId, asAgentId,
+  ExecutionId, TaskId, TenantId, AgentId, ClawId, ExecutionStatus,
+  asExecutionId, asTaskId, asTenantId, asAgentId, asClawId,
 } from '../../domain/shared/types';
 import { executions as executionsTable } from '../database/schema';
 import type { Db } from '../database/connection';
@@ -21,7 +21,8 @@ export class ExecutionRepository implements IExecutionRepository {
   async findByTask(taskId: TaskId): Promise<Execution[]> {
     const rows = await this.db
       .select().from(executionsTable)
-      .where(eq(executionsTable.taskId, taskId));
+      .where(eq(executionsTable.taskId, taskId))
+      .orderBy(desc(executionsTable.createdAt));
     return rows.map(toDomain);
   }
 
@@ -29,6 +30,21 @@ export class ExecutionRepository implements IExecutionRepository {
     const rows = await this.db
       .select().from(executionsTable)
       .where(eq(executionsTable.tenantId, tenantId))
+      .orderBy(desc(executionsTable.createdAt))
+      .limit(limit);
+    return rows.map(toDomain);
+  }
+
+  async findBySession(tenantId: TenantId, sessionId: string, limit = 200): Promise<Execution[]> {
+    const rows = await this.db
+      .select().from(executionsTable)
+      .where(
+        and(
+          eq(executionsTable.tenantId, tenantId),
+          eq(executionsTable.sessionId, sessionId),
+        ),
+      )
+      .orderBy(desc(executionsTable.createdAt))
       .limit(limit);
     return rows.map(toDomain);
   }
@@ -40,8 +56,10 @@ export class ExecutionRepository implements IExecutionRepository {
       .values({
         taskId:      plain.taskId,
         agentId:     plain.agentId ?? undefined,
+        clawId:      plain.clawId ?? undefined,
         tenantId:    plain.tenantId,
         submittedBy: plain.submittedBy,
+        sessionId:   plain.sessionId ?? undefined,
         status:      plain.status,
         payload:     plain.payload ?? undefined,
       })
@@ -74,8 +92,10 @@ function toDomain(row: typeof executionsTable.$inferSelect): Execution {
     id:           asExecutionId(row.id),
     taskId:       asTaskId(row.taskId),
     agentId:      row.agentId != null ? asAgentId(row.agentId) : null,
+    clawId:       row.clawId != null ? asClawId(row.clawId) : null,
     tenantId:     asTenantId(row.tenantId),
     submittedBy:  row.submittedBy,
+    sessionId:    row.sessionId ?? null,
     status:       row.status as ExecutionStatus,
     payload:      row.payload ?? null,
     result:       row.result ?? null,

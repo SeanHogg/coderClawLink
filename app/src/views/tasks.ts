@@ -111,7 +111,7 @@ export class CclTasks extends LitElement {
         this.items = this.items.map(i => i.id === updated.id ? updated : i);
         if (this.drawerTask?.id === updated.id) this.drawerTask = updated;
       } else {
-        const created = await tasksApi.create(this.form);
+        const created = await tasksApi.create(this.form as Partial<Task>);
         this.items = [created, ...this.items];
       }
       this.showModal = false;

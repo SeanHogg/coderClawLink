@@ -82,8 +82,8 @@ export function createTenantRoutes(tenantService: TenantService, db: Db): Hono<H
         return {
           ...row,
           capabilitySummary: {
-            distributed: false,
-            remoteDispatch: false,
+            distributed: row.connectedAt !== null && associatedProjects.length > 1,
+            remoteDispatch: row.connectedAt !== null,
             projectCount: associatedProjects.length,
           },
           projectIds: associatedProjects.map((p) => p.projectId),

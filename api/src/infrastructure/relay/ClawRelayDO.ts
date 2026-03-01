@@ -28,6 +28,31 @@ export class ClawRelayDO implements DurableObject {
     const role = url.searchParams.get("role"); // "upstream" | "client"
 
     if (request.headers.get("Upgrade") !== "websocket") {
+      if (request.method === "POST" && url.pathname.endsWith("/dispatch")) {
+        let payload: unknown = null;
+        try {
+          payload = await request.json();
+        } catch {
+          return new Response(JSON.stringify({ ok: false, error: "invalid_json" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        if (this.upstreamSocket?.readyState !== WebSocket.OPEN) {
+          return new Response(JSON.stringify({ ok: false, delivered: false, error: "claw_offline" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        this.upstreamSocket.send(JSON.stringify(payload));
+        return new Response(JSON.stringify({ ok: true, delivered: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
       return new Response("Expected WebSocket upgrade", { status: 426 });
     }
 

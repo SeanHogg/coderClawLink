@@ -147,6 +147,68 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
     return c.json({ projects: rows });
   });
 
+  // GET /api/claws/:id/nodes – list paired nodes for a claw
+  // Current implementation models one primary node (the claw instance itself).
+  router.get('/:id/nodes', authMiddleware as never, async (c) => {
+    const tenantId = c.get('tenantId') as number;
+    const clawId = Number(c.req.param('id'));
+
+    const [claw] = await db
+      .select({
+        id: coderclawInstances.id,
+        name: coderclawInstances.name,
+        connectedAt: coderclawInstances.connectedAt,
+        lastSeenAt: coderclawInstances.lastSeenAt,
+      })
+      .from(coderclawInstances)
+      .where(
+        and(
+          eq(coderclawInstances.id, clawId),
+          eq(coderclawInstances.tenantId, tenantId),
+        ),
+      );
+
+    if (!claw) return c.json([], 200);
+
+    return c.json([
+      {
+        id: String(claw.id),
+        name: claw.name,
+        capabilities: ['chat', 'tasks', 'relay'],
+        connectedAt: claw.connectedAt,
+        lastSeenAt: claw.lastSeenAt,
+        status: claw.connectedAt ? 'connected' : 'disconnected',
+      },
+    ]);
+  });
+
+  // DELETE /api/claws/:id/nodes/:nodeId – unpair a node
+  // For now, unpairing primary node marks claw as inactive/disconnected.
+  router.delete('/:id/nodes/:nodeId', authMiddleware as never, async (c) => {
+    const tenantId = c.get('tenantId') as number;
+    const clawId = Number(c.req.param('id'));
+    const nodeId = Number(c.req.param('nodeId'));
+
+    if (Number.isNaN(clawId) || Number.isNaN(nodeId) || clawId !== nodeId) {
+      return c.json({ error: 'Node not found' }, 404);
+    }
+
+    await db
+      .update(coderclawInstances)
+      .set({
+        status: 'inactive',
+        connectedAt: null,
+      })
+      .where(
+        and(
+          eq(coderclawInstances.id, clawId),
+          eq(coderclawInstances.tenantId, tenantId),
+        ),
+      );
+
+    return c.body(null, 204);
+  });
+
   // PUT /api/claws/:id/projects/:projectId – associate project with claw
   router.put('/:id/projects/:projectId', authMiddleware as never, async (c) => {
     const tenantId = c.get('tenantId') as number;

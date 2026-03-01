@@ -1,12 +1,14 @@
-import { ExecutionId, TaskId, AgentId, TenantId, ExecutionStatus } from '../shared/types';
+import { ExecutionId, TaskId, AgentId, TenantId, ClawId, ExecutionStatus } from '../shared/types';
 import { ValidationError } from '../shared/errors';
 
 export interface ExecutionProps {
   id:           ExecutionId;
   taskId:       TaskId;
   agentId:      AgentId | null;
+  clawId:       ClawId | null;
   tenantId:     TenantId;
   submittedBy:  string;           // userId
+  sessionId:    string | null;
   status:       ExecutionStatus;
   /** JSON payload sent to the agent. */
   payload:      string | null;
@@ -39,8 +41,10 @@ export class Execution {
   static create(props: {
     taskId:      TaskId;
     agentId:     AgentId | null;
+    clawId:      ClawId | null;
     tenantId:    TenantId;
     submittedBy: string;
+    sessionId:   string | null;
     payload:     string | null;
   }): Execution {
     const now = new Date();
@@ -68,8 +72,10 @@ export class Execution {
   get id():           ExecutionId      { return this.props.id; }
   get taskId():       TaskId           { return this.props.taskId; }
   get agentId():      AgentId | null   { return this.props.agentId; }
+  get clawId():       ClawId | null    { return this.props.clawId; }
   get tenantId():     TenantId         { return this.props.tenantId; }
   get submittedBy():  string           { return this.props.submittedBy; }
+  get sessionId():    string | null    { return this.props.sessionId; }
   get status():       ExecutionStatus  { return this.props.status; }
   get payload():      string | null    { return this.props.payload; }
   get result():       string | null    { return this.props.result; }

@@ -6,15 +6,17 @@ import { Execution } from '../../domain/execution/Execution';
 import { AuditEvent } from '../../domain/audit/AuditEvent';
 import {
   AuditEventType, ExecutionStatus,
-  asExecutionId, asTaskId, asAgentId, asTenantId,
+  asExecutionId, asTaskId, asAgentId, asClawId, asTenantId,
 } from '../../domain/shared/types';
 import { NotFoundError, ForbiddenError } from '../../domain/shared/errors';
 
 export interface SubmitTaskDto {
   taskId:      number;
   agentId?:    number;
+  clawId?:     number | null;
   tenantId:    number;
   submittedBy: string;
+  sessionId?:  string | null;
   payload?:    string;
 }
 
@@ -52,8 +54,10 @@ export class RuntimeService {
       Execution.create({
         taskId:      asTaskId(dto.taskId),
         agentId:     dto.agentId != null ? asAgentId(dto.agentId) : null,
+        clawId:      dto.clawId != null ? asClawId(dto.clawId) : null,
         tenantId:    asTenantId(dto.tenantId),
         submittedBy: dto.submittedBy,
+        sessionId:   dto.sessionId ?? null,
         payload:     dto.payload ?? null,
       }),
     );
@@ -64,7 +68,12 @@ export class RuntimeService {
       eventType:    AuditEventType.TASK_SUBMITTED,
       resourceType: 'execution',
       resourceId:   String(execution.id),
-      metadata:     JSON.stringify({ taskId: dto.taskId, agentId: dto.agentId }),
+      metadata:     JSON.stringify({
+        taskId: dto.taskId,
+        agentId: dto.agentId,
+        clawId: dto.clawId ?? null,
+        sessionId: dto.sessionId ?? null,
+      }),
     }));
 
     return execution;
@@ -82,6 +91,10 @@ export class RuntimeService {
 
   async listByTenant(tenantId: number, limit?: number): Promise<Execution[]> {
     return this.executions.findByTenant(asTenantId(tenantId), limit);
+  }
+
+  async listBySession(tenantId: number, sessionId: string, limit?: number): Promise<Execution[]> {
+    return this.executions.findBySession(asTenantId(tenantId), sessionId, limit);
   }
 
   async cancel(id: number, cancelledBy: string): Promise<Execution> {

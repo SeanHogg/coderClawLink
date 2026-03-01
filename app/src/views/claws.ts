@@ -13,6 +13,7 @@ import "./claw/channels.js";
 import "./claw/claw-logs.js";
 import "./claw/projects.js";
 import "./claw/workspace.js";
+import "./quickstart.js";
 
 type Tab = "chat" | "agents" | "config" | "sessions" | "skills" | "usage" | "cron" | "nodes" | "channels" | "projects" | "workspace" | "logs";
 
@@ -34,11 +35,13 @@ const TABS: { id: Tab; label: string }[] = [
 @customElement("ccl-claws")
 export class ClawsView extends LitElement {
   override createRenderRoot() { return this; }
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
   @property() tenantId: string = "";
   @state() private clawList: Claw[] = [];
   @state() private loading = false;
   @state() private error = "";
   @state() private showRegisterModal = false;
+  @state() private showManualRegister = false;
   @state() private registerName = "";
   @state() private registering = false;
   @state() private registerError = "";
@@ -53,6 +56,15 @@ export class ClawsView extends LitElement {
   override connectedCallback() {
     super.connectedCallback();
     void this.loadClaws();
+    this.startPresenceRefresh();
+  }
+
+  override disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this.refreshTimer !== null) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
   }
 
   private async loadClaws() {
@@ -61,6 +73,21 @@ export class ClawsView extends LitElement {
     try { this.clawList = await clawsApi.list(); }
     catch (e: unknown) { this.error = (e as Error).message ?? "Failed to load claws"; }
     finally { this.loading = false; }
+  }
+
+  private startPresenceRefresh() {
+    if (this.refreshTimer !== null) {
+      clearInterval(this.refreshTimer);
+    }
+    this.refreshTimer = setInterval(() => {
+      void this.refreshPresence();
+    }, 15_000);
+  }
+
+  private async refreshPresence() {
+    try {
+      this.clawList = await clawsApi.list();
+    } catch {}
   }
 
   private openPanel(claw: Claw) {
@@ -92,6 +119,7 @@ export class ClawsView extends LitElement {
 
   private closeRegisterModal() {
     this.showRegisterModal = false;
+    this.showManualRegister = false;
     this.newClaw = null;
     this.registerName = "";
     this.registerError = "";
@@ -134,7 +162,7 @@ export class ClawsView extends LitElement {
     if (!this.showRegisterModal) return html``;
     return html`
       <div class="modal-backdrop" @click=${(e: Event) => { if (e.target === e.currentTarget) this.closeRegisterModal(); }}>
-        <div class="modal">
+        <div class="modal" style="width:min(980px,95vw)">
           <div class="modal-title">Register new claw</div>
           ${this.newClaw ? html`
             <div class="modal-sub">Claw registered. Save this API key &mdash; it will not be shown again.</div>
@@ -144,6 +172,14 @@ export class ClawsView extends LitElement {
             </button>
             <div class="modal-footer">
               <button class="btn btn-primary" @click=${this.closeRegisterModal}>Done</button>
+            </div>
+          ` : !this.showManualRegister ? html`
+            <div class="modal-sub">Run the onboarding command on the machine where CoderClaw is installed. It auto-registers a new claw, or reuses existing local CoderClawLink credentials when already connected.</div>
+            <ccl-quickstart></ccl-quickstart>
+            <div class="modal-footer" style="margin-top:12px">
+              <button class="btn btn-ghost" @click=${this.closeRegisterModal}>Close</button>
+              <button class="btn btn-secondary" @click=${async () => { await this.loadClaws(); this.closeRegisterModal(); }}>I ran the command — Refresh</button>
+              <button class="btn btn-primary" @click=${() => { this.showManualRegister = true; }}>Manual register</button>
             </div>
           ` : html`
             <div class="field">
@@ -156,7 +192,7 @@ export class ClawsView extends LitElement {
             </div>
             ${this.registerError ? html`<div class="error-banner">${this.registerError}</div>` : ""}
             <div class="modal-footer">
-              <button class="btn btn-ghost" @click=${this.closeRegisterModal}>Cancel</button>
+              <button class="btn btn-ghost" @click=${() => { this.showManualRegister = false; }}>Back</button>
               <button class="btn btn-primary" ?disabled=${this.registering || !this.registerName.trim()}
                 @click=${this.handleRegister}>${this.registering ? "Registering…" : "Register"}</button>
             </div>
@@ -237,12 +273,19 @@ export class ClawsView extends LitElement {
       <div>
         <div class="page-header">
           <div><div class="page-title">Claws</div><div class="page-sub">${this.clawList.length} registered</div></div>
-          <button class="btn btn-primary" @click=${() => { this.showRegisterModal = true; }}>Register claw</button>
+          <button class="btn btn-primary" @click=${() => { this.showManualRegister = false; this.showRegisterModal = true; }}>Register claw</button>
         </div>
         ${this.error ? html`<div class="error-banner">${this.error}</div>` : ""}
         ${this.loading ? html`<div class="empty-state">Loading…</div>` : ""}
         ${!this.loading && this.clawList.length === 0 ? html`
-          <div class="empty-state">No claws registered yet. Register your first claw to get started.</div>
+          <div>
+            <div class="empty-state">
+              <div class="empty-state-title">No claws registered yet</div>
+              <div class="empty-state-sub">Register your first claw to get started.</div>
+              <button class="btn btn-primary" style="margin-top:16px" @click=${() => { this.showManualRegister = false; this.showRegisterModal = true; }}>Register claw</button>
+            </div>
+            <ccl-quickstart></ccl-quickstart>
+          </div>
         ` : ""}
         ${!this.loading && this.clawList.length > 0 ? html`
           <div class="table-wrap">

@@ -3,6 +3,7 @@ export type ProjectId   = number & { readonly __brand: 'ProjectId' };
 export type TaskId      = number & { readonly __brand: 'TaskId' };
 export type TenantId    = number & { readonly __brand: 'TenantId' };
 export type AgentId     = number & { readonly __brand: 'AgentId' };
+export type ClawId      = number & { readonly __brand: 'ClawId' };
 export type SkillId     = number & { readonly __brand: 'SkillId' };
 export type ExecutionId = number & { readonly __brand: 'ExecutionId' };
 /** User IDs are UUID strings (not sequential integers). */
@@ -12,6 +13,7 @@ export const asProjectId   = (n: number): ProjectId   => n as ProjectId;
 export const asTaskId      = (n: number): TaskId      => n as TaskId;
 export const asTenantId    = (n: number): TenantId    => n as TenantId;
 export const asAgentId     = (n: number): AgentId     => n as AgentId;
+export const asClawId      = (n: number): ClawId      => n as ClawId;
 export const asSkillId     = (n: number): SkillId     => n as SkillId;
 export const asExecutionId = (n: number): ExecutionId => n as ExecutionId;
 export const asUserId      = (s: string): UserId      => s as UserId;

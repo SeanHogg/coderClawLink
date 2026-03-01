@@ -18,6 +18,7 @@ import "./views/skills.js";
 import "./views/workspace.js";
 import "./views/logs.js";
 import "./views/admin.js";
+import "./views/quickstart.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
 type DashTab = "projects" | "tasks" | "claws" | "skills" | "workspace" | "logs";
@@ -323,6 +324,12 @@ export class CclApp extends LitElement {
             <div class="mesh-line mesh-line-1"></div>
             <div class="mesh-line mesh-line-2"></div>
             <div class="mesh-line mesh-line-3"></div>
+          </div>
+        </section>
+
+        <section class="landing-section" style="padding-top:0;">
+          <div class="landing-section-inner">
+            <ccl-quickstart></ccl-quickstart>
           </div>
         </section>
 

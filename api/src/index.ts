@@ -105,7 +105,7 @@ function buildApp(env: Env): Hono<HonoEnv> {
   app.route('/api/tenants',  createTenantRoutes(tenantService, db));
   app.route('/api/agents',   createAgentRoutes(agentService));
   app.route('/api/skills',   createSkillRoutes(agentService));
-  app.route('/api/runtime',  createRuntimeRoutes(runtimeService));
+  app.route('/api/runtime',  createRuntimeRoutes(runtimeService, db));
   app.route('/api/audit',    createAuditRoutes(auditService));
   app.route('/api/admin',    createAdminRoutes());
 
