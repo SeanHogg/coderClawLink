@@ -5,7 +5,21 @@ import type { HonoEnv } from '../../env';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware';
 import { ProjectStatus, TenantRole } from '../../domain/shared/types';
 import type { Db } from '../../infrastructure/database/connection';
-import { clawProjects, coderclawInstances, projects, tasks, tenants } from '../../infrastructure/database/schema';
+import { clawProjects, coderclawInstances, projects, sourceControlIntegrations, tasks, tenants } from '../../infrastructure/database/schema';
+
+type SourceControlProvider = 'github' | 'bitbucket';
+
+type ResolvedSourceControlAssignment = {
+  sourceControlIntegrationId: number | null;
+  sourceControlProvider: SourceControlProvider | null;
+  sourceControlRepoFullName: string | null;
+  sourceControlRepoUrl: string | null;
+  githubRepoUrl: string | null;
+};
+
+type AssignmentResolveResult =
+  | { ok: true; value: ResolvedSourceControlAssignment }
+  | { ok: false; status: 400; message: string };
 
 type ProjectRecommendation = {
   name: string;
@@ -127,6 +141,110 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
     return { name, description };
   };
 
+  const resolveSourceControlAssignment = async (
+    tenantId: number,
+    input: {
+      sourceControlIntegrationId?: number | null;
+      sourceControlRepoFullName?: string | null;
+      sourceControlRepoUrl?: string | null;
+      githubRepoUrl?: string | null;
+    },
+    existing?: {
+      sourceControlIntegrationId: number | null;
+      sourceControlProvider: SourceControlProvider | null;
+      sourceControlRepoFullName: string | null;
+      sourceControlRepoUrl: string | null;
+      githubRepoUrl: string | null;
+    },
+  ): Promise<AssignmentResolveResult> => {
+    const hasScmInput =
+      input.sourceControlIntegrationId !== undefined
+      || input.sourceControlRepoFullName !== undefined
+      || input.sourceControlRepoUrl !== undefined;
+
+    if (!hasScmInput && input.githubRepoUrl === undefined) {
+      return {
+        ok: true,
+        value: {
+          sourceControlIntegrationId: existing?.sourceControlIntegrationId ?? null,
+          sourceControlProvider: existing?.sourceControlProvider ?? null,
+          sourceControlRepoFullName: existing?.sourceControlRepoFullName ?? null,
+          sourceControlRepoUrl: existing?.sourceControlRepoUrl ?? null,
+          githubRepoUrl: existing?.githubRepoUrl ?? null,
+        },
+      };
+    }
+
+    const integrationId = input.sourceControlIntegrationId !== undefined
+      ? input.sourceControlIntegrationId
+      : existing?.sourceControlIntegrationId ?? null;
+
+    const repoFullName = input.sourceControlRepoFullName !== undefined
+      ? input.sourceControlRepoFullName?.trim() || null
+      : existing?.sourceControlRepoFullName ?? null;
+
+    const explicitRepoUrl = input.sourceControlRepoUrl !== undefined
+      ? input.sourceControlRepoUrl?.trim() || null
+      : existing?.sourceControlRepoUrl ?? null;
+
+    const explicitGithubRepoUrl = input.githubRepoUrl !== undefined
+      ? input.githubRepoUrl?.trim() || null
+      : existing?.githubRepoUrl ?? null;
+
+    if (!integrationId) {
+      return {
+        ok: true,
+        value: {
+          sourceControlIntegrationId: null,
+          sourceControlProvider: null,
+          sourceControlRepoFullName: null,
+          sourceControlRepoUrl: null,
+          githubRepoUrl: explicitGithubRepoUrl,
+        },
+      };
+    }
+
+    const [integration] = await db
+      .select({
+        id: sourceControlIntegrations.id,
+        provider: sourceControlIntegrations.provider,
+      })
+      .from(sourceControlIntegrations)
+      .where(
+        and(
+          eq(sourceControlIntegrations.id, integrationId),
+          eq(sourceControlIntegrations.tenantId, tenantId),
+          eq(sourceControlIntegrations.isActive, true),
+        ),
+      )
+      .limit(1);
+
+    if (!integration) {
+      return { ok: false, status: 400, message: 'Selected integration is not available for this workspace' };
+    }
+
+    if (!repoFullName) {
+      return { ok: false, status: 400, message: 'sourceControlRepoFullName is required when assigning an integration' };
+    }
+
+    const provider = integration.provider as SourceControlProvider;
+    const sourceControlRepoUrl = explicitRepoUrl
+      ?? (provider === 'github'
+        ? `https://github.com/${repoFullName}`
+        : `https://bitbucket.org/${repoFullName}`);
+
+    return {
+      ok: true,
+      value: {
+        sourceControlIntegrationId: integration.id,
+        sourceControlProvider: provider,
+        sourceControlRepoFullName: repoFullName,
+        sourceControlRepoUrl,
+        githubRepoUrl: provider === 'github' ? (explicitGithubRepoUrl ?? sourceControlRepoUrl) : null,
+      },
+    };
+  };
+
   // GET /api/projects
   router.get('/', async (c) => {
     const projectList = await projectService.listProjects(c.get('tenantId'));
@@ -177,18 +295,33 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
       name: string;
       description?: string | null;
       rootWorkingDirectory?: string | null;
+      sourceControlIntegrationId?: number | null;
+      sourceControlRepoFullName?: string | null;
+      sourceControlRepoUrl?: string | null;
       githubRepoUrl?: string | null;
     }>();
     const tenantId = c.get('tenantId');
     const name = body.name?.trim();
     if (!name) return c.json({ error: 'name is required' }, 400);
 
+    const assignment = await resolveSourceControlAssignment(tenantId, {
+      sourceControlIntegrationId: body.sourceControlIntegrationId,
+      sourceControlRepoFullName: body.sourceControlRepoFullName,
+      sourceControlRepoUrl: body.sourceControlRepoUrl,
+      githubRepoUrl: body.githubRepoUrl,
+    });
+    if (!assignment.ok) return c.json({ error: assignment.message }, assignment.status);
+
     const project = await projectService.createProject({
       key:           body.key?.trim() || buildProjectKey(tenantId, name),
       name,
       description:   body.description,
       rootWorkingDirectory: body.rootWorkingDirectory,
-      githubRepoUrl: body.githubRepoUrl,
+      sourceControlIntegrationId: assignment.value.sourceControlIntegrationId,
+      sourceControlProvider: assignment.value.sourceControlProvider,
+      sourceControlRepoFullName: assignment.value.sourceControlRepoFullName,
+      sourceControlRepoUrl: assignment.value.sourceControlRepoUrl,
+      githubRepoUrl: assignment.value.githubRepoUrl,
       tenantId,
     });
     return c.json(project.toPlain(), 201);
@@ -201,6 +334,9 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
       name: string;
       description?: string | null;
       rootWorkingDirectory?: string | null;
+      sourceControlIntegrationId?: number | null;
+      sourceControlRepoFullName?: string | null;
+      sourceControlRepoUrl?: string | null;
       githubRepoUrl?: string | null;
     }>();
 
@@ -210,6 +346,24 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
     const projects = await projectService.listProjects(tenantId);
     const existing = projects.find((project) => normalizeName(project.name) === normalizeName(name));
 
+    const assignment = await resolveSourceControlAssignment(
+      tenantId,
+      {
+        sourceControlIntegrationId: body.sourceControlIntegrationId,
+        sourceControlRepoFullName: body.sourceControlRepoFullName,
+        sourceControlRepoUrl: body.sourceControlRepoUrl,
+        githubRepoUrl: body.githubRepoUrl,
+      },
+      existing ? {
+        sourceControlIntegrationId: existing.sourceControlIntegrationId,
+        sourceControlProvider: existing.sourceControlProvider,
+        sourceControlRepoFullName: existing.sourceControlRepoFullName,
+        sourceControlRepoUrl: existing.sourceControlRepoUrl,
+        githubRepoUrl: existing.githubRepoUrl,
+      } : undefined,
+    );
+    if (!assignment.ok) return c.json({ error: assignment.message }, assignment.status);
+
     if (existing) {
       const updated = await projectService.updateProject(
         existing.id,
@@ -217,7 +371,11 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
           name,
           description: body.description,
           rootWorkingDirectory: body.rootWorkingDirectory,
-          githubRepoUrl: body.githubRepoUrl,
+          sourceControlIntegrationId: assignment.value.sourceControlIntegrationId,
+          sourceControlProvider: assignment.value.sourceControlProvider,
+          sourceControlRepoFullName: assignment.value.sourceControlRepoFullName,
+          sourceControlRepoUrl: assignment.value.sourceControlRepoUrl,
+          githubRepoUrl: assignment.value.githubRepoUrl,
         },
         tenantId,
       );
@@ -230,7 +388,11 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
       name,
       description: body.description,
       rootWorkingDirectory: body.rootWorkingDirectory,
-      githubRepoUrl: body.githubRepoUrl,
+      sourceControlIntegrationId: assignment.value.sourceControlIntegrationId,
+      sourceControlProvider: assignment.value.sourceControlProvider,
+      sourceControlRepoFullName: assignment.value.sourceControlRepoFullName,
+      sourceControlRepoUrl: assignment.value.sourceControlRepoUrl,
+      githubRepoUrl: assignment.value.githubRepoUrl,
     });
 
     return c.json({ action: 'created', project: created.toPlain() }, 201);
@@ -239,8 +401,45 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
   // PATCH /api/projects/:id
   router.patch('/:id', async (c) => {
     const id = Number(c.req.param('id'));
-    const body = await c.req.json();
-    const project = await projectService.updateProject(id, body, c.get('tenantId'));
+    const tenantId = c.get('tenantId');
+    const body = await c.req.json<{
+      name?: string;
+      description?: string | null;
+      rootWorkingDirectory?: string | null;
+      status?: ProjectStatus;
+      sourceControlIntegrationId?: number | null;
+      sourceControlRepoFullName?: string | null;
+      sourceControlRepoUrl?: string | null;
+      githubRepoUrl?: string | null;
+    }>();
+
+    const existing = await projectService.getProject(id, tenantId);
+    const assignment = await resolveSourceControlAssignment(
+      tenantId,
+      {
+        sourceControlIntegrationId: body.sourceControlIntegrationId,
+        sourceControlRepoFullName: body.sourceControlRepoFullName,
+        sourceControlRepoUrl: body.sourceControlRepoUrl,
+        githubRepoUrl: body.githubRepoUrl,
+      },
+      {
+        sourceControlIntegrationId: existing.sourceControlIntegrationId,
+        sourceControlProvider: existing.sourceControlProvider,
+        sourceControlRepoFullName: existing.sourceControlRepoFullName,
+        sourceControlRepoUrl: existing.sourceControlRepoUrl,
+        githubRepoUrl: existing.githubRepoUrl,
+      },
+    );
+    if (!assignment.ok) return c.json({ error: assignment.message }, assignment.status);
+
+    const project = await projectService.updateProject(id, {
+      ...body,
+      sourceControlIntegrationId: assignment.value.sourceControlIntegrationId,
+      sourceControlProvider: assignment.value.sourceControlProvider,
+      sourceControlRepoFullName: assignment.value.sourceControlRepoFullName,
+      sourceControlRepoUrl: assignment.value.sourceControlRepoUrl,
+      githubRepoUrl: assignment.value.githubRepoUrl,
+    }, tenantId);
     return c.json(project.toPlain());
   });
 

@@ -211,6 +211,20 @@ export interface TenantMember {
   joinedAt: string;
 }
 
+export type SourceControlProvider = "github" | "bitbucket";
+
+export interface SourceControlIntegration {
+  id: number;
+  tenantId: number;
+  provider: SourceControlProvider;
+  name: string;
+  accountIdentifier: string;
+  hostUrl?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Project {
   id: string;
   key: string;
@@ -218,6 +232,11 @@ export interface Project {
   description?: string;
   rootWorkingDirectory?: string | null;
   status: string;
+  sourceControlIntegrationId?: number | null;
+  sourceControlProvider?: SourceControlProvider | null;
+  sourceControlRepoFullName?: string | null;
+  sourceControlRepoUrl?: string | null;
+  githubRepoUrl?: string | null;
   taskCount?: number;
   createdAt: string;
 }
@@ -491,6 +510,50 @@ export const tenants = {
       body: JSON.stringify({}),
     });
   },
+
+  async listSourceControlIntegrations(id: string): Promise<SourceControlIntegration[]> {
+    const res = await request<{ integrations: SourceControlIntegration[] }>(`/api/tenants/${id}/source-control-integrations`);
+    return res.integrations;
+  },
+
+  async createSourceControlIntegration(
+    id: string,
+    data: {
+      provider: SourceControlProvider;
+      name: string;
+      accountIdentifier: string;
+      hostUrl?: string | null;
+      isActive?: boolean;
+    },
+  ): Promise<SourceControlIntegration> {
+    return request(`/api/tenants/${id}/source-control-integrations`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateSourceControlIntegration(
+    id: string,
+    integrationId: number,
+    data: {
+      provider?: SourceControlProvider;
+      name?: string;
+      accountIdentifier?: string;
+      hostUrl?: string | null;
+      isActive?: boolean;
+    },
+  ): Promise<SourceControlIntegration> {
+    return request(`/api/tenants/${id}/source-control-integrations/${integrationId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteSourceControlIntegration(id: string, integrationId: number): Promise<void> {
+    return request(`/api/tenants/${id}/source-control-integrations/${integrationId}`, {
+      method: "DELETE",
+    });
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -503,11 +566,26 @@ export const projects = {
     return res.projects;
   },
 
-  async create(data: { name: string; description?: string; rootWorkingDirectory?: string | null }): Promise<Project> {
+  async create(data: {
+    name: string;
+    description?: string;
+    rootWorkingDirectory?: string | null;
+    sourceControlIntegrationId?: number | null;
+    sourceControlRepoFullName?: string | null;
+    sourceControlRepoUrl?: string | null;
+  }): Promise<Project> {
     return request("/api/projects", { method: "POST", body: JSON.stringify(data) });
   },
 
-  async upsert(data: { name: string; description?: string; rootWorkingDirectory?: string | null; githubRepoUrl?: string }): Promise<{ action: "created" | "updated"; project: Project }> {
+  async upsert(data: {
+    name: string;
+    description?: string;
+    rootWorkingDirectory?: string | null;
+    sourceControlIntegrationId?: number | null;
+    sourceControlRepoFullName?: string | null;
+    sourceControlRepoUrl?: string | null;
+    githubRepoUrl?: string;
+  }): Promise<{ action: "created" | "updated"; project: Project }> {
     return request("/api/projects/upsert", { method: "POST", body: JSON.stringify(data) });
   },
 
@@ -803,6 +881,29 @@ export interface AdminError {
   createdAt: string;
 }
 
+export interface AdminSecurityUser {
+  id: string;
+  email: string;
+  username: string | null;
+  displayName: string | null;
+  mfaEnabled: boolean;
+  mfaEnabledAt: string | null;
+  activeSessions: number;
+  activeTokens: number;
+}
+
+export interface AdminSecurityDetails {
+  user: {
+    id: string;
+    email: string;
+    username: string | null;
+    displayName: string | null;
+  };
+  mfa: MfaStatus;
+  sessions: Array<Omit<AuthSessionInfo, "isCurrent">>;
+  tokens: Array<Omit<AuthTokenInfo, "isCurrent">>;
+}
+
 /** Admin API uses the WebJWT (not tenant token) since it crosses tenant boundaries. */
 function adminRequest<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return request<T>(path, { ...opts, token: getWebToken() });
@@ -873,5 +974,63 @@ export const adminApi = {
 
   async llmUsage(days = 30): Promise<LlmUsageStats> {
     return adminRequest<LlmUsageStats>(`/api/admin/llm-usage?days=${days}`);
+  },
+
+  async securityUsers(tenantId: number): Promise<AdminSecurityUser[]> {
+    const res = await adminRequest<{ users: AdminSecurityUser[] }>(`/api/admin/security/users?tenantId=${tenantId}`);
+    return res.users;
+  },
+
+  async securityDetails(tenantId: number, userId: string): Promise<AdminSecurityDetails> {
+    return adminRequest<AdminSecurityDetails>(`/api/admin/security/users/${encodeURIComponent(userId)}?tenantId=${tenantId}`);
+  },
+
+  async securityMfaSetup(tenantId: number, userId: string): Promise<{ otpauthUrl: string; manualEntryKey: string; expiresIn: number }> {
+    return adminRequest(`/api/admin/security/users/${encodeURIComponent(userId)}/mfa/setup?tenantId=${tenantId}`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
+
+  async securityMfaEnable(tenantId: number, userId: string, code: string): Promise<{ enabled: boolean; recoveryCodes: string[] }> {
+    return adminRequest(`/api/admin/security/users/${encodeURIComponent(userId)}/mfa/enable?tenantId=${tenantId}`, {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  async securityMfaDisable(tenantId: number, userId: string, data: { code?: string; recoveryCode?: string }): Promise<{ enabled: boolean }> {
+    return adminRequest(`/api/admin/security/users/${encodeURIComponent(userId)}/mfa/disable?tenantId=${tenantId}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async securityRegenerateRecoveryCodes(tenantId: number, userId: string, data: { code?: string; recoveryCode?: string }): Promise<{ recoveryCodes: string[] }> {
+    return adminRequest(`/api/admin/security/users/${encodeURIComponent(userId)}/mfa/recovery-codes/regenerate?tenantId=${tenantId}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async securityRevokeSession(tenantId: number, userId: string, sessionId: string): Promise<void> {
+    return adminRequest(`/api/admin/security/users/${encodeURIComponent(userId)}/sessions/${encodeURIComponent(sessionId)}/revoke?tenantId=${tenantId}`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
+
+  async securityRevokeAllSessions(tenantId: number, userId: string): Promise<void> {
+    return adminRequest(`/api/admin/security/users/${encodeURIComponent(userId)}/sessions/revoke-all?tenantId=${tenantId}`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
+
+  async securityRevokeToken(tenantId: number, userId: string, jti: string): Promise<void> {
+    return adminRequest(`/api/admin/security/users/${encodeURIComponent(userId)}/tokens/${encodeURIComponent(jti)}/revoke?tenantId=${tenantId}`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
   },
 };

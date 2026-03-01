@@ -4,6 +4,7 @@ import {
   tasks as tasksApi, projects as projectsApi, claws as clawsApi,
   type Task, type TaskStatus, type TaskPriority, type Project, type Claw, type Execution,
 } from "../api.js";
+import { renderTaskKanban } from "../components/task-kanban.js";
 
 type ViewMode = "kanban" | "list" | "gantt";
 
@@ -309,52 +310,45 @@ export class CclTasks extends LitElement {
   // ---------------------------------------------------------------------------
 
   private renderKanban() {
-    return html`
-      <div class="kanban">
-        ${STATUSES.map(s => html`
-          <div class="kanban-col"
-            @dragover=${this.dragOver}
-            @drop=${(e: DragEvent) => this.drop(e, s)}>
-            <div class="kanban-col-header">
-              <div class="kanban-col-title">${STATUS_LABELS[s]}</div>
-              <div class="kanban-col-count">${this.tasksForStatus(s).length}</div>
-            </div>
-            <div class="kanban-col-body">
-              ${this.tasksForStatus(s).map(t => html`
-                <div class="task-card"
-                  draggable="true"
-                  @dragstart=${() => this.dragStart(t.id)}
-                  @click=${() => this.openDrawer(t)}>
-                  <div class="task-card-title">${t.title}</div>
-                  <div class="task-card-meta">
-                    <span class="task-key">${t.key}</span>
-                    ${this.priorityBadge(t.priority)}
-                    ${t.assignedClawId
-                      ? html`<span style="font-size:11px;color:var(--muted)">${this.clawName(t.assignedClawId)}</span>`
-                      : ""}
-                    ${t.dueDate ? html`<span style="font-size:11px;color:var(--muted);margin-left:auto">${this.formatDate(t.dueDate)}</span>` : ""}
-                  </div>
-                  <div style="display:flex;justify-content:flex-end;margin-top:8px;padding-top:6px;border-top:1px solid var(--border)"
-                    @click=${(e: Event) => e.stopPropagation()}>
-                    <button class="btn btn-ghost btn-sm" style="font-size:11px;gap:4px"
-                      @click=${() => this.openDrawer(t)}>
-                      View
-                      <svg viewBox="0 0 24 24" style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2"><polyline points="9 18 15 12 9 6"/></svg>
-                    </button>
-                  </div>
-                </div>
-              `)}
-              <button
-                class="btn btn-ghost btn-sm"
-                style="border-style:dashed;width:100%;margin-top:4px"
-                @click=${() => { this.form = { status: s, priority: "medium" }; this.editTarget = null; this.showModal = true; }}>
-                + Add task
-              </button>
-            </div>
+    return renderTaskKanban({
+      tasks: this.filtered,
+      statuses: STATUSES,
+      statusLabels: STATUS_LABELS,
+      onDragOver: this.dragOver,
+      onDrop: (e, status) => this.drop(e, status),
+      renderCard: (t) => html`
+        <div class="task-card"
+          draggable="true"
+          @dragstart=${() => this.dragStart(t.id)}
+          @click=${() => this.openDrawer(t)}>
+          <div class="task-card-title">${t.title}</div>
+          <div class="task-card-meta">
+            <span class="task-key">${t.key}</span>
+            ${this.priorityBadge(t.priority)}
+            ${t.assignedClawId
+              ? html`<span style="font-size:11px;color:var(--muted)">${this.clawName(t.assignedClawId)}</span>`
+              : ""}
+            ${t.dueDate ? html`<span style="font-size:11px;color:var(--muted);margin-left:auto">${this.formatDate(t.dueDate)}</span>` : ""}
           </div>
-        `)}
-      </div>
-    `;
+          <div style="display:flex;justify-content:flex-end;margin-top:8px;padding-top:6px;border-top:1px solid var(--border)"
+            @click=${(e: Event) => e.stopPropagation()}>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;gap:4px"
+              @click=${() => this.openDrawer(t)}>
+              View
+              <svg viewBox="0 0 24 24" style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+        </div>
+      `,
+      renderColumnFooter: (status) => html`
+        <button
+          class="btn btn-ghost btn-sm"
+          style="border-style:dashed;width:100%;margin-top:4px"
+          @click=${() => { this.form = { status, priority: "medium" }; this.editTarget = null; this.showModal = true; }}>
+          + Add task
+        </button>
+      `,
+    });
   }
 
   // ---------------------------------------------------------------------------

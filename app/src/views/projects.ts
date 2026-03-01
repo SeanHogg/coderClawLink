@@ -8,12 +8,16 @@ import {
   projects as projectsApi,
   tasks as tasksApi,
   claws as clawsApi,
+  tenants,
   type Project,
   type Task,
   type Claw,
+  type SourceControlIntegration,
+  type SourceControlProvider,
   type TaskPriority,
   type TaskStatus,
 } from "../api.js";
+import { renderTaskKanban } from "../components/task-kanban.js";
 
 const STATUSES: TaskStatus[] = ["todo", "in_progress", "in_review", "done", "blocked"];
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -100,6 +104,26 @@ export class CclProjects extends LitElement {
     dueDate: "",
   };
   @state() private taskSaving = false;
+  @state() private sourceControlIntegrations: SourceControlIntegration[] = [];
+  @state() private sourceControlLoading = false;
+  @state() private sourceControlSaving = false;
+  @state() private integrationSaving = false;
+  @state() private sourceControlForm = {
+    integrationId: "",
+    repoFullName: "",
+    repoUrl: "",
+  };
+  @state() private integrationForm: {
+    provider: SourceControlProvider;
+    name: string;
+    accountIdentifier: string;
+    hostUrl: string;
+  } = {
+    provider: "github",
+    name: "",
+    accountIdentifier: "",
+    hostUrl: "",
+  };
 
   @state() private prdTitle = "Project PRD";
   @state() private prdMarkdown = "";
@@ -109,6 +133,7 @@ export class CclProjects extends LitElement {
   @state() private brainSending = false;
   @state() private brainMessages: BrainMessage[] = [];
   @state() private brainActions: BrainActionState[] = [];
+  @state() private dragTaskId = "";
 
   override connectedCallback() {
     super.connectedCallback();
@@ -237,10 +262,19 @@ export class CclProjects extends LitElement {
     return html`<div class="md-content">${unsafeHTML(clean)}</div>`;
   }
 
+  private syncSourceControlForm(project: Project) {
+    this.sourceControlForm = {
+      integrationId: project.sourceControlIntegrationId == null ? "" : String(project.sourceControlIntegrationId),
+      repoFullName: project.sourceControlRepoFullName ?? "",
+      repoUrl: project.sourceControlRepoUrl ?? "",
+    };
+  }
+
   private async openWorkspace(project: Project) {
     this.panelOpen = true;
     this.workspaceTab = "details";
     this.activeProject = project;
+    this.syncSourceControlForm(project);
     this.selectedProjectId = String(project.id);
     await this.loadWorkspace();
 
@@ -260,8 +294,10 @@ export class CclProjects extends LitElement {
     this.panelOpen = false;
     this.activeProject = null;
     this.selectedProjectId = "";
+    this.dragTaskId = "";
     this.projectTasks = [];
     this.projectClaws = [];
+    this.sourceControlIntegrations = [];
     this.workspaceTab = "details";
   }
 
@@ -269,9 +305,14 @@ export class CclProjects extends LitElement {
     if (!this.activeProject) return;
     this.workspaceLoading = true;
     try {
-      const [tasks, claws] = await Promise.all([tasksApi.list(), clawsApi.list()]);
+      const [tasks, claws, integrations] = await Promise.all([
+        tasksApi.list(),
+        clawsApi.list(),
+        this.tenantId ? tenants.listSourceControlIntegrations(this.tenantId) : Promise.resolve([]),
+      ]);
       this.projectTasks = tasks.filter((task) => String(task.projectId ?? "") === String(this.activeProject?.id));
       this.projectClaws = claws;
+      this.sourceControlIntegrations = integrations;
     } catch (e) {
       this.error = (e as Error).message;
     } finally {
@@ -286,6 +327,37 @@ export class CclProjects extends LitElement {
     } catch (e) {
       this.error = (e as Error).message;
     }
+  }
+
+  private async patchTaskStatus(taskId: string, status: TaskStatus) {
+    try {
+      const updated = await tasksApi.update(taskId, { status });
+      this.projectTasks = this.projectTasks.map((item) => (item.id === taskId ? updated : item));
+    } catch (e) {
+      this.error = (e as Error).message;
+    }
+  }
+
+  private dragStart(taskId: string) {
+    this.dragTaskId = taskId;
+  }
+
+  private dragOver(e: DragEvent) {
+    e.preventDefault();
+  }
+
+  private async drop(e: DragEvent, status: TaskStatus) {
+    e.preventDefault();
+    if (!this.dragTaskId) {
+      return;
+    }
+    const dragged = this.projectTasks.find((task) => task.id === this.dragTaskId);
+    const draggedTaskId = this.dragTaskId;
+    this.dragTaskId = "";
+    if (!dragged || dragged.status === status) {
+      return;
+    }
+    await this.patchTaskStatus(draggedTaskId, status);
   }
 
   private async createTask() {
@@ -314,6 +386,86 @@ export class CclProjects extends LitElement {
       this.error = (e as Error).message;
     } finally {
       this.taskSaving = false;
+    }
+  }
+
+  private async saveSourceControlAssignment() {
+    if (!this.activeProject || this.sourceControlSaving) return;
+    this.sourceControlSaving = true;
+    try {
+      const integrationId = this.sourceControlForm.integrationId
+        ? Number(this.sourceControlForm.integrationId)
+        : null;
+
+      const updated = await projectsApi.update(this.activeProject.id, {
+        sourceControlIntegrationId: integrationId,
+        sourceControlRepoFullName: this.sourceControlForm.repoFullName.trim() || null,
+        sourceControlRepoUrl: this.sourceControlForm.repoUrl.trim() || null,
+      });
+
+      this.activeProject = updated;
+      this.items = this.items.map((item) => (item.id === updated.id ? updated : item));
+      this.syncSourceControlForm(updated);
+    } catch (e) {
+      this.error = (e as Error).message;
+    } finally {
+      this.sourceControlSaving = false;
+    }
+  }
+
+  private async createIntegrationFromProject() {
+    if (!this.tenantId || this.integrationSaving) return;
+    if (!this.integrationForm.name.trim() || !this.integrationForm.accountIdentifier.trim()) return;
+    this.integrationSaving = true;
+    try {
+      await tenants.createSourceControlIntegration(this.tenantId, {
+        provider: this.integrationForm.provider,
+        name: this.integrationForm.name.trim(),
+        accountIdentifier: this.integrationForm.accountIdentifier.trim(),
+        hostUrl: this.integrationForm.hostUrl.trim() || null,
+      });
+      this.integrationForm = {
+        provider: this.integrationForm.provider,
+        name: "",
+        accountIdentifier: "",
+        hostUrl: "",
+      };
+      this.sourceControlLoading = true;
+      this.sourceControlIntegrations = await tenants.listSourceControlIntegrations(this.tenantId);
+    } catch (e) {
+      this.error = (e as Error).message;
+    } finally {
+      this.sourceControlLoading = false;
+      this.integrationSaving = false;
+    }
+  }
+
+  private async toggleIntegrationActive(integration: SourceControlIntegration) {
+    if (!this.tenantId) return;
+    try {
+      const updated = await tenants.updateSourceControlIntegration(this.tenantId, integration.id, {
+        isActive: !integration.isActive,
+      });
+      this.sourceControlIntegrations = this.sourceControlIntegrations.map((item) => (
+        item.id === updated.id ? updated : item
+      ));
+    } catch (e) {
+      this.error = (e as Error).message;
+    }
+  }
+
+  private async deleteIntegrationFromProject(integration: SourceControlIntegration) {
+    if (!this.tenantId) return;
+    if (!confirm(`Delete integration "${integration.name}"?`)) return;
+    try {
+      await tenants.deleteSourceControlIntegration(this.tenantId, integration.id);
+      this.sourceControlIntegrations = this.sourceControlIntegrations.filter((item) => item.id !== integration.id);
+
+      if (String(integration.id) === this.sourceControlForm.integrationId) {
+        this.sourceControlForm = { integrationId: "", repoFullName: "", repoUrl: "" };
+      }
+    } catch (e) {
+      this.error = (e as Error).message;
     }
   }
 
@@ -626,11 +778,14 @@ export class CclProjects extends LitElement {
 
   private renderProjectDetails(project: Project, tasks: Task[]) {
     const openCount = tasks.filter((task) => task.status !== "done").length;
+    const selectedIntegration = this.sourceControlIntegrations.find((integration) => (
+      String(integration.id) === this.sourceControlForm.integrationId
+    ));
     return html`
       <div class="grid grid-2">
         <div class="card">
           <div class="card-title" style="margin-bottom:10px">Overview</div>
-          <div style="font-size:13px;line-height:1.6;color:var(--text)">
+          <div style="font-size:13px;line-height:1.6;color:var(--text);max-height:260px;overflow:auto;padding-right:4px">
             ${project.description || "No project description yet."}
           </div>
           <div style="display:grid;gap:8px;margin-top:14px">
@@ -639,6 +794,7 @@ export class CclProjects extends LitElement {
             <div style="display:flex;justify-content:space-between;font-size:12px;gap:12px"><span style="color:var(--muted)">Root path</span><span class="truncate" title=${project.rootWorkingDirectory ?? ""}>${project.rootWorkingDirectory ?? "Not set"}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Tasks</span><span>${tasks.length}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Open tasks</span><span>${openCount}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;gap:12px"><span style="color:var(--muted)">Repo</span><span class="truncate" title=${project.sourceControlRepoFullName ?? ""}>${project.sourceControlRepoFullName ?? "Not assigned"}</span></div>
           </div>
         </div>
 
@@ -652,35 +808,117 @@ export class CclProjects extends LitElement {
           </div>
           <div style="margin-top:12px;font-size:12px;color:var(--muted)">Use Brain to generate PRDs and executable task actions for this project.</div>
         </div>
+
+        <div class="card" style="grid-column:1 / -1">
+          <div class="card-title" style="margin-bottom:10px">Source control</div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end">
+            <div class="field" style="margin:0">
+              <label class="label">Integration</label>
+              <select class="select" .value=${this.sourceControlForm.integrationId} @change=${(e: Event) => {
+                this.sourceControlForm = { ...this.sourceControlForm, integrationId: (e.target as HTMLSelectElement).value };
+              }}>
+                <option value="">No integration (clear assignment)</option>
+                ${this.sourceControlIntegrations
+                  .filter((integration) => integration.isActive || String(integration.id) === this.sourceControlForm.integrationId)
+                  .map((integration) => html`<option value=${integration.id}>${integration.name} · ${integration.provider} · ${integration.accountIdentifier}</option>`)}
+              </select>
+            </div>
+
+            <div class="field" style="margin:0">
+              <label class="label">Repository</label>
+              <input class="input" placeholder="owner/repo" .value=${this.sourceControlForm.repoFullName}
+                @input=${(e: InputEvent) => { this.sourceControlForm = { ...this.sourceControlForm, repoFullName: (e.target as HTMLInputElement).value }; }}>
+            </div>
+
+            <div class="field" style="margin:0">
+              <label class="label">Repo URL <span class="label-hint">(optional)</span></label>
+              <input class="input" placeholder=${selectedIntegration?.provider === "bitbucket" ? "https://bitbucket.org/owner/repo" : "https://github.com/owner/repo"}
+                .value=${this.sourceControlForm.repoUrl}
+                @input=${(e: InputEvent) => { this.sourceControlForm = { ...this.sourceControlForm, repoUrl: (e.target as HTMLInputElement).value }; }}>
+            </div>
+
+            <button class="btn btn-primary btn-sm" @click=${() => void this.saveSourceControlAssignment()} ?disabled=${this.sourceControlSaving || (!!this.sourceControlForm.integrationId && !this.sourceControlForm.repoFullName.trim())}>
+              ${this.sourceControlSaving ? "Saving…" : "Save assignment"}
+            </button>
+          </div>
+
+          <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;display:grid;gap:10px">
+            <div style="font-size:12px;color:var(--muted)">Manage workspace integrations from this panel.</div>
+
+            ${this.sourceControlLoading
+              ? html`<div style="font-size:12px;color:var(--muted)">Loading integrations…</div>`
+              : this.sourceControlIntegrations.length === 0
+                ? html`<div style="font-size:12px;color:var(--muted)">No integrations configured yet.</div>`
+                : html`
+                    <div style="display:grid;gap:8px">
+                      ${this.sourceControlIntegrations.map((integration) => html`
+                        <div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                          <div style="font-size:12px;color:var(--text-strong);font-weight:600">${integration.name}</div>
+                          <span class="badge ${integration.provider === "github" ? "badge-blue" : "badge-yellow"}">${integration.provider}</span>
+                          <span class="badge ${integration.isActive ? "badge-green" : "badge-gray"}">${integration.isActive ? "active" : "inactive"}</span>
+                          <span style="font-size:11px;color:var(--muted)">${integration.accountIdentifier}</span>
+                          <div style="flex:1"></div>
+                          <button class="btn btn-ghost btn-sm" @click=${() => void this.toggleIntegrationActive(integration)}>${integration.isActive ? "Deactivate" : "Activate"}</button>
+                          <button class="btn btn-danger btn-sm" @click=${() => void this.deleteIntegrationFromProject(integration)}>Delete</button>
+                        </div>
+                      `)}
+                    </div>
+                  `}
+
+            <div style="display:grid;grid-template-columns:140px 1fr 1fr 1fr auto;gap:8px;align-items:end">
+              <div class="field" style="margin:0">
+                <label class="label">Provider</label>
+                <select class="select" .value=${this.integrationForm.provider} @change=${(e: Event) => {
+                  this.integrationForm = { ...this.integrationForm, provider: (e.target as HTMLSelectElement).value as SourceControlProvider };
+                }}>
+                  <option value="github">GitHub</option>
+                  <option value="bitbucket">Bitbucket</option>
+                </select>
+              </div>
+              <div class="field" style="margin:0">
+                <label class="label">Name</label>
+                <input class="input" placeholder="Primary GitHub" .value=${this.integrationForm.name}
+                  @input=${(e: InputEvent) => { this.integrationForm = { ...this.integrationForm, name: (e.target as HTMLInputElement).value }; }}>
+              </div>
+              <div class="field" style="margin:0">
+                <label class="label">Account / Workspace</label>
+                <input class="input" placeholder="acme-org" .value=${this.integrationForm.accountIdentifier}
+                  @input=${(e: InputEvent) => { this.integrationForm = { ...this.integrationForm, accountIdentifier: (e.target as HTMLInputElement).value }; }}>
+              </div>
+              <div class="field" style="margin:0">
+                <label class="label">Host URL <span class="label-hint">(optional)</span></label>
+                <input class="input" placeholder="https://bitbucket.org" .value=${this.integrationForm.hostUrl}
+                  @input=${(e: InputEvent) => { this.integrationForm = { ...this.integrationForm, hostUrl: (e.target as HTMLInputElement).value }; }}>
+              </div>
+              <button class="btn btn-secondary btn-sm" @click=${() => void this.createIntegrationFromProject()} ?disabled=${this.integrationSaving || !this.integrationForm.name.trim() || !this.integrationForm.accountIdentifier.trim()}>
+                ${this.integrationSaving ? "Adding…" : "Add integration"}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   }
 
   private renderTaskBoard(tasks: Task[]) {
-    return html`
-      <div class="kanban">
-        ${STATUSES.map((status) => html`
-          <div class="kanban-col">
-            <div class="kanban-col-header">
-              <div class="kanban-col-title">${STATUS_LABELS[status]}</div>
-              <div class="kanban-col-count">${tasks.filter((task) => task.status === status).length}</div>
-            </div>
-            <div class="kanban-col-body">
-              ${tasks.filter((task) => task.status === status).map((task) => html`
-                <div class="task-card">
-                  <div class="task-card-title">${task.title}</div>
-                  <div class="task-card-meta">
-                    <span class="task-key">${task.key}</span>
-                    ${this.priorityBadge(task.priority)}
-                    <span style="font-size:11px;color:var(--muted)">${this.clawName(task.assignedClawId)}</span>
-                  </div>
-                </div>
-              `)}
-            </div>
+    return renderTaskKanban({
+      tasks,
+      statuses: STATUSES,
+      statusLabels: STATUS_LABELS,
+      onDragOver: this.dragOver,
+      onDrop: (e, status) => this.drop(e, status),
+      renderCard: (task) => html`
+        <div class="task-card" draggable="true" @dragstart=${() => this.dragStart(task.id)}>
+          <div class="task-card-title">${task.title}</div>
+          <div class="task-card-meta">
+            <span class="task-key">${task.key}</span>
+            ${this.priorityBadge(task.priority)}
+            <span style="font-size:11px;color:var(--muted)">${this.clawName(task.assignedClawId)}</span>
           </div>
-        `)}
-      </div>
-    `;
+        </div>
+      `,
+    });
   }
 
   private renderTasksTab(tasks: Task[]) {

@@ -6,7 +6,9 @@ import type { HonoEnv } from '../../env';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware';
 import { webAuthMiddleware } from '../middleware/webAuthMiddleware';
 import type { Db } from '../../infrastructure/database/connection';
-import { coderclawInstances, clawProjects } from '../../infrastructure/database/schema';
+import { coderclawInstances, clawProjects, sourceControlIntegrations } from '../../infrastructure/database/schema';
+
+type SourceControlProvider = 'github' | 'bitbucket';
 
 export function createTenantRoutes(tenantService: TenantService, db: Db): Hono<HonoEnv> {
   const router = new Hono<HonoEnv>();
@@ -185,6 +187,146 @@ export function createTenantRoutes(tenantService: TenantService, db: Db): Hono<H
     );
 
     return c.json({ claws });
+  });
+
+  // GET /api/tenants/:id/source-control-integrations
+  router.get('/:id/source-control-integrations', async (c) => {
+    const tenantId = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (tenantId !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+
+    const integrations = await db
+      .select({
+        id: sourceControlIntegrations.id,
+        tenantId: sourceControlIntegrations.tenantId,
+        provider: sourceControlIntegrations.provider,
+        name: sourceControlIntegrations.name,
+        accountIdentifier: sourceControlIntegrations.accountIdentifier,
+        hostUrl: sourceControlIntegrations.hostUrl,
+        isActive: sourceControlIntegrations.isActive,
+        createdAt: sourceControlIntegrations.createdAt,
+        updatedAt: sourceControlIntegrations.updatedAt,
+      })
+      .from(sourceControlIntegrations)
+      .where(eq(sourceControlIntegrations.tenantId, tenantId));
+
+    return c.json({ integrations });
+  });
+
+  // POST /api/tenants/:id/source-control-integrations
+  router.post('/:id/source-control-integrations', requireRole(TenantRole.MANAGER), async (c) => {
+    const tenantId = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (tenantId !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+
+    const body = await c.req.json<{
+      provider: SourceControlProvider;
+      name: string;
+      accountIdentifier: string;
+      hostUrl?: string | null;
+      isActive?: boolean;
+    }>();
+
+    if (body.provider !== 'github' && body.provider !== 'bitbucket') {
+      return c.json({ error: 'provider must be github or bitbucket' }, 400);
+    }
+
+    if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400);
+    if (!body.accountIdentifier?.trim()) return c.json({ error: 'accountIdentifier is required' }, 400);
+
+    const [created] = await db
+      .insert(sourceControlIntegrations)
+      .values({
+        tenantId,
+        provider: body.provider,
+        name: body.name.trim(),
+        accountIdentifier: body.accountIdentifier.trim(),
+        hostUrl: body.hostUrl?.trim() || null,
+        isActive: body.isActive ?? true,
+      })
+      .returning();
+
+    return c.json(created, 201);
+  });
+
+  // PATCH /api/tenants/:id/source-control-integrations/:integrationId
+  router.patch('/:id/source-control-integrations/:integrationId', requireRole(TenantRole.MANAGER), async (c) => {
+    const tenantId = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (tenantId !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+
+    const integrationId = Number(c.req.param('integrationId'));
+    if (!Number.isFinite(integrationId) || integrationId <= 0) {
+      return c.json({ error: 'integrationId must be a positive number' }, 400);
+    }
+
+    const body = await c.req.json<{
+      provider?: SourceControlProvider;
+      name?: string;
+      accountIdentifier?: string;
+      hostUrl?: string | null;
+      isActive?: boolean;
+    }>();
+
+    if (body.provider !== undefined && body.provider !== 'github' && body.provider !== 'bitbucket') {
+      return c.json({ error: 'provider must be github or bitbucket' }, 400);
+    }
+
+    const [existing] = await db
+      .select({ id: sourceControlIntegrations.id })
+      .from(sourceControlIntegrations)
+      .where(
+        and(
+          eq(sourceControlIntegrations.id, integrationId),
+          eq(sourceControlIntegrations.tenantId, tenantId),
+        ),
+      )
+      .limit(1);
+
+    if (!existing) return c.json({ error: 'Integration not found' }, 404);
+
+    const [updated] = await db
+      .update(sourceControlIntegrations)
+      .set({
+        ...(body.provider !== undefined && { provider: body.provider }),
+        ...(body.name !== undefined && { name: body.name.trim() }),
+        ...(body.accountIdentifier !== undefined && { accountIdentifier: body.accountIdentifier.trim() }),
+        ...(body.hostUrl !== undefined && { hostUrl: body.hostUrl?.trim() || null }),
+        ...(body.isActive !== undefined && { isActive: body.isActive }),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(sourceControlIntegrations.id, integrationId),
+          eq(sourceControlIntegrations.tenantId, tenantId),
+        ),
+      )
+      .returning();
+
+    return c.json(updated);
+  });
+
+  // DELETE /api/tenants/:id/source-control-integrations/:integrationId
+  router.delete('/:id/source-control-integrations/:integrationId', requireRole(TenantRole.MANAGER), async (c) => {
+    const tenantId = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (tenantId !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+
+    const integrationId = Number(c.req.param('integrationId'));
+    if (!Number.isFinite(integrationId) || integrationId <= 0) {
+      return c.json({ error: 'integrationId must be a positive number' }, 400);
+    }
+
+    await db
+      .delete(sourceControlIntegrations)
+      .where(
+        and(
+          eq(sourceControlIntegrations.id, integrationId),
+          eq(sourceControlIntegrations.tenantId, tenantId),
+        ),
+      );
+
+    return c.body(null, 204);
   });
 
   // POST /api/tenants – create another tenant (caller must have a valid tenant JWT already)

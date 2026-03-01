@@ -1,6 +1,8 @@
 import { ProjectId, ProjectStatus, TenantId } from '../shared/types';
 import { ValidationError } from '../shared/errors';
 
+export type SourceControlProvider = 'github' | 'bitbucket';
+
 export interface ProjectProps {
   id:              ProjectId;
   tenantId:        TenantId;
@@ -9,6 +11,10 @@ export interface ProjectProps {
   description:     string | null;
   rootWorkingDirectory: string | null;
   status:          ProjectStatus;
+  sourceControlIntegrationId: number | null;
+  sourceControlProvider: SourceControlProvider | null;
+  sourceControlRepoFullName: string | null;
+  sourceControlRepoUrl: string | null;
   githubRepoUrl:   string | null;
   githubRepoOwner: string | null;
   githubRepoName:  string | null;
@@ -66,6 +72,10 @@ export class Project {
   get description(): string | null { return this.props.description; }
   get rootWorkingDirectory(): string | null { return this.props.rootWorkingDirectory; }
   get status(): ProjectStatus { return this.props.status; }
+  get sourceControlIntegrationId(): number | null { return this.props.sourceControlIntegrationId; }
+  get sourceControlProvider(): SourceControlProvider | null { return this.props.sourceControlProvider; }
+  get sourceControlRepoFullName(): string | null { return this.props.sourceControlRepoFullName; }
+  get sourceControlRepoUrl(): string | null { return this.props.sourceControlRepoUrl; }
   get githubRepoUrl(): string | null { return this.props.githubRepoUrl; }
   get githubRepoOwner(): string | null { return this.props.githubRepoOwner; }
   get githubRepoName(): string | null { return this.props.githubRepoName; }
@@ -80,7 +90,7 @@ export class Project {
     updates: Partial<
       Pick<
         ProjectProps,
-        'name' | 'description' | 'rootWorkingDirectory' | 'status' | 'githubRepoUrl' | 'githubRepoOwner' | 'githubRepoName'
+        'name' | 'description' | 'rootWorkingDirectory' | 'status' | 'sourceControlIntegrationId' | 'sourceControlProvider' | 'sourceControlRepoFullName' | 'sourceControlRepoUrl' | 'githubRepoUrl' | 'githubRepoOwner' | 'githubRepoName'
       >
     >,
   ): Project {

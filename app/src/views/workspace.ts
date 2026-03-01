@@ -14,6 +14,8 @@ import {
   type AuthSessionInfo,
   type AuthTokenInfo,
   type MfaStatus,
+  type SourceControlIntegration,
+  type SourceControlProvider,
 } from "../api.js";
 import QRCode from "qrcode";
 
@@ -25,6 +27,7 @@ export class CclWorkspace extends LitElement {
 
   @property({ type: Object }) tenant: TenantSummary | null = null;
   @property({ type: String }) initialTab: "members" | "settings" = "members";
+  @property({ type: String }) initialSection = "";
 
   @state() private detail: Tenant | null = null;
   @state() private loading = true;
@@ -59,6 +62,21 @@ export class CclWorkspace extends LitElement {
   @state() private authSessions: AuthSessionInfo[] = [];
   @state() private authTokens: AuthTokenInfo[] = [];
   @state() private loadingSecurity = false;
+  @state() private pendingSection = "";
+  @state() private sourceControlIntegrations: SourceControlIntegration[] = [];
+  @state() private sourceControlLoading = false;
+  @state() private sourceControlSaving = false;
+  @state() private sourceControlForm: {
+    provider: SourceControlProvider;
+    name: string;
+    accountIdentifier: string;
+    hostUrl: string;
+  } = {
+    provider: "github",
+    name: "",
+    accountIdentifier: "",
+    hostUrl: "",
+  };
 
   // Invite
   @state() private showInvite = false;
@@ -69,6 +87,7 @@ export class CclWorkspace extends LitElement {
   override connectedCallback() {
     super.connectedCallback();
     this.tab = this.initialTab;
+    this.pendingSection = this.initialSection;
     this.load();
   }
 
@@ -76,7 +95,28 @@ export class CclWorkspace extends LitElement {
     if (c.has("initialTab") && this.initialTab !== this.tab) {
       this.tab = this.initialTab;
     }
+    if (c.has("initialSection")) {
+      this.pendingSection = this.initialSection;
+    }
+    if ((c.has("initialTab") || c.has("initialSection")) && !this.loading) {
+      this.applySectionNavigation();
+    }
     if (c.has("tenant") && this.tenant) this.load();
+  }
+
+  private applySectionNavigation() {
+    if (!this.pendingSection) return;
+    const section = this.pendingSection;
+    if (this.tab !== "settings") {
+      this.tab = "settings";
+    }
+    requestAnimationFrame(() => {
+      const target = this.querySelector(`[data-workspace-section="${section}"]`) as HTMLElement | null;
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      this.pendingSection = "";
+    });
   }
 
   private async load() {
@@ -99,10 +139,13 @@ export class CclWorkspace extends LitElement {
       this.billingBrand = subscription.billingPaymentBrand ?? "visa";
       this.billingLast4 = subscription.billingPaymentLast4 ?? "";
       this.billingCycle = subscription.billingCycle ?? "monthly";
-      await this.loadSecurity();
+      await this.loadSourceControlIntegrations();
     }
     catch (e) { this.error = (e as Error).message; }
-    finally { this.loading = false; }
+    finally {
+      this.loading = false;
+      this.applySectionNavigation();
+    }
   }
 
   private async loadSecurity() {
@@ -247,6 +290,73 @@ export class CclWorkspace extends LitElement {
   private canManageBilling() {
     const role = this.tenant?.role?.toLowerCase();
     return role === "owner" || role === "manager";
+  }
+
+  private canManageSourceControl() {
+    return this.canManageBilling();
+  }
+
+  private async loadSourceControlIntegrations() {
+    if (!this.tenant) return;
+    this.sourceControlLoading = true;
+    try {
+      this.sourceControlIntegrations = await tenants.listSourceControlIntegrations(this.tenant.id);
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.sourceControlLoading = false;
+    }
+  }
+
+  private async createSourceControlIntegration(e: Event) {
+    e.preventDefault();
+    if (!this.tenant || !this.canManageSourceControl()) return;
+    if (!this.sourceControlForm.name.trim() || !this.sourceControlForm.accountIdentifier.trim()) return;
+
+    this.sourceControlSaving = true;
+    this.error = "";
+    try {
+      await tenants.createSourceControlIntegration(this.tenant.id, {
+        provider: this.sourceControlForm.provider,
+        name: this.sourceControlForm.name.trim(),
+        accountIdentifier: this.sourceControlForm.accountIdentifier.trim(),
+        hostUrl: this.sourceControlForm.hostUrl.trim() || null,
+      });
+      this.sourceControlForm = {
+        provider: this.sourceControlForm.provider,
+        name: "",
+        accountIdentifier: "",
+        hostUrl: "",
+      };
+      await this.loadSourceControlIntegrations();
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.sourceControlSaving = false;
+    }
+  }
+
+  private async setIntegrationActive(integration: SourceControlIntegration, isActive: boolean) {
+    if (!this.tenant || !this.canManageSourceControl()) return;
+    try {
+      const updated = await tenants.updateSourceControlIntegration(this.tenant.id, integration.id, { isActive });
+      this.sourceControlIntegrations = this.sourceControlIntegrations.map((item) => (
+        item.id === updated.id ? updated : item
+      ));
+    } catch (err) {
+      this.error = (err as Error).message;
+    }
+  }
+
+  private async deleteSourceControlIntegration(integration: SourceControlIntegration) {
+    if (!this.tenant || !this.canManageSourceControl()) return;
+    if (!confirm(`Delete integration "${integration.name}"?`)) return;
+    try {
+      await tenants.deleteSourceControlIntegration(this.tenant.id, integration.id);
+      this.sourceControlIntegrations = this.sourceControlIntegrations.filter((item) => item.id !== integration.id);
+    } catch (err) {
+      this.error = (err as Error).message;
+    }
   }
 
   private async saveDefaultClaw() {
@@ -425,7 +535,7 @@ export class CclWorkspace extends LitElement {
   private renderMembers() {
     const members = this.detail?.members ?? [];
     return html`
-      <div>
+      <div data-workspace-section="members">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
           <button class="btn btn-primary" @click=${() => { this.showInvite = true; }}>Invite member</button>
         </div>
@@ -481,9 +591,10 @@ export class CclWorkspace extends LitElement {
     const sub = this.subscription;
     const usage = this.usage;
     const canManageBilling = this.canManageBilling();
+    const canManageSourceControl = this.canManageSourceControl();
     return html`
       <div style="display:grid;gap:16px;max-width:680px">
-        <div class="card" style="max-width:680px">
+        <div class="card" style="max-width:680px" data-workspace-section="settings">
           <div class="card-title" style="margin-bottom:16px">Default Claw</div>
           <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
             Used when dashboard prompts scaffold a project and no project-specific claw is assigned.
@@ -503,7 +614,7 @@ export class CclWorkspace extends LitElement {
           ${!canManageBilling ? html`<div style="font-size:12px;color:var(--muted);margin-top:8px">Only owner/manager can update default claw.</div>` : ""}
         </div>
 
-        <div class="card" style="max-width:680px">
+        <div class="card" style="max-width:680px" data-workspace-section="billing">
           <div class="card-title" style="margin-bottom:16px">coderClawLLM Plan</div>
           ${sub ? html`
             <div style="display:grid;gap:10px;margin-bottom:14px">
@@ -558,7 +669,7 @@ export class CclWorkspace extends LitElement {
           ` : html`<div style="color:var(--muted);font-size:13px">Loading subscription…</div>`}
         </div>
 
-        <div class="card" style="max-width:680px">
+        <div class="card" style="max-width:680px" data-workspace-section="consumption">
           <div class="card-title" style="margin-bottom:8px">coderClawLLM Consumption</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
             <label style="font-size:12px;color:var(--muted)">Window</label>
@@ -589,7 +700,7 @@ export class CclWorkspace extends LitElement {
           ` : html`<div style="color:var(--muted);font-size:13px">Loading usage…</div>`}
         </div>
 
-        <div class="card" style="max-width:680px">
+        <div class="card" style="max-width:680px" data-workspace-section="details">
           <div class="card-title" style="margin-bottom:16px">Workspace details</div>
           <div style="display:grid;gap:10px">
             ${[
@@ -603,103 +714,9 @@ export class CclWorkspace extends LitElement {
                 <span style="color:var(--text-strong);font-weight:500">${val}</span>
               </div>`)}
           </div>
-        </div>
 
-        <div class="card" style="max-width:680px">
-          <div class="card-title" style="margin-bottom:8px">Account security</div>
-          <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">
-            MFA is optional. If disabled, login continues with email and password only.
-          </div>
+          <div class="divider" style="margin:16px 0"></div>
 
-          ${this.loadingSecurity
-            ? html`<div style="color:var(--muted);font-size:13px">Loading security settings…</div>`
-            : html`
-              <div style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px">
-                <div>
-                  <div style="font-size:13px;color:var(--text-strong);font-weight:600">Authenticator app MFA</div>
-                  <div style="font-size:12px;color:var(--muted)">${this.mfaStatus?.enabled ? "Enabled" : "Disabled"}</div>
-                </div>
-                ${this.mfaStatus?.enabled
-                  ? html`<button class="btn btn-danger btn-sm" @click=${this.disableMfa} ?disabled=${this.mfaDisableBusy}>${this.mfaDisableBusy ? "Disabling…" : "Disable"}</button>`
-                  : html`<button class="btn btn-primary btn-sm" @click=${this.startMfaSetup} ?disabled=${this.mfaSetupBusy}>${this.mfaSetupBusy ? "Preparing…" : "Set up MFA"}</button>`}
-              </div>
-
-              ${this.mfaQrDataUrl ? html`
-                <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;display:grid;gap:10px">
-                  <div style="font-size:12px;color:var(--muted)">Scan this QR with your authenticator app, then enter the 6-digit code.</div>
-                  <img alt="MFA QR" src=${this.mfaQrDataUrl} style="width:220px;height:220px;border:1px solid var(--border);border-radius:8px;background:#fff;padding:8px" />
-                  <div style="font-size:12px;color:var(--muted)">Manual key: <span style="font-family:var(--mono);color:var(--text-strong)">${this.mfaManualKey}</span></div>
-                </div>
-              ` : ""}
-
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-                <button type="button" class="btn ${this.mfaMode === "totp" ? "btn-primary" : "btn-secondary"} btn-sm" @click=${() => { this.mfaMode = "totp"; }}>Use authenticator code</button>
-                <button type="button" class="btn ${this.mfaMode === "recovery" ? "btn-primary" : "btn-secondary"} btn-sm" @click=${() => { this.mfaMode = "recovery"; }}>Use recovery code</button>
-              </div>
-
-              ${this.mfaMode === "totp"
-                ? html`<input class="input" placeholder="6-digit code" .value=${this.mfaVerifyCode} @input=${(e: InputEvent) => { this.mfaVerifyCode = (e.target as HTMLInputElement).value; }} style="margin-bottom:8px" />`
-                : html`<input class="input" placeholder="ABCD-EFGH" .value=${this.mfaRecoveryInput} @input=${(e: InputEvent) => { this.mfaRecoveryInput = (e.target as HTMLInputElement).value; }} style="margin-bottom:8px" />`}
-
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-                ${this.mfaQrDataUrl
-                  ? html`<button class="btn btn-primary btn-sm" @click=${this.enableMfa} ?disabled=${this.mfaEnableBusy || !this.mfaVerifyCode.trim()}>${this.mfaEnableBusy ? "Enabling…" : "Enable MFA"}</button>`
-                  : ""}
-                ${this.mfaStatus?.enabled
-                  ? html`<button class="btn btn-secondary btn-sm" @click=${this.regenerateRecoveryCodes} ?disabled=${this.mfaRegenerateBusy}>${this.mfaRegenerateBusy ? "Regenerating…" : "Regenerate recovery codes"}</button>`
-                  : ""}
-              </div>
-
-              ${this.recoveryCodes.length
-                ? html`
-                  <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
-                    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Save these one-time recovery codes now.</div>
-                    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:8px;font-family:var(--mono);font-size:12px;color:var(--text-strong)">
-                      ${this.recoveryCodes.map((code) => html`<div>${code}</div>`)}
-                    </div>
-                    <button class="btn btn-secondary btn-sm" @click=${this.downloadRecoveryCodes}>Download recovery codes</button>
-                  </div>
-                `
-                : ""}
-
-              <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 8px">
-                <div style="font-size:13px;color:var(--text-strong);font-weight:600">Active sessions</div>
-                <button class="btn btn-danger btn-sm" @click=${this.revokeOthers}>Revoke other sessions</button>
-              </div>
-              <div style="display:grid;gap:8px;margin-bottom:10px">
-                ${this.authSessions.length === 0
-                  ? html`<div style="font-size:12px;color:var(--muted)">No active sessions found.</div>`
-                  : this.authSessions.map((session) => html`
-                    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;display:grid;gap:6px">
-                      <div style="display:flex;justify-content:space-between;align-items:center">
-                        <div style="font-size:13px;color:var(--text-strong);font-weight:600">${session.sessionName || "Session"}${session.isCurrent ? " (current)" : ""}</div>
-                        ${session.isCurrent ? html`<span class="badge badge-blue">Current</span>` : html`<button class="btn btn-danger btn-sm" @click=${() => this.revokeSession(session.id)}>Revoke</button>`}
-                      </div>
-                      <div style="font-size:12px;color:var(--muted)">${session.userAgent || "Unknown device"}</div>
-                      <div style="font-size:12px;color:var(--muted)">IP: ${session.ipAddress || "Unknown"} · Tokens: ${session.activeTokens} · Last seen: ${new Date(session.lastSeenAt).toLocaleString()}</div>
-                    </div>
-                  `)}
-              </div>
-
-              <div style="font-size:13px;color:var(--text-strong);font-weight:600;margin-bottom:8px">JWT tokens</div>
-              <div style="display:grid;gap:8px">
-                ${this.authTokens.slice(0, 20).map((token) => html`
-                  <div style="border:1px solid var(--border);border-radius:8px;padding:10px;display:grid;gap:6px">
-                    <div style="display:flex;justify-content:space-between;align-items:center">
-                      <div style="font-size:12px;color:var(--text-strong);font-family:var(--mono)">${token.jti}</div>
-                      ${token.isCurrent ? html`<span class="badge badge-blue">Current</span>` : html`<button class="btn btn-danger btn-sm" @click=${() => this.revokeToken(token.jti)}>Revoke</button>`}
-                    </div>
-                    <div style="font-size:12px;color:var(--muted)">
-                      ${token.tokenType.toUpperCase()}${token.tenantId != null ? ` · Tenant ${token.tenantId}` : ""} · ${token.isActive ? "Active" : "Inactive"}
-                    </div>
-                    <div style="font-size:12px;color:var(--muted)">Expires: ${new Date(token.expiresAt).toLocaleString()}</div>
-                  </div>
-                `)}
-              </div>
-            `}
-        </div>
-
-        <div class="card" style="max-width:680px">
           <div class="card-title" style="margin-bottom:8px">Tenant token (advanced)</div>
           <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">
             This token grants tenant-scoped API access for your current workspace session. Share only with trusted tooling.
@@ -722,6 +739,100 @@ export class CclWorkspace extends LitElement {
             ? html`<textarea class="textarea" readonly style="min-height:84px;font-family:var(--mono)">${tenantToken || "No tenant token found"}</textarea>`
             : html`<div style="font-size:12px;color:var(--muted);font-family:var(--mono)">${tenantToken ? "••••••••••••••••••••••••••••" : "No tenant token found"}</div>`}
         </div>
+
+        <div class="card" style="max-width:680px" data-workspace-section="integrations">
+          <div class="card-title" style="margin-bottom:8px">Source control integrations</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">
+            Integrations are configured at workspace level and can be assigned to projects.
+          </div>
+
+          ${this.sourceControlLoading
+            ? html`<div style="color:var(--muted);font-size:13px">Loading integrations…</div>`
+            : this.sourceControlIntegrations.length === 0
+              ? html`<div style="font-size:12px;color:var(--muted);margin-bottom:10px">No integrations yet.</div>`
+              : html`
+                  <div style="display:grid;gap:8px;margin-bottom:12px">
+                    ${this.sourceControlIntegrations.map((integration) => html`
+                      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;display:grid;gap:6px">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                          <div style="font-size:13px;color:var(--text-strong);font-weight:600">${integration.name}</div>
+                          <span class="badge ${integration.provider === "github" ? "badge-blue" : "badge-yellow"}">${integration.provider}</span>
+                          <span class="badge ${integration.isActive ? "badge-green" : "badge-gray"}">${integration.isActive ? "active" : "inactive"}</span>
+                        </div>
+                        <div style="font-size:12px;color:var(--muted)">${integration.accountIdentifier}${integration.hostUrl ? ` · ${integration.hostUrl}` : ""}</div>
+                        ${canManageSourceControl
+                          ? html`
+                              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                ${integration.isActive
+                                  ? html`<button class="btn btn-secondary btn-sm" @click=${() => void this.setIntegrationActive(integration, false)}>Deactivate</button>`
+                                  : html`<button class="btn btn-secondary btn-sm" @click=${() => void this.setIntegrationActive(integration, true)}>Activate</button>`}
+                                <button class="btn btn-danger btn-sm" @click=${() => void this.deleteSourceControlIntegration(integration)}>Delete</button>
+                              </div>
+                            `
+                          : ""}
+                      </div>
+                    `)}
+                  </div>
+                `}
+
+          ${canManageSourceControl
+            ? html`
+                <form @submit=${this.createSourceControlIntegration} style="display:grid;gap:10px">
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <div class="field">
+                      <label class="label">Provider</label>
+                      <select class="select" .value=${this.sourceControlForm.provider} @change=${(e: Event) => {
+                        this.sourceControlForm = { ...this.sourceControlForm, provider: (e.target as HTMLSelectElement).value as SourceControlProvider };
+                      }}>
+                        <option value="github">GitHub</option>
+                        <option value="bitbucket">Bitbucket</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label">Name</label>
+                      <input class="input" placeholder="Primary GitHub" .value=${this.sourceControlForm.name} @input=${(e: InputEvent) => {
+                        this.sourceControlForm = { ...this.sourceControlForm, name: (e.target as HTMLInputElement).value };
+                      }} />
+                    </div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <div class="field">
+                      <label class="label">Account / Workspace</label>
+                      <input class="input" placeholder="acme-org" .value=${this.sourceControlForm.accountIdentifier} @input=${(e: InputEvent) => {
+                        this.sourceControlForm = { ...this.sourceControlForm, accountIdentifier: (e.target as HTMLInputElement).value };
+                      }} />
+                    </div>
+                    <div class="field">
+                      <label class="label">Host URL <span class="label-hint">(optional)</span></label>
+                      <input class="input" placeholder="https://bitbucket.org" .value=${this.sourceControlForm.hostUrl} @input=${(e: InputEvent) => {
+                        this.sourceControlForm = { ...this.sourceControlForm, hostUrl: (e.target as HTMLInputElement).value };
+                      }} />
+                    </div>
+                  </div>
+                  <div style="display:flex;justify-content:flex-end">
+                    <button class="btn btn-primary btn-sm" type="submit" ?disabled=${this.sourceControlSaving || !this.sourceControlForm.name.trim() || !this.sourceControlForm.accountIdentifier.trim()}>
+                      ${this.sourceControlSaving ? "Saving…" : "Add integration"}
+                    </button>
+                  </div>
+                </form>
+              `
+            : html`<div style="font-size:12px;color:var(--muted)">Only owner/manager can manage integrations.</div>`}
+        </div>
+
+        <div class="card" style="max-width:680px" data-workspace-section="security">
+          <div class="card-title" style="margin-bottom:8px">Security management</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5">
+            MFA, recovery codes, active session revocation, and JWT token revocation are managed from
+            <strong>SuperAdmin → Admin → Security</strong> with tenant-level targeting.
+          </div>
+          <div style="margin-top:10px">
+            <button
+              class="btn btn-secondary btn-sm"
+              @click=${() => this.dispatchEvent(new CustomEvent("ccl:open-admin-security", { bubbles: true, composed: true }))}
+            >Open Security Center</button>
+          </div>
+        </div>
+
       </div>
     `;
   }

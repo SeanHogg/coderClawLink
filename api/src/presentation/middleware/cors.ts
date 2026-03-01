@@ -22,7 +22,7 @@ export const corsMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     }
     return c.newResponse(null, 204, {
       'Access-Control-Allow-Origin':  origin,
-      'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type,Authorization',
       'Access-Control-Max-Age':       '86400',
       Vary: 'Origin',

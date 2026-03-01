@@ -3,12 +3,18 @@ import { Project } from '../../domain/project/Project';
 import { ProjectId, ProjectStatus, TenantId, asProjectId, asTenantId } from '../../domain/shared/types';
 import { NotFoundError, ConflictError, ForbiddenError } from '../../domain/shared/errors';
 
+type SourceControlProvider = 'github' | 'bitbucket';
+
 export interface CreateProjectDto {
   tenantId:       number;
   key:            string;
   name:           string;
   description?:   string | null;
   rootWorkingDirectory?: string | null;
+  sourceControlIntegrationId?: number | null;
+  sourceControlProvider?: SourceControlProvider | null;
+  sourceControlRepoFullName?: string | null;
+  sourceControlRepoUrl?: string | null;
   githubRepoUrl?: string | null;
 }
 
@@ -17,6 +23,10 @@ export interface UpdateProjectDto {
   description?: string | null;
   rootWorkingDirectory?: string | null;
   status?: ProjectStatus;
+  sourceControlIntegrationId?: number | null;
+  sourceControlProvider?: SourceControlProvider | null;
+  sourceControlRepoFullName?: string | null;
+  sourceControlRepoUrl?: string | null;
   githubRepoUrl?: string | null;
 }
 
@@ -55,6 +65,10 @@ export class ProjectService {
       description: dto.description ?? null,
       rootWorkingDirectory: dto.rootWorkingDirectory ?? null,
       status: ProjectStatus.ACTIVE,
+      sourceControlIntegrationId: dto.sourceControlIntegrationId ?? null,
+      sourceControlProvider: dto.sourceControlProvider ?? null,
+      sourceControlRepoFullName: dto.sourceControlRepoFullName ?? null,
+      sourceControlRepoUrl: dto.sourceControlRepoUrl ?? null,
       githubRepoUrl: dto.githubRepoUrl ?? null,
       githubRepoOwner,
       githubRepoName,
@@ -75,6 +89,10 @@ export class ProjectService {
       description: dto.description,
       rootWorkingDirectory: dto.rootWorkingDirectory,
       status: dto.status,
+      sourceControlIntegrationId: dto.sourceControlIntegrationId,
+      sourceControlProvider: dto.sourceControlProvider,
+      sourceControlRepoFullName: dto.sourceControlRepoFullName,
+      sourceControlRepoUrl: dto.sourceControlRepoUrl,
       githubRepoUrl: dto.githubRepoUrl,
       githubRepoOwner,
       githubRepoName,

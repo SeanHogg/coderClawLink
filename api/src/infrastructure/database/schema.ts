@@ -57,6 +57,10 @@ export const tenantBillingStatusEnum = pgEnum('tenant_billing_status', [
   'none', 'pending', 'active', 'past_due', 'cancelled',
 ]);
 
+export const sourceControlProviderEnum = pgEnum('source_control_provider', [
+  'github', 'bitbucket',
+]);
+
 export const authTokenTypeEnum = pgEnum('auth_token_type', [
   'web', 'tenant', 'api', 'claw',
 ]);
@@ -233,6 +237,18 @@ export const tenantMembers = pgTable('tenant_members', {
   joinedAt:  timestamp('joined_at').notNull().defaultNow(),
 });
 
+export const sourceControlIntegrations = pgTable('source_control_integrations', {
+  id:                serial('id').primaryKey(),
+  tenantId:          integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  provider:          sourceControlProviderEnum('provider').notNull(),
+  name:              varchar('name', { length: 255 }).notNull(),
+  accountIdentifier: varchar('account_identifier', { length: 255 }).notNull(),
+  hostUrl:           varchar('host_url', { length: 500 }),
+  isActive:          boolean('is_active').notNull().default(true),
+  createdAt:         timestamp('created_at').notNull().defaultNow(),
+  updatedAt:         timestamp('updated_at').notNull().defaultNow(),
+});
+
 export const projects = pgTable('projects', {
   id:              serial('id').primaryKey(),
   tenantId:        integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
@@ -241,6 +257,10 @@ export const projects = pgTable('projects', {
   description:     text('description'),
   rootWorkingDirectory: text('root_working_directory'),
   status:          projectStatusEnum('status').notNull().default('active'),
+  sourceControlIntegrationId: integer('source_control_integration_id').references(() => sourceControlIntegrations.id, { onDelete: 'set null' }),
+  sourceControlProvider: sourceControlProviderEnum('source_control_provider'),
+  sourceControlRepoFullName: varchar('source_control_repo_full_name', { length: 255 }),
+  sourceControlRepoUrl: varchar('source_control_repo_url', { length: 500 }),
   githubRepoUrl:   varchar('github_repo_url', { length: 500 }),
   githubRepoOwner: varchar('github_repo_owner', { length: 255 }),
   githubRepoName:  varchar('github_repo_name', { length: 255 }),

@@ -1,19 +1,23 @@
 import { LitElement, html, css } from "lit";
-import { customElement, state } from "lit/decorators.js";
+import { customElement, property, state } from "lit/decorators.js";
 import {
   adminApi,
   getWebToken,
   setTenantToken, setTenantId,
   type AdminUser, type AdminTenant, type AdminHealth, type AdminError,
+  type AdminSecurityUser,
   type LlmUsageStats,
 } from "../api.js";
+import QRCode from "qrcode";
 
-type AdminTab = "health" | "billing" | "users" | "tenants" | "errors" | "usage";
+type AdminTab = "health" | "billing" | "users" | "tenants" | "errors" | "usage" | "security";
 type LlmPoolTab = "coderClawLLM" | "coderClawLLMPro";
 
 @customElement("ccl-admin")
 export class CclAdmin extends LitElement {
   override createRenderRoot() { return this; }
+
+  @property({ type: String }) initialTab: AdminTab = "security";
 
   @state() private tab: AdminTab = "health";
   @state() private health: AdminHealth | null = null;
@@ -32,10 +36,50 @@ export class CclAdmin extends LitElement {
   @state() private impersonateUserId: string | null = null;
   @state() private impersonateTenants: AdminTenant[] = [];
   @state() private expandedErrorId: number | null = null;
+  @state() private securityTenantId: number | null = null;
+  @state() private securityUsers: AdminSecurityUser[] = [];
+  @state() private securityUserId: string | null = null;
+  @state() private securityUserEmail = "";
+  @state() private securityMfaStatus: { enabled: boolean; setupPending: boolean; enabledAt: string | null; recoveryGeneratedAt: string | null } | null = null;
+  @state() private securitySessions: Array<{
+    id: string;
+    sessionName?: string | null;
+    userAgent?: string | null;
+    ipAddress?: string | null;
+    isActive: boolean;
+    revokedAt?: string | null;
+    createdAt: string;
+    lastSeenAt: string;
+    activeTokens: number;
+  }> = [];
+  @state() private securityTokens: Array<{
+    jti: string;
+    tokenType: "web" | "tenant" | "api" | "claw";
+    tenantId?: number | null;
+    sessionId?: string | null;
+    issuedAt: string;
+    expiresAt: string;
+    revokedAt?: string | null;
+    userAgent?: string | null;
+    ipAddress?: string | null;
+    lastSeenAt: string;
+    isActive: boolean;
+  }> = [];
+  @state() private securityLoading = false;
+  @state() private securityMfaSetupBusy = false;
+  @state() private securityMfaEnableBusy = false;
+  @state() private securityMfaDisableBusy = false;
+  @state() private securityMfaRegenerateBusy = false;
+  @state() private securityMfaMode: "totp" | "recovery" = "totp";
+  @state() private securityMfaCode = "";
+  @state() private securityRecoveryCode = "";
+  @state() private securityMfaManualKey = "";
+  @state() private securityMfaQrDataUrl = "";
+  @state() private securityRecoveryCodes: string[] = [];
 
   override connectedCallback() {
     super.connectedCallback();
-    this.loadTab("health");
+    this.loadTab(this.initialTab ?? "security");
   }
 
   private async loadTab(tab: AdminTab) {
@@ -60,12 +104,61 @@ export class CclAdmin extends LitElement {
         ]);
         this.tenants = tenants;
         this.errors = errors;
+      } else if (tab === "security") {
+        await this.loadSecurityContext();
       }
     } catch (e: unknown) {
       this.errorMsg = e instanceof Error ? e.message : String(e);
     } finally {
       this.loading = false;
     }
+  }
+
+  private async loadSecurityContext() {
+    this.securityLoading = true;
+    try {
+      if (!this.tenants.length) {
+        this.tenants = await adminApi.tenants();
+      }
+      if (!this.securityTenantId && this.tenants.length) {
+        this.securityTenantId = this.tenants[0].id;
+      }
+      await this.reloadSecurityUsers();
+      if (this.securityTenantId && this.securityUserId) {
+        await this.reloadSecurityDetails();
+      }
+    } finally {
+      this.securityLoading = false;
+    }
+  }
+
+  private async reloadSecurityUsers() {
+    if (!this.securityTenantId) {
+      this.securityUsers = [];
+      this.securityUserId = null;
+      return;
+    }
+    this.securityUsers = await adminApi.securityUsers(this.securityTenantId);
+    if (!this.securityUsers.length) {
+      this.securityUserId = null;
+      this.securityUserEmail = "";
+      this.securityMfaStatus = null;
+      this.securitySessions = [];
+      this.securityTokens = [];
+      return;
+    }
+    if (!this.securityUserId || !this.securityUsers.some((user) => user.id === this.securityUserId)) {
+      this.securityUserId = this.securityUsers[0].id;
+    }
+  }
+
+  private async reloadSecurityDetails() {
+    if (!this.securityTenantId || !this.securityUserId) return;
+    const details = await adminApi.securityDetails(this.securityTenantId, this.securityUserId);
+    this.securityUserEmail = details.user.email;
+    this.securityMfaStatus = details.mfa;
+    this.securitySessions = details.sessions;
+    this.securityTokens = details.tokens;
   }
 
   private async startImpersonate(userId: string) {
@@ -202,7 +295,7 @@ export class CclAdmin extends LitElement {
 
         <!-- Tabs -->
         <nav class="admin-tabs">
-          ${(["health", "billing", "usage", "users", "tenants", "errors"] as AdminTab[]).map(t => html`
+          ${(["health", "billing", "usage", "users", "tenants", "security", "errors"] as AdminTab[]).map(t => html`
             <button
               class="admin-tab ${this.tab === t ? "active" : ""}"
               @click=${() => this.loadTab(t)}
@@ -230,6 +323,7 @@ export class CclAdmin extends LitElement {
     if (this.tab === "usage")   return this.renderUsage();
     if (this.tab === "users")   return this.renderUsers();
     if (this.tab === "tenants") return this.renderTenants();
+    if (this.tab === "security") return this.renderSecurity();
     if (this.tab === "errors")  return this.renderErrors();
     return html``;
   }
@@ -761,6 +855,302 @@ export class CclAdmin extends LitElement {
           </tbody>
         </table>
       </div>
+    `;
+  }
+
+  private async onSecurityTenantChange(e: Event) {
+    this.securityTenantId = Number((e.target as HTMLSelectElement).value);
+    this.securityUserId = null;
+    this.securityMfaQrDataUrl = "";
+    this.securityMfaManualKey = "";
+    this.securityRecoveryCodes = [];
+    try {
+      await this.reloadSecurityUsers();
+      await this.reloadSecurityDetails();
+    } catch (err) {
+      this.errorMsg = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  private async onSecurityUserChange(e: Event) {
+    this.securityUserId = (e.target as HTMLSelectElement).value;
+    this.securityMfaQrDataUrl = "";
+    this.securityMfaManualKey = "";
+    this.securityRecoveryCodes = [];
+    try {
+      await this.reloadSecurityDetails();
+    } catch (err) {
+      this.errorMsg = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  private async startSecurityMfaSetup() {
+    if (!this.securityTenantId || !this.securityUserId) return;
+    this.securityMfaSetupBusy = true;
+    this.errorMsg = "";
+    try {
+      const setup = await adminApi.securityMfaSetup(this.securityTenantId, this.securityUserId);
+      this.securityMfaManualKey = setup.manualEntryKey;
+      this.securityMfaQrDataUrl = await QRCode.toDataURL(setup.otpauthUrl, { width: 220, margin: 1 });
+      this.securityRecoveryCodes = [];
+      await this.reloadSecurityDetails();
+    } catch (err) {
+      this.errorMsg = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.securityMfaSetupBusy = false;
+    }
+  }
+
+  private async enableSecurityMfa() {
+    if (!this.securityTenantId || !this.securityUserId || !this.securityMfaCode.trim()) return;
+    this.securityMfaEnableBusy = true;
+    this.errorMsg = "";
+    try {
+      const res = await adminApi.securityMfaEnable(this.securityTenantId, this.securityUserId, this.securityMfaCode.trim());
+      this.securityRecoveryCodes = res.recoveryCodes;
+      this.securityMfaCode = "";
+      this.securityMfaQrDataUrl = "";
+      this.securityMfaManualKey = "";
+      await this.reloadSecurityDetails();
+      await this.reloadSecurityUsers();
+    } catch (err) {
+      this.errorMsg = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.securityMfaEnableBusy = false;
+    }
+  }
+
+  private async disableSecurityMfa() {
+    if (!this.securityTenantId || !this.securityUserId) return;
+    if (this.securityMfaMode === "totp" && !this.securityMfaCode.trim()) return;
+    if (this.securityMfaMode === "recovery" && !this.securityRecoveryCode.trim()) return;
+    this.securityMfaDisableBusy = true;
+    this.errorMsg = "";
+    try {
+      await adminApi.securityMfaDisable(this.securityTenantId, this.securityUserId, {
+        code: this.securityMfaMode === "totp" ? this.securityMfaCode.trim() : undefined,
+        recoveryCode: this.securityMfaMode === "recovery" ? this.securityRecoveryCode.trim() : undefined,
+      });
+      this.securityMfaCode = "";
+      this.securityRecoveryCode = "";
+      this.securityRecoveryCodes = [];
+      await this.reloadSecurityDetails();
+      await this.reloadSecurityUsers();
+    } catch (err) {
+      this.errorMsg = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.securityMfaDisableBusy = false;
+    }
+  }
+
+  private async regenerateSecurityRecoveryCodes() {
+    if (!this.securityTenantId || !this.securityUserId) return;
+    if (this.securityMfaMode === "totp" && !this.securityMfaCode.trim()) return;
+    if (this.securityMfaMode === "recovery" && !this.securityRecoveryCode.trim()) return;
+    this.securityMfaRegenerateBusy = true;
+    this.errorMsg = "";
+    try {
+      const res = await adminApi.securityRegenerateRecoveryCodes(this.securityTenantId, this.securityUserId, {
+        code: this.securityMfaMode === "totp" ? this.securityMfaCode.trim() : undefined,
+        recoveryCode: this.securityMfaMode === "recovery" ? this.securityRecoveryCode.trim() : undefined,
+      });
+      this.securityRecoveryCodes = res.recoveryCodes;
+      this.securityMfaCode = "";
+      this.securityRecoveryCode = "";
+      await this.reloadSecurityDetails();
+    } catch (err) {
+      this.errorMsg = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.securityMfaRegenerateBusy = false;
+    }
+  }
+
+  private downloadSecurityRecoveryCodes() {
+    if (!this.securityRecoveryCodes.length) return;
+    const content = this.securityRecoveryCodes.join("\n");
+    const blob = new Blob([`${content}\n`], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `recovery-codes-${this.securityUserEmail || "user"}.txt`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }
+
+  private async revokeSecuritySession(sessionId: string) {
+    if (!this.securityTenantId || !this.securityUserId) return;
+    if (!confirm("Revoke this session and sign out the device?")) return;
+    try {
+      await adminApi.securityRevokeSession(this.securityTenantId, this.securityUserId, sessionId);
+      await this.reloadSecurityDetails();
+      await this.reloadSecurityUsers();
+    } catch (err) {
+      this.errorMsg = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  private async revokeAllSecuritySessions() {
+    if (!this.securityTenantId || !this.securityUserId) return;
+    if (!confirm("Revoke all sessions for this user?")) return;
+    try {
+      await adminApi.securityRevokeAllSessions(this.securityTenantId, this.securityUserId);
+      await this.reloadSecurityDetails();
+      await this.reloadSecurityUsers();
+    } catch (err) {
+      this.errorMsg = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  private async revokeSecurityToken(jti: string) {
+    if (!this.securityTenantId || !this.securityUserId) return;
+    if (!confirm("Revoke this token?")) return;
+    try {
+      await adminApi.securityRevokeToken(this.securityTenantId, this.securityUserId, jti);
+      await this.reloadSecurityDetails();
+      await this.reloadSecurityUsers();
+    } catch (err) {
+      this.errorMsg = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  private renderSecurity() {
+    const tenantOptions = this.tenants;
+    const selectedTenant = tenantOptions.find((tenant) => tenant.id === this.securityTenantId);
+    const selectedUser = this.securityUsers.find((user) => user.id === this.securityUserId);
+
+    return html`
+      <div class="table-header">
+        <span class="table-count">Tenant-level security management</span>
+        <button class="btn btn-ghost btn-sm" @click=${() => this.loadTab("security")}>↻ Refresh</button>
+      </div>
+
+      <div style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-bottom:14px">
+        <div>
+          <div style="font-size:12px;color:var(--text-muted,#6b7280);margin-bottom:6px">Tenant</div>
+          <select class="select" .value=${String(this.securityTenantId ?? "")} @change=${this.onSecurityTenantChange}>
+            ${tenantOptions.map((tenant) => html`<option value=${tenant.id}>${tenant.name} (${tenant.slug})</option>`)}
+          </select>
+        </div>
+        <div>
+          <div style="font-size:12px;color:var(--text-muted,#6b7280);margin-bottom:6px">User</div>
+          <select class="select" .value=${this.securityUserId ?? ""} @change=${this.onSecurityUserChange} ?disabled=${!this.securityUsers.length}>
+            ${this.securityUsers.map((user) => html`<option value=${user.id}>${user.email}</option>`)}
+          </select>
+        </div>
+      </div>
+
+      ${this.securityLoading
+        ? html`<div class="loading-state">Loading security context…</div>`
+        : !selectedTenant
+          ? html`<div class="empty-state"><div class="empty-sub">No tenant available.</div></div>`
+          : !selectedUser
+            ? html`<div class="empty-state"><div class="empty-sub">No active members found for this tenant.</div></div>`
+            : html`
+              <div class="health-grid" style="margin-bottom:16px">
+                <div class="health-card">
+                  <div class="health-label">User</div>
+                  <div class="health-value" style="font-size:14px">${selectedUser.email}</div>
+                  <div class="health-sub">${selectedUser.displayName ?? selectedUser.username ?? "—"}</div>
+                </div>
+                <div class="health-card">
+                  <div class="health-label">MFA</div>
+                  <div class="health-value">${this.securityMfaStatus?.enabled ? "Enabled" : "Disabled"}</div>
+                </div>
+                <div class="health-card">
+                  <div class="health-label">Active Sessions</div>
+                  <div class="health-value">${selectedUser.activeSessions}</div>
+                </div>
+                <div class="health-card">
+                  <div class="health-label">Active Tokens</div>
+                  <div class="health-value">${selectedUser.activeTokens}</div>
+                </div>
+              </div>
+
+              <div class="card" style="max-width:760px;margin-bottom:16px">
+                <div class="card-title" style="margin-bottom:8px">MFA Controls</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                  ${this.securityMfaStatus?.enabled
+                    ? html`<button class="btn btn-danger btn-sm" @click=${this.disableSecurityMfa} ?disabled=${this.securityMfaDisableBusy}>${this.securityMfaDisableBusy ? "Disabling…" : "Disable MFA"}</button>`
+                    : html`<button class="btn btn-primary btn-sm" @click=${this.startSecurityMfaSetup} ?disabled=${this.securityMfaSetupBusy}>${this.securityMfaSetupBusy ? "Preparing…" : "Set up MFA"}</button>`}
+                  ${this.securityMfaStatus?.enabled
+                    ? html`<button class="btn btn-secondary btn-sm" @click=${this.regenerateSecurityRecoveryCodes} ?disabled=${this.securityMfaRegenerateBusy}>${this.securityMfaRegenerateBusy ? "Regenerating…" : "Regenerate recovery codes"}</button>`
+                    : ""}
+                </div>
+
+                ${this.securityMfaQrDataUrl ? html`
+                  <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;display:grid;gap:10px">
+                    <div style="font-size:12px;color:var(--text-muted,#6b7280)">Scan QR with the user authenticator app and verify with a 6-digit code.</div>
+                    <img alt="MFA QR" src=${this.securityMfaQrDataUrl} style="width:220px;height:220px;border:1px solid var(--border);border-radius:8px;background:#fff;padding:8px" />
+                    <div style="font-size:12px;color:var(--text-muted,#6b7280)">Manual key: <span style="font-family:var(--mono)">${this.securityMfaManualKey}</span></div>
+                  </div>
+                ` : ""}
+
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                  <button type="button" class="btn ${this.securityMfaMode === "totp" ? "btn-primary" : "btn-secondary"} btn-sm" @click=${() => { this.securityMfaMode = "totp"; }}>Use authenticator code</button>
+                  <button type="button" class="btn ${this.securityMfaMode === "recovery" ? "btn-primary" : "btn-secondary"} btn-sm" @click=${() => { this.securityMfaMode = "recovery"; }}>Use recovery code</button>
+                </div>
+
+                ${this.securityMfaMode === "totp"
+                  ? html`<input class="input" placeholder="6-digit code" .value=${this.securityMfaCode} @input=${(e: InputEvent) => { this.securityMfaCode = (e.target as HTMLInputElement).value; }} style="margin-bottom:8px" />`
+                  : html`<input class="input" placeholder="ABCD-EFGH" .value=${this.securityRecoveryCode} @input=${(e: InputEvent) => { this.securityRecoveryCode = (e.target as HTMLInputElement).value; }} style="margin-bottom:8px" />`}
+
+                ${this.securityMfaQrDataUrl
+                  ? html`<button class="btn btn-primary btn-sm" @click=${this.enableSecurityMfa} ?disabled=${this.securityMfaEnableBusy || !this.securityMfaCode.trim()}>${this.securityMfaEnableBusy ? "Enabling…" : "Enable MFA"}</button>`
+                  : ""}
+
+                ${this.securityRecoveryCodes.length
+                  ? html`
+                    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:10px">
+                      <div style="font-size:12px;color:var(--text-muted,#6b7280);margin-bottom:8px">Save these one-time recovery codes now.</div>
+                      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:8px;font-family:var(--mono);font-size:12px;color:var(--text-strong)">
+                        ${this.securityRecoveryCodes.map((code) => html`<div>${code}</div>`)}
+                      </div>
+                      <button class="btn btn-secondary btn-sm" @click=${this.downloadSecurityRecoveryCodes}>Download recovery codes</button>
+                    </div>
+                  `
+                  : ""}
+              </div>
+
+              <div class="card" style="max-width:760px;margin-bottom:16px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <div class="card-title" style="margin:0">Active Sessions</div>
+                  <button class="btn btn-danger btn-sm" @click=${this.revokeAllSecuritySessions}>Revoke all sessions</button>
+                </div>
+                <div style="display:grid;gap:8px">
+                  ${this.securitySessions.length === 0
+                    ? html`<div style="font-size:12px;color:var(--text-muted,#6b7280)">No sessions found.</div>`
+                    : this.securitySessions.map((session) => html`
+                      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;display:grid;gap:6px">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div style="font-size:13px;color:var(--text-strong);font-weight:600">${session.sessionName || "Session"}</div>
+                          <button class="btn btn-danger btn-sm" @click=${() => this.revokeSecuritySession(session.id)}>Revoke</button>
+                        </div>
+                        <div style="font-size:12px;color:var(--text-muted,#6b7280)">${session.userAgent || "Unknown device"}</div>
+                        <div style="font-size:12px;color:var(--text-muted,#6b7280)">IP: ${session.ipAddress || "Unknown"} · Tokens: ${session.activeTokens} · Last seen: ${new Date(session.lastSeenAt).toLocaleString()}</div>
+                      </div>
+                    `)}
+                </div>
+              </div>
+
+              <div class="card" style="max-width:760px">
+                <div class="card-title" style="margin-bottom:8px">JWT Tokens</div>
+                <div style="display:grid;gap:8px">
+                  ${this.securityTokens.slice(0, 30).map((token) => html`
+                    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;display:grid;gap:6px">
+                      <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div style="font-size:12px;color:var(--text-strong);font-family:var(--mono)">${token.jti}</div>
+                        <button class="btn btn-danger btn-sm" @click=${() => this.revokeSecurityToken(token.jti)}>Revoke</button>
+                      </div>
+                      <div style="font-size:12px;color:var(--text-muted,#6b7280)">${token.tokenType.toUpperCase()}${token.tenantId != null ? ` · Tenant ${token.tenantId}` : ""} · ${token.isActive ? "Active" : "Inactive"}</div>
+                      <div style="font-size:12px;color:var(--text-muted,#6b7280)">Expires: ${new Date(token.expiresAt).toLocaleString()}</div>
+                    </div>
+                  `)}
+                </div>
+              </div>
+            `}
     `;
   }
 

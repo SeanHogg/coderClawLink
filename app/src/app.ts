@@ -24,6 +24,8 @@ import "./views/brain.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
 type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs";
+type WorkspaceTab = "members" | "settings";
+type WorkspaceSection = "settings" | "billing" | "consumption" | "details" | "security";
 
 @customElement("ccl-app")
 export class CclApp extends LitElement {
@@ -40,6 +42,8 @@ export class CclApp extends LitElement {
   @state() private tenant: TenantSummary | null = null;
   @state() private theme: "dark" | "light" = "dark";
   @state() private navCollapsed = false;
+  @state() private workspaceInitialTab: WorkspaceTab = "members";
+  @state() private workspaceInitialSection = "";
 
   override connectedCallback() {
     super.connectedCallback();
@@ -52,6 +56,7 @@ export class CclApp extends LitElement {
     window.addEventListener("ccl:new-project", this.handleNewProject);
     window.addEventListener("ccl:navigate", this.handleNavigate as EventListener);
     window.addEventListener("ccl:dashboard-prompt", this.handleDashboardPrompt as EventListener);
+    window.addEventListener("ccl:open-admin-security", this.handleOpenAdminSecurity as EventListener);
   }
 
   override disconnectedCallback() {
@@ -63,6 +68,7 @@ export class CclApp extends LitElement {
     window.removeEventListener("ccl:new-project", this.handleNewProject);
     window.removeEventListener("ccl:navigate", this.handleNavigate as EventListener);
     window.removeEventListener("ccl:dashboard-prompt", this.handleDashboardPrompt as EventListener);
+    window.removeEventListener("ccl:open-admin-security", this.handleOpenAdminSecurity as EventListener);
   }
 
   override updated(changed: PropertyValues) {
@@ -193,12 +199,22 @@ export class CclApp extends LitElement {
     this.tab = "projects";
   };
 
-  private handleNavigate = (e: CustomEvent<{ tab: DashTab }>) => {
-    this.tab = e.detail.tab;
+  private handleNavigate = (e: CustomEvent<{ tab: DashTab; workspaceTab?: WorkspaceTab; workspaceSection?: WorkspaceSection }>) => {
+    const { tab, workspaceTab, workspaceSection } = e.detail;
+    if (tab === "workspace" || tab === "billing") {
+      this.workspaceInitialTab = workspaceTab ?? "settings";
+      this.workspaceInitialSection = workspaceSection ?? "";
+    }
+    this.tab = tab;
   };
 
   private handleDashboardPrompt = (e: CustomEvent<{ prompt: string }>) => {
     void this.startDashboardScaffold(e.detail.prompt);
+  };
+
+  private handleOpenAdminSecurity = () => {
+    if (!this.user?.isSuperadmin) return;
+    this.appState = "admin";
   };
 
   private async startDashboardScaffold(promptRaw: string) {
@@ -250,6 +266,12 @@ export class CclApp extends LitElement {
     this.tab = t;
   }
 
+  private openWorkspaceArea(tab: WorkspaceTab, section?: WorkspaceSection) {
+    this.workspaceInitialTab = tab;
+    this.workspaceInitialSection = section ?? "";
+    this.tab = "workspace";
+  }
+
   private mountDashboardView() {
     const host = this.querySelector("#dashboard-view-host");
     if (!(host instanceof HTMLElement)) return;
@@ -292,18 +314,26 @@ export class CclApp extends LitElement {
         break;
       }
       case "workspace": {
-        const el = document.createElement("ccl-workspace") as HTMLElement & { tenant?: TenantSummary | null };
+        const el = document.createElement("ccl-workspace") as HTMLElement & {
+          tenant?: TenantSummary | null;
+          initialTab?: WorkspaceTab;
+          initialSection?: string;
+        };
         el.tenant = this.tenant;
+        el.initialTab = this.workspaceInitialTab;
+        el.initialSection = this.workspaceInitialSection;
         view = el;
         break;
       }
       case "billing": {
         const el = document.createElement("ccl-workspace") as HTMLElement & {
           tenant?: TenantSummary | null;
-          initialTab?: "members" | "settings";
+          initialTab?: WorkspaceTab;
+          initialSection?: string;
         };
         el.tenant = this.tenant;
         el.initialTab = "settings";
+        el.initialSection = "billing";
         view = el;
         break;
       }
@@ -545,7 +575,7 @@ export class CclApp extends LitElement {
   }
 
   private renderAdmin() {
-    return html`<ccl-admin></ccl-admin>`;
+    return html`<ccl-admin .initialTab=${"security"}></ccl-admin>`;
   }
 
   private renderDashboard() {
@@ -560,17 +590,41 @@ export class CclApp extends LitElement {
       { id: "claws",  label: "Claws",  icon: "claws"  },
       { id: "skills", label: "Skills", icon: "skills" },
     ];
-    const systemItems: Array<{ id: DashTab; label: string; icon: string }> = [
-      { id: "workspace", label: "Settings",  icon: "settings" },
-      { id: "billing",   label: "Billing",   icon: "billing"  },
-      { id: "logs",      label: "Logs",      icon: "logs"     },
+    const systemItems: Array<
+      { id: DashTab; label: string; icon: string; workspaceTab?: WorkspaceTab; workspaceSection?: WorkspaceSection }
+    > = [
+      { id: "workspace", label: "Members", icon: "projects", workspaceTab: "members" },
+      { id: "workspace", label: "Settings", icon: "settings", workspaceTab: "settings", workspaceSection: "settings" },
+      { id: "workspace", label: "Billing", icon: "billing", workspaceTab: "settings", workspaceSection: "billing" },
+      { id: "workspace", label: "Consumption", icon: "tasks", workspaceTab: "settings", workspaceSection: "consumption" },
+      { id: "workspace", label: "Security", icon: "settings", workspaceTab: "settings", workspaceSection: "security" },
+      { id: "workspace", label: "Tenant & Workspace", icon: "workspace", workspaceTab: "settings", workspaceSection: "details" },
+      { id: "logs", label: "Logs", icon: "logs" },
     ];
 
-    const navBtn = (item: { id: DashTab; label: string; icon: string }) => html`
+    const navBtn = (item: { id: DashTab; label: string; icon: string; workspaceTab?: WorkspaceTab; workspaceSection?: WorkspaceSection }) => html`
       <button
-        class="nav-item ${this.tab === item.id ? "active" : ""}"
+        class="nav-item ${
+          item.id === "workspace"
+            ? (this.tab === "workspace" && this.workspaceInitialTab === (item.workspaceTab ?? "settings") && this.workspaceInitialSection === (item.workspaceSection ?? "")
+                ? "active"
+                : "")
+            : this.tab === item.id
+              ? "active"
+              : ""
+        }"
         title="${item.label}"
-        @click=${() => this.setTab(item.id)}
+        @click=${() => {
+          if (item.id === "workspace") {
+            if (item.workspaceSection === "security" && this.user?.isSuperadmin) {
+              this.appState = "admin";
+              return;
+            }
+            this.openWorkspaceArea(item.workspaceTab ?? "settings", item.workspaceSection);
+            return;
+          }
+          this.setTab(item.id);
+        }}
       >
         <span .innerHTML=${this.svgIcon(item.icon)}></span>
         <span class="nav-item-label">${item.label}</span>
