@@ -3,11 +3,13 @@ import { customElement, property, state } from "lit/decorators.js";
 import {
   getTenantToken,
   tenants,
+  claws,
   llm,
   type Tenant,
   type TenantSummary,
   type TenantSubscription,
   type TenantLlmUsage,
+  type Claw,
 } from "../api.js";
 
 const ROLES = ["owner", "manager", "developer", "viewer"];
@@ -17,6 +19,7 @@ export class CclWorkspace extends LitElement {
   override createRenderRoot() { return this; }
 
   @property({ type: Object }) tenant: TenantSummary | null = null;
+  @property({ type: String }) initialTab: "members" | "settings" = "members";
 
   @state() private detail: Tenant | null = null;
   @state() private loading = true;
@@ -25,6 +28,9 @@ export class CclWorkspace extends LitElement {
   @state() private subscription: TenantSubscription | null = null;
   @state() private usage: TenantLlmUsage | null = null;
   @state() private usageDays = 30;
+  @state() private availableClaws: Claw[] = [];
+  @state() private defaultClawId: number | null = null;
+  @state() private savingDefaultClaw = false;
   @state() private updatingPlan = false;
   @state() private billingCycle: "monthly" | "yearly" = "monthly";
   @state() private billingEmail = "";
@@ -41,21 +47,35 @@ export class CclWorkspace extends LitElement {
   @state() private inviteRole = "developer";
   @state() private inviting = false;
 
-  override connectedCallback() { super.connectedCallback(); this.load(); }
-  override updated(c: Map<string, unknown>) { if (c.has("tenant") && this.tenant) this.load(); }
+  override connectedCallback() {
+    super.connectedCallback();
+    this.tab = this.initialTab;
+    this.load();
+  }
+
+  override updated(c: Map<string, unknown>) {
+    if (c.has("initialTab") && this.initialTab !== this.tab) {
+      this.tab = this.initialTab;
+    }
+    if (c.has("tenant") && this.tenant) this.load();
+  }
 
   private async load() {
     if (!this.tenant) return;
     this.loading = true;
     try {
-      const [detail, subscription, usage] = await Promise.all([
+      const [detail, subscription, usage, clawList, defaultClaw] = await Promise.all([
         tenants.get(this.tenant.id),
         tenants.subscription(this.tenant.id),
         llm.usage(this.usageDays),
+        claws.list(),
+        tenants.defaultClaw(this.tenant.id),
       ]);
       this.detail = detail;
       this.subscription = subscription;
       this.usage = usage;
+      this.availableClaws = clawList;
+      this.defaultClawId = defaultClaw.defaultClawId;
       this.billingEmail = subscription.billingEmail ?? "";
       this.billingBrand = subscription.billingPaymentBrand ?? "visa";
       this.billingLast4 = subscription.billingPaymentLast4 ?? "";
@@ -68,6 +88,19 @@ export class CclWorkspace extends LitElement {
   private canManageBilling() {
     const role = this.tenant?.role?.toLowerCase();
     return role === "owner" || role === "manager";
+  }
+
+  private async saveDefaultClaw() {
+    if (!this.tenant || !this.canManageBilling()) return;
+    this.savingDefaultClaw = true;
+    try {
+      const res = await tenants.setDefaultClaw(this.tenant.id, this.defaultClawId);
+      this.defaultClawId = res.defaultClawId;
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.savingDefaultClaw = false;
+    }
   }
 
   private async changePlanToPro(e: Event) {
@@ -291,6 +324,26 @@ export class CclWorkspace extends LitElement {
     const canManageBilling = this.canManageBilling();
     return html`
       <div style="display:grid;gap:16px;max-width:680px">
+        <div class="card" style="max-width:680px">
+          <div class="card-title" style="margin-bottom:16px">Default Claw</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+            Used when dashboard prompts scaffold a project and no project-specific claw is assigned.
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select class="select" style="min-width:260px" .value=${this.defaultClawId == null ? "" : String(this.defaultClawId)} @change=${(e: Event) => {
+              const value = (e.target as HTMLSelectElement).value;
+              this.defaultClawId = value ? Number(value) : null;
+            }}>
+              <option value="">No default claw (WIP-only projects)</option>
+              ${this.availableClaws.map((claw) => html`<option value=${claw.id}>${claw.name} (${claw.connectedAt ? "online" : "offline"})</option>`) }
+            </select>
+            <button class="btn btn-primary btn-sm" @click=${this.saveDefaultClaw} ?disabled=${this.savingDefaultClaw || !canManageBilling}>
+              ${this.savingDefaultClaw ? "Saving…" : "Save default claw"}
+            </button>
+          </div>
+          ${!canManageBilling ? html`<div style="font-size:12px;color:var(--muted);margin-top:8px">Only owner/manager can update default claw.</div>` : ""}
+        </div>
+
         <div class="card" style="max-width:680px">
           <div class="card-title" style="margin-bottom:16px">coderClawLLM Plan</div>
           ${sub ? html`

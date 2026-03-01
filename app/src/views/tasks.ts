@@ -67,7 +67,12 @@ export class CclTasks extends LitElement {
     }
     if (changed.has("openTaskPrompt") && this.openTaskPrompt) {
       this.editTarget = null;
-      this.form = { status: "todo", priority: "medium", title: this.openTaskPrompt };
+      this.form = {
+        status: "todo",
+        priority: "medium",
+        title: this.openTaskPrompt,
+        ...(this.projectId ? { projectId: this.projectId } : {}),
+      };
       this.showModal = true;
     }
   }

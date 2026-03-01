@@ -109,6 +109,7 @@ All protected routes require `Authorization: Bearer <jwt>`.
 |--------|------|-------------|
 | `GET` | `/api/projects` | List projects |
 | `POST` | `/api/projects` | Create project |
+| `POST` | `/api/projects/scaffold` | Scaffold project from dashboard prompt (supports `rootWorkingDirectory`) |
 | `GET` | `/api/projects/:id` | Get project |
 | `PATCH` | `/api/projects/:id` | Update project |
 | `DELETE` | `/api/projects/:id` | Delete project |
@@ -130,6 +131,8 @@ All protected routes require `Authorization: Bearer <jwt>`.
 | `GET` | `/api/tenants` | List tenants |
 | `POST` | `/api/tenants` | Create tenant |
 | `GET` | `/api/tenants/:id` | Get tenant |
+| `GET` | `/api/tenants/:id/default-claw` | Get tenant default claw |
+| `PUT` | `/api/tenants/:id/default-claw` | Set or clear tenant default claw |
 | `GET` | `/api/tenants/:id/subscription` | Get tenant subscription and pricing |
 | `POST` | `/api/tenants/:id/subscription/pro` | Upgrade to Pro (billing details required) |
 | `POST` | `/api/tenants/:id/subscription/free` | Downgrade to Free |

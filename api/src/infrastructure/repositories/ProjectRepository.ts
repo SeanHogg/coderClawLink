@@ -49,6 +49,7 @@ export class ProjectRepository implements IProjectRepository {
         key:             plain.key,
         name:            plain.name,
         description:     plain.description ?? undefined,
+        rootWorkingDirectory: plain.rootWorkingDirectory ?? undefined,
         status:          plain.status,
         githubRepoUrl:   plain.githubRepoUrl ?? undefined,
         githubRepoOwner: plain.githubRepoOwner ?? undefined,
@@ -66,6 +67,7 @@ export class ProjectRepository implements IProjectRepository {
       .set({
         name:            plain.name,
         description:     plain.description ?? undefined,
+        rootWorkingDirectory: plain.rootWorkingDirectory ?? undefined,
         status:          plain.status,
         githubRepoUrl:   plain.githubRepoUrl ?? undefined,
         githubRepoOwner: plain.githubRepoOwner ?? undefined,
@@ -96,6 +98,7 @@ function toDomain(row: Row): Project {
     key:             row.key,
     name:            row.name,
     description:     row.description ?? null,
+    rootWorkingDirectory: row.rootWorkingDirectory ?? null,
     status:          row.status as ProjectStatus,
     githubRepoUrl:   row.githubRepoUrl ?? null,
     githubRepoOwner: row.githubRepoOwner ?? null,

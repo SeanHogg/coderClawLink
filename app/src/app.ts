@@ -2,7 +2,7 @@ import { LitElement, html, css, type PropertyValues } from "lit";
 import { customElement, state } from "lit/decorators.js";
 
 import {
-  auth, tenants, clearSession,
+  auth, tenants, projects as projectsApi, tasks as tasksApi, clearSession,
   getWebToken, getTenantToken, getTenantId, getUser,
   setWebToken, setTenantToken, setTenantId, setUser,
   type TenantSummary, type UserInfo,
@@ -23,7 +23,7 @@ import "./views/quickstart.js";
 import "./views/brain.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "logs";
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs";
 
 @customElement("ccl-app")
 export class CclApp extends LitElement {
@@ -197,10 +197,44 @@ export class CclApp extends LitElement {
     this.tab = e.detail.tab;
   };
 
-  private handleDashboardPrompt = (e: CustomEvent<{ prompt: string }>) => {
-    this.pendingPrompt = e.detail.prompt;
-    this.tab = "tasks";
+  private handleDashboardPrompt = (e: CustomEvent<{ prompt: string; rootWorkingDirectory?: string | null }>) => {
+    void this.startDashboardScaffold(e.detail.prompt, e.detail.rootWorkingDirectory);
   };
+
+  private async startDashboardScaffold(promptRaw: string, rootWorkingDirectory?: string | null) {
+    const prompt = promptRaw.trim();
+    if (!prompt) return;
+
+    try {
+      const scaffold = await projectsApi.scaffold({
+        prompt,
+        rootWorkingDirectory: rootWorkingDirectory?.trim() || null,
+      });
+
+      const titleSeed = prompt.split(/[.!?\n]/)[0]?.trim() || prompt;
+      const title = `Scaffold: ${titleSeed.slice(0, 120)}`;
+      await tasksApi.create({
+        title,
+        description: prompt,
+        projectId: scaffold.project.id,
+        assignedClawId: scaffold.scaffold.clawId != null ? String(scaffold.scaffold.clawId) : undefined,
+        priority: "high",
+        status: "todo",
+      });
+
+      if (scaffold.scaffold.wip) {
+        this.selectedProjectId = scaffold.project.id;
+        this.tab = "projects";
+        return;
+      }
+
+      this.selectedProjectId = scaffold.project.id;
+      this.tab = "projects";
+    } catch {
+      this.pendingPrompt = prompt;
+      this.tab = "tasks";
+    }
+  }
 
   private setTab(t: DashTab) {
     if (this.tab === t) return;
@@ -254,6 +288,16 @@ export class CclApp extends LitElement {
         view = el;
         break;
       }
+      case "billing": {
+        const el = document.createElement("ccl-workspace") as HTMLElement & {
+          tenant?: TenantSummary | null;
+          initialTab?: "members" | "settings";
+        };
+        el.tenant = this.tenant;
+        el.initialTab = "settings";
+        view = el;
+        break;
+      }
       case "logs": {
         const el = document.createElement("ccl-logs") as HTMLElement & { tenantId?: string };
         el.tenantId = tenantId;
@@ -274,6 +318,7 @@ export class CclApp extends LitElement {
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     this.theme = saved ?? (prefersDark ? "dark" : "light");
     document.documentElement.dataset.theme = this.theme;
+    this.navCollapsed = localStorage.getItem("ccl-nav-collapsed") === "1";
   }
 
   private toggleTheme() {
@@ -281,6 +326,11 @@ export class CclApp extends LitElement {
     document.documentElement.dataset.theme = this.theme;
     localStorage.setItem("ccl-theme", this.theme);
     this.requestUpdate();
+  }
+
+  private toggleNav() {
+    this.navCollapsed = !this.navCollapsed;
+    localStorage.setItem("ccl-nav-collapsed", this.navCollapsed ? "1" : "0");
   }
 
   // ---------------------------------------------------------------------------
@@ -294,12 +344,17 @@ export class CclApp extends LitElement {
       tasks: `<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>`,
       claws: `<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/>`,
       skills: `<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>`,
-      workspace: `<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
+      workspace: `<circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M6.34 17.66l-1.41 1.41M2 12h2M20 12h2M17.66 17.66l1.41 1.41M6.34 6.34L4.93 4.93"/>`,
       logs: `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>`,
+      billing: `<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/>`,
+      settings: `<circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M6.34 17.66l-1.41 1.41M2 12h2M20 12h2M17.66 17.66l1.41 1.41M6.34 6.34L4.93 4.93"/>`,
       admin: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>`,
       sun: `<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>`,
       moon: `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`,
       logout: `<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>`,
+      panelLeft: `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>`,
+      chevronsLeft: `<polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>`,
+      chevronsRight: `<polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>`,
     };
     return `<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0">${paths[name] ?? ""}</svg>`;
   }
@@ -485,25 +540,42 @@ export class CclApp extends LitElement {
   }
 
   private renderDashboard() {
-    const navItems: Array<{ id: DashTab; label: string; icon: string }> = [
-      { id: "home",      label: "Dashboard", icon: "home"      },
-      { id: "projects",  label: "Projects",  icon: "projects"  },
-      { id: "tasks",     label: "Tasks",     icon: "tasks"     },
-      { id: "claws",     label: "Claws",     icon: "claws"     },
-      { id: "skills",    label: "Skills",    icon: "skills"    },
-      { id: "workspace", label: "Workspace", icon: "workspace" },
-      { id: "logs",      label: "Logs",      icon: "logs"      },
+    const c = this.navCollapsed;
+
+    const mainItems: Array<{ id: DashTab; label: string; icon: string }> = [
+      { id: "home",     label: "Dashboard", icon: "home"     },
+      { id: "projects", label: "Projects",  icon: "projects" },
+      { id: "tasks",    label: "Tasks",     icon: "tasks"    },
+    ];
+    const meshItems: Array<{ id: DashTab; label: string; icon: string }> = [
+      { id: "claws",  label: "Claws",  icon: "claws"  },
+      { id: "skills", label: "Skills", icon: "skills" },
+    ];
+    const systemItems: Array<{ id: DashTab; label: string; icon: string }> = [
+      { id: "workspace", label: "Settings",  icon: "settings" },
+      { id: "billing",   label: "Billing",   icon: "billing"  },
+      { id: "logs",      label: "Logs",      icon: "logs"     },
     ];
 
+    const navBtn = (item: { id: DashTab; label: string; icon: string }) => html`
+      <button
+        class="nav-item ${this.tab === item.id ? "active" : ""}"
+        title="${item.label}"
+        @click=${() => this.setTab(item.id)}
+      >
+        <span .innerHTML=${this.svgIcon(item.icon)}></span>
+        <span class="nav-item-label">${item.label}</span>
+      </button>
+    `;
+
     return html`
-      <div class="shell">
+      <div class="shell ${c ? "nav-collapsed" : ""}">
         <!-- Topbar -->
         <header class="topbar">
           <div class="topbar-left">
             <div class="brand">
               <img class="brand-logo" src="/claw-logo.png" alt="CoderClawLink" onerror="this.style.display='none'">
-              <span class="brand-name">CoderClawLink</span>
-              <span class="brand-badge">BETA</span>
+              ${c ? "" : html`<span class="brand-name">CoderClawLink</span><span class="brand-badge">BETA</span>`}
             </div>
           </div>
           <div class="topbar-right">
@@ -526,35 +598,43 @@ export class CclApp extends LitElement {
               ${this.tenant?.name ?? "Workspace"}
               <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
-            <button
-              class="btn btn-ghost btn-icon"
-              @click=${() => this.toggleTheme()}
-              title="Toggle theme"
-            >
+            <button class="btn btn-ghost btn-icon" @click=${() => this.toggleTheme()} title="Toggle theme">
               <span .innerHTML=${this.svgIcon(this.theme === "dark" ? "sun" : "moon")}></span>
             </button>
-            <button
-              class="btn btn-ghost btn-icon"
-              @click=${this.handleSignOut}
-              title="Sign out"
-            >
-              <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <button class="btn btn-ghost btn-icon" @click=${this.handleSignOut} title="Sign out">
+              <span .innerHTML=${this.svgIcon("logout")}></span>
             </button>
           </div>
         </header>
 
         <!-- Sidebar nav -->
-        <nav class="nav">
-          <div class="nav-section">
-            ${navItems.map(item => html`
-              <button
-                class="nav-item ${this.tab === item.id ? "active" : ""}"
-                @click=${() => this.setTab(item.id)}
-              >
-                <span .innerHTML=${this.svgIcon(item.icon)}></span>
-                ${item.label}
-              </button>
-            `)}
+        <nav class="nav ${c ? "collapsed" : ""}">
+          <div class="nav-main">
+            <div class="nav-section">
+              ${mainItems.map(navBtn)}
+            </div>
+
+            <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">Mesh</div>
+            <div class="nav-section">
+              ${meshItems.map(navBtn)}
+            </div>
+
+            <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">System</div>
+            <div class="nav-section">
+              ${systemItems.map(navBtn)}
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="nav-footer">
+            <button
+              class="nav-item"
+              title="${c ? "Expand sidebar" : "Collapse sidebar"}"
+              @click=${() => this.toggleNav()}
+            >
+              <span .innerHTML=${this.svgIcon(c ? "chevronsRight" : "chevronsLeft")}></span>
+              <span class="nav-item-label">Minimize sidebar</span>
+            </button>
           </div>
         </nav>
 

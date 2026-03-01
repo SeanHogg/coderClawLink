@@ -1,8 +1,11 @@
 import { Hono } from 'hono';
+import { and, eq } from 'drizzle-orm';
 import { ProjectService } from '../../application/project/ProjectService';
 import type { HonoEnv } from '../../env';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware';
-import { TenantRole } from '../../domain/shared/types';
+import { ProjectStatus, TenantRole } from '../../domain/shared/types';
+import type { Db } from '../../infrastructure/database/connection';
+import { clawProjects, coderclawInstances, projects, tenants } from '../../infrastructure/database/schema';
 
 /**
  * Presentation layer: Project HTTP routes.
@@ -10,7 +13,7 @@ import { TenantRole } from '../../domain/shared/types';
  * Maps between HTTP request/response and the application service.
  * No business logic lives here.
  */
-export function createProjectRoutes(projectService: ProjectService): Hono<HonoEnv> {
+export function createProjectRoutes(projectService: ProjectService, db: Db): Hono<HonoEnv> {
   const router = new Hono<HonoEnv>();
   router.use('*', authMiddleware);
 
@@ -23,6 +26,16 @@ export function createProjectRoutes(projectService: ProjectService): Hono<HonoEn
       .replace(/^-+|-+$/g, '')
       .slice(0, 36) || 'PROJECT';
     return `${tenantId}-${slug}`.slice(0, 50);
+  };
+
+  const deriveProjectName = (prompt: string) => {
+    const cleaned = prompt
+      .replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleaned) return 'New Project';
+    const title = cleaned.split(/[.!?]/)[0]?.trim() ?? cleaned;
+    return title.split(' ').slice(0, 6).join(' ').replace(/^[a-z]/, (c) => c.toUpperCase());
   };
 
   // GET /api/projects
@@ -41,17 +54,23 @@ export function createProjectRoutes(projectService: ProjectService): Hono<HonoEn
   // POST /api/projects
   router.post('/', async (c) => {
     const body = await c.req.json<{
-      key: string;
+      key?: string;
       name: string;
       description?: string | null;
+      rootWorkingDirectory?: string | null;
       githubRepoUrl?: string | null;
     }>();
+    const tenantId = c.get('tenantId');
+    const name = body.name?.trim();
+    if (!name) return c.json({ error: 'name is required' }, 400);
+
     const project = await projectService.createProject({
-      key:           body.key,
-      name:          body.name,
+      key:           body.key?.trim() || buildProjectKey(tenantId, name),
+      name,
       description:   body.description,
+      rootWorkingDirectory: body.rootWorkingDirectory,
       githubRepoUrl: body.githubRepoUrl,
-      tenantId:      c.get('tenantId'),   // always from JWT, never from body
+      tenantId,
     });
     return c.json(project.toPlain(), 201);
   });
@@ -62,6 +81,7 @@ export function createProjectRoutes(projectService: ProjectService): Hono<HonoEn
     const body = await c.req.json<{
       name: string;
       description?: string | null;
+      rootWorkingDirectory?: string | null;
       githubRepoUrl?: string | null;
     }>();
 
@@ -77,6 +97,7 @@ export function createProjectRoutes(projectService: ProjectService): Hono<HonoEn
         {
           name,
           description: body.description,
+          rootWorkingDirectory: body.rootWorkingDirectory,
           githubRepoUrl: body.githubRepoUrl,
         },
         tenantId,
@@ -89,6 +110,7 @@ export function createProjectRoutes(projectService: ProjectService): Hono<HonoEn
       key: buildProjectKey(tenantId, name),
       name,
       description: body.description,
+      rootWorkingDirectory: body.rootWorkingDirectory,
       githubRepoUrl: body.githubRepoUrl,
     });
 
@@ -101,6 +123,91 @@ export function createProjectRoutes(projectService: ProjectService): Hono<HonoEn
     const body = await c.req.json();
     const project = await projectService.updateProject(id, body, c.get('tenantId'));
     return c.json(project.toPlain());
+  });
+
+  // POST /api/projects/scaffold
+  router.post('/scaffold', async (c) => {
+    const tenantId = c.get('tenantId');
+    const body = await c.req.json<{
+      prompt: string;
+      rootWorkingDirectory?: string | null;
+      clawId?: number | null;
+    }>();
+
+    const prompt = body.prompt?.trim();
+    if (!prompt) return c.json({ error: 'prompt is required' }, 400);
+
+    const name = deriveProjectName(prompt);
+    const rootWorkingDirectory = body.rootWorkingDirectory?.trim() || null;
+
+    const existingProjects = await projectService.listProjects(tenantId);
+    const existing = existingProjects.find((project) => normalizeName(project.name) === normalizeName(name));
+
+    const project = existing
+      ? await projectService.updateProject(
+          existing.id,
+          { description: prompt, rootWorkingDirectory },
+          tenantId,
+        )
+      : await projectService.createProject({
+          tenantId,
+          key: buildProjectKey(tenantId, name),
+          name,
+          description: prompt,
+          rootWorkingDirectory,
+        });
+
+    let selectedClawId: number | null = null;
+
+    const [projectAssigned] = await db
+      .select({ clawId: clawProjects.clawId })
+      .from(clawProjects)
+      .where(and(eq(clawProjects.tenantId, tenantId), eq(clawProjects.projectId, project.id)))
+      .limit(1);
+
+    if (projectAssigned) {
+      selectedClawId = projectAssigned.clawId;
+    } else {
+      const requestedClawId = body.clawId ?? null;
+      const [tenantRow] = await db
+        .select({ defaultClawId: tenants.defaultClawId })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+
+      const defaultCandidate = requestedClawId ?? tenantRow?.defaultClawId ?? null;
+      if (defaultCandidate) {
+        const [claw] = await db
+          .select({ id: coderclawInstances.id })
+          .from(coderclawInstances)
+          .where(and(eq(coderclawInstances.id, defaultCandidate), eq(coderclawInstances.tenantId, tenantId)))
+          .limit(1);
+
+        if (claw) {
+          selectedClawId = claw.id;
+          await db
+            .insert(clawProjects)
+            .values({ tenantId, clawId: claw.id, projectId: project.id, role: 'default' })
+            .onConflictDoUpdate({
+              target: [clawProjects.tenantId, clawProjects.clawId, clawProjects.projectId],
+              set: { updatedAt: new Date() },
+            });
+        }
+      }
+    }
+
+    const finalProject = selectedClawId === null
+      ? await projectService.updateProject(project.id, { status: ProjectStatus.ON_HOLD }, tenantId)
+      : await projectService.updateProject(project.id, { status: ProjectStatus.ACTIVE }, tenantId);
+
+    return c.json({
+      project: finalProject.toPlain(),
+      scaffold: {
+        clawId: selectedClawId,
+        wip: selectedClawId === null,
+        synced: selectedClawId !== null,
+      },
+    });
   });
 
   // DELETE /api/projects/:id

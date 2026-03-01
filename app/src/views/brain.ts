@@ -14,7 +14,7 @@ import {
   type TaskStatus,
 } from "../api.js";
 
-type DashboardPage = "projects" | "tasks" | "claws" | "skills" | "workspace" | "logs";
+type DashboardPage = "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs";
 type BrainRole = "user" | "assistant";
 
 type BrainAction =
@@ -89,6 +89,7 @@ export class CclBrain extends LitElement {
       claws: "Claws",
       skills: "Skills",
       workspace: "Workspace",
+      billing: "Billing",
       logs: "Logs",
     };
     return labels[this.page] ?? this.page;
@@ -114,7 +115,7 @@ export class CclBrain extends LitElement {
       } else if (this.page === "skills") {
         this.skills = await marketplace.list();
         this.contextSummary = `${this.skills.length} skills available`;
-      } else if (this.page === "workspace") {
+      } else if (this.page === "workspace" || this.page === "billing") {
         this.contextSummary = "Workspace explorer context";
       } else {
         this.contextSummary = "Execution and activity logs context";

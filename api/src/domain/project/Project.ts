@@ -7,6 +7,7 @@ export interface ProjectProps {
   key:             string;
   name:            string;
   description:     string | null;
+  rootWorkingDirectory: string | null;
   status:          ProjectStatus;
   githubRepoUrl:   string | null;
   githubRepoOwner: string | null;
@@ -63,6 +64,7 @@ export class Project {
   get key():             string     { return this.props.key; }
   get name(): string { return this.props.name; }
   get description(): string | null { return this.props.description; }
+  get rootWorkingDirectory(): string | null { return this.props.rootWorkingDirectory; }
   get status(): ProjectStatus { return this.props.status; }
   get githubRepoUrl(): string | null { return this.props.githubRepoUrl; }
   get githubRepoOwner(): string | null { return this.props.githubRepoOwner; }
@@ -78,7 +80,7 @@ export class Project {
     updates: Partial<
       Pick<
         ProjectProps,
-        'name' | 'description' | 'status' | 'githubRepoUrl' | 'githubRepoOwner' | 'githubRepoName'
+        'name' | 'description' | 'rootWorkingDirectory' | 'status' | 'githubRepoUrl' | 'githubRepoOwner' | 'githubRepoName'
       >
     >,
   ): Project {

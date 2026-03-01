@@ -8,12 +8,14 @@ export interface CreateProjectDto {
   key:            string;
   name:           string;
   description?:   string | null;
+  rootWorkingDirectory?: string | null;
   githubRepoUrl?: string | null;
 }
 
 export interface UpdateProjectDto {
   name?: string;
   description?: string | null;
+  rootWorkingDirectory?: string | null;
   status?: ProjectStatus;
   githubRepoUrl?: string | null;
 }
@@ -51,6 +53,7 @@ export class ProjectService {
       key: dto.key,
       name: dto.name,
       description: dto.description ?? null,
+      rootWorkingDirectory: dto.rootWorkingDirectory ?? null,
       status: ProjectStatus.ACTIVE,
       githubRepoUrl: dto.githubRepoUrl ?? null,
       githubRepoOwner,
@@ -70,6 +73,7 @@ export class ProjectService {
     const updated = project.update({
       name: dto.name,
       description: dto.description,
+      rootWorkingDirectory: dto.rootWorkingDirectory,
       status: dto.status,
       githubRepoUrl: dto.githubRepoUrl,
       githubRepoOwner,

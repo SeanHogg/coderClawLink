@@ -9,6 +9,7 @@ import {
 } from "../api.js";
 
 type AdminTab = "health" | "users" | "tenants" | "errors" | "usage";
+type LlmPoolTab = "coderClawLLM" | "coderClawLLMPro";
 
 @customElement("ccl-admin")
 export class CclAdmin extends LitElement {
@@ -24,6 +25,7 @@ export class CclAdmin extends LitElement {
   @state() private loading = false;
   @state() private errorMsg = "";
   @state() private showAdminToken = false;
+  @state() private llmPoolTab: LlmPoolTab = "coderClawLLM";
   @state() private copiedAdminToken = false;
   @state() private copiedAdminEnv = false;
   @state() private downloadedAdminEnv = false;
@@ -229,6 +231,10 @@ export class CclAdmin extends LitElement {
     const webToken = getWebToken() ?? "";
     if (!h) return html`<div class="loading-state">No data</div>`;
 
+    const freeModels = h.llm.models.filter((m) => m.model.toLowerCase().includes(":free"));
+    const paidModels = h.llm.models.filter((m) => !m.model.toLowerCase().includes(":free"));
+    const selectedModels = this.llmPoolTab === "coderClawLLM" ? freeModels : paidModels;
+
     return html`
       <div class="health-grid">
         <!-- Status card -->
@@ -275,20 +281,36 @@ export class CclAdmin extends LitElement {
         <!-- LLM pool -->
         <div class="health-card health-wide">
           <div class="health-label">LLM Model Pool (${h.llm.pool} models)</div>
+          <div class="model-pool-tabs">
+            <button
+              class="model-pool-tab ${this.llmPoolTab === "coderClawLLM" ? "active" : ""}"
+              @click=${() => { this.llmPoolTab = "coderClawLLM"; }}
+            >
+              coderClawLLM (${freeModels.length})
+            </button>
+            <button
+              class="model-pool-tab ${this.llmPoolTab === "coderClawLLMPro" ? "active" : ""}"
+              @click=${() => { this.llmPoolTab = "coderClawLLMPro"; }}
+            >
+              coderClawLLMPro (${paidModels.length})
+            </button>
+          </div>
           <div class="model-list">
-            ${h.llm.models.map(m => {
+            ${selectedModels.map(m => {
               const chipStyle = m.available
                 ? "background:var(--success-bg,#d1fae5);color:var(--success-text,#065f46);border-color:var(--success-border,#6ee7b7)"
                 : "background:var(--error-bg,#fee2e2);color:var(--error-text,#991b1b);border-color:var(--error-border,#fca5a5)";
-              const label = m.available
-                ? `${m.preferred ? "★ " : ""}${m.model}`
-                : `${m.model} ⏳${this.fmtCooldown(m.cooldownUntil ?? 0)}`;
+              const statusLabel = m.available ? "available" : `cooldown ${this.fmtCooldown(m.cooldownUntil ?? 0)}`;
+              const label = `${m.preferred ? "★ " : ""}${m.model} · ${statusLabel}`;
               const title = m.available
                 ? `${m.preferred ? "Preferred (round-robin). " : "Fallback. "}Available`
                 : `On cooldown — available in ${this.fmtCooldown(m.cooldownUntil ?? 0)}`;
               return html`<span class="model-chip" style="${chipStyle}" title="${title}">${label}</span>`;
             })}
           </div>
+          ${selectedModels.length === 0 ? html`
+            <div class="health-sub">No models in this pool.</div>
+          ` : ""}
           <div style="margin-top:8px;font-size:11px;color:var(--text-muted,#6b7280)">
             ★ preferred (round-robin) · green = available · red = on cooldown
           </div>

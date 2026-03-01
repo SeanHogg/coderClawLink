@@ -18,7 +18,7 @@ export class CclProjects extends LitElement {
   @state() private error = "";
   @state() private showModal = false;
   @state() private editTarget: Project | null = null;
-  @state() private form = { name: "", description: "" };
+  @state() private form = { name: "", description: "", rootWorkingDirectory: "" };
   @state() private saving = false;
 
   override connectedCallback() {
@@ -58,13 +58,13 @@ export class CclProjects extends LitElement {
 
   private openCreateModal() {
     this.editTarget = null;
-    this.form = { name: "", description: "" };
+    this.form = { name: "", description: "", rootWorkingDirectory: "" };
     this.showModal = true;
   }
 
   private openEdit(p: Project) {
     this.editTarget = p;
-    this.form = { name: p.name, description: p.description ?? "" };
+    this.form = { name: p.name, description: p.description ?? "", rootWorkingDirectory: p.rootWorkingDirectory ?? "" };
     this.showModal = true;
   }
 
@@ -206,6 +206,9 @@ export class CclProjects extends LitElement {
           ${p.description
             ? html`<div style="font-size:13px;color:var(--muted);margin-top:6px;line-height:1.5">${p.description}</div>`
             : ""}
+          ${p.rootWorkingDirectory
+            ? html`<div style="font-size:12px;color:var(--muted);margin-top:6px">Root directory: ${p.rootWorkingDirectory}</div>`
+            : html`<div style="font-size:12px;color:var(--muted);margin-top:6px">Root directory: not set</div>`}
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-ghost btn-sm" @click=${() => this.openEdit(p)}>Edit project</button>
@@ -240,6 +243,12 @@ export class CclProjects extends LitElement {
               <textarea class="textarea" placeholder="What is this project about?"
                 .value=${this.form.description}
                 @input=${(e: InputEvent) => { this.form = { ...this.form, description: (e.target as HTMLTextAreaElement).value }; }}></textarea>
+            </div>
+            <div class="field">
+              <label class="label">Root working directory <span class="label-hint">(optional)</span></label>
+              <input class="input" placeholder="/Users/you/dev/my-repo"
+                .value=${this.form.rootWorkingDirectory}
+                @input=${(e: InputEvent) => { this.form = { ...this.form, rootWorkingDirectory: (e.target as HTMLInputElement).value }; }}>
             </div>
             <div class="modal-footer">
               <button class="btn btn-ghost" type="button" @click=${() => this.showModal = false}>Cancel</button>

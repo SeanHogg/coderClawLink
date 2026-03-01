@@ -88,6 +88,7 @@ export interface TenantSummary {
   slug: string;
   role: string;
   status: string;
+  defaultClawId?: string | null;
   plan?: "free" | "pro";
   effectivePlan?: "free" | "pro";
   billingStatus?: "none" | "pending" | "active" | "past_due" | "cancelled";
@@ -164,9 +165,19 @@ export interface Project {
   key: string;
   name: string;
   description?: string;
+  rootWorkingDirectory?: string | null;
   status: string;
   taskCount?: number;
   createdAt: string;
+}
+
+export interface ProjectScaffoldResult {
+  project: Project;
+  scaffold: {
+    clawId: number | null;
+    wip: boolean;
+    synced: boolean;
+  };
 }
 
 export type TaskStatus = "todo" | "in_progress" | "in_review" | "done" | "blocked";
@@ -335,6 +346,17 @@ export const tenants = {
     return request(`/api/tenants/${id}/subscription`);
   },
 
+  async defaultClaw(id: string): Promise<{ defaultClawId: number | null }> {
+    return request(`/api/tenants/${id}/default-claw`);
+  },
+
+  async setDefaultClaw(id: string, clawId: number | null): Promise<{ defaultClawId: number | null }> {
+    return request(`/api/tenants/${id}/default-claw`, {
+      method: "PUT",
+      body: JSON.stringify({ clawId }),
+    });
+  },
+
   async upgradeToPro(
     id: string,
     data: {
@@ -368,12 +390,16 @@ export const projects = {
     return res.projects;
   },
 
-  async create(data: { name: string; description?: string }): Promise<Project> {
+  async create(data: { name: string; description?: string; rootWorkingDirectory?: string | null }): Promise<Project> {
     return request("/api/projects", { method: "POST", body: JSON.stringify(data) });
   },
 
-  async upsert(data: { name: string; description?: string; githubRepoUrl?: string }): Promise<{ action: "created" | "updated"; project: Project }> {
+  async upsert(data: { name: string; description?: string; rootWorkingDirectory?: string | null; githubRepoUrl?: string }): Promise<{ action: "created" | "updated"; project: Project }> {
     return request("/api/projects/upsert", { method: "POST", body: JSON.stringify(data) });
+  },
+
+  async scaffold(data: { prompt: string; rootWorkingDirectory?: string | null; clawId?: number | null }): Promise<ProjectScaffoldResult> {
+    return request("/api/projects/scaffold", { method: "POST", body: JSON.stringify(data) });
   },
 
   async update(id: string, data: Partial<Project>): Promise<Project> {

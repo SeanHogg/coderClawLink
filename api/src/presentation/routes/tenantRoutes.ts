@@ -45,6 +45,42 @@ export function createTenantRoutes(tenantService: TenantService, db: Db): Hono<H
     return c.json(tenant.toPlain());
   });
 
+  // GET /api/tenants/:id/default-claw
+  router.get('/:id/default-claw', async (c) => {
+    const id = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (id !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+    const tenant = await tenantService.getTenant(id);
+    return c.json({ defaultClawId: tenant.defaultClawId });
+  });
+
+  // PUT /api/tenants/:id/default-claw
+  router.put('/:id/default-claw', requireRole(TenantRole.MANAGER), async (c) => {
+    const id = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (id !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+
+    const body = await c.req.json<{ clawId?: number | null }>();
+    const clawId = body.clawId ?? null;
+
+    if (clawId !== null) {
+      const [claw] = await db
+        .select({ id: coderclawInstances.id })
+        .from(coderclawInstances)
+        .where(
+          and(
+            eq(coderclawInstances.id, clawId),
+            eq(coderclawInstances.tenantId, id),
+          ),
+        )
+        .limit(1);
+      if (!claw) return c.json({ error: 'Claw not found in workspace' }, 404);
+    }
+
+    const tenant = await tenantService.setDefaultClaw(id, clawId);
+    return c.json({ defaultClawId: tenant.defaultClawId });
+  });
+
   // GET /api/tenants/:id/subscription
   router.get('/:id/subscription', async (c) => {
     const tenantId = Number(c.req.param('id'));

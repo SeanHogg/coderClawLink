@@ -100,7 +100,7 @@ function buildApp(env: Env): Hono<HonoEnv> {
   app.route('/api/skill-assignments', createSkillAssignmentRoutes(db));
 
   // Protected endpoints (JWT injected by authMiddleware inside each router)
-  app.route('/api/projects', createProjectRoutes(projectService));
+  app.route('/api/projects', createProjectRoutes(projectService, db));
   app.route('/api/tasks',    createTaskRoutes(taskService));
   app.route('/api/tenants',  createTenantRoutes(tenantService, db));
   app.route('/api/agents',   createAgentRoutes(agentService));

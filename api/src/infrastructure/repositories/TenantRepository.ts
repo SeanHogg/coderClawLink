@@ -61,6 +61,7 @@ export class TenantRepository implements ITenantRepository {
         name: plain.name,
         slug: plain.slug,
         status: plain.status,
+        defaultClawId: plain.defaultClawId,
         plan: plain.plan,
         billingCycle: plain.billingCycle,
         billingStatus: plain.billingStatus,
@@ -96,6 +97,7 @@ export class TenantRepository implements ITenantRepository {
       .set({
         name: plain.name,
         status: plain.status,
+        defaultClawId: plain.defaultClawId,
         plan: plain.plan,
         billingCycle: plain.billingCycle,
         billingStatus: plain.billingStatus,
@@ -153,6 +155,7 @@ export class TenantRepository implements ITenantRepository {
       name:      row.name,
       slug:      row.slug,
       status:    row.status as TenantStatus,
+      defaultClawId: row.defaultClawId,
       plan:      row.plan as TenantPlan,
       billingCycle: row.billingCycle as TenantBillingCycle | null,
       billingStatus: row.billingStatus as TenantBillingStatus,

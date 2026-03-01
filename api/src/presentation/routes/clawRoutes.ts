@@ -16,6 +16,7 @@ import {
   clawDirectories,
   clawDirectoryFiles,
   projects,
+  tenants,
 } from '../../infrastructure/database/schema';
 import { generateApiKey, hashSecret, verifySecret } from '../../infrastructure/auth/HashService';
 import type { HonoEnv } from '../../env';
@@ -397,6 +398,44 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
 
     const absPath = body.absPath?.trim();
     if (!absPath) return c.json({ error: 'absPath is required' }, 400);
+
+    if (body.projectId != null) {
+      const [project] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, body.projectId), eq(projects.tenantId, claw.tenantId)))
+        .limit(1);
+
+      if (!project) {
+        return c.json({ error: 'project not found in tenant' }, 404);
+      }
+
+      const [projectMapping] = await db
+        .select({ clawId: clawProjects.clawId })
+        .from(clawProjects)
+        .where(and(
+          eq(clawProjects.tenantId, claw.tenantId),
+          eq(clawProjects.clawId, clawId),
+          eq(clawProjects.projectId, body.projectId),
+        ))
+        .limit(1);
+
+      if (!projectMapping) {
+        const [tenant] = await db
+          .select({ defaultClawId: tenants.defaultClawId })
+          .from(tenants)
+          .where(eq(tenants.id, claw.tenantId))
+          .limit(1);
+
+        if (tenant?.defaultClawId !== clawId) {
+          return c.json({
+            ok: true,
+            skipped: true,
+            reason: 'project_wip_no_project_or_default_claw_assignment',
+          }, 202);
+        }
+      }
+    }
 
     const pathHash = await hashPath(absPath);
     const [directory] = await db
