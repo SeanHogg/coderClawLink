@@ -353,10 +353,11 @@ export function createMarketplaceRoutes(db: Db): Hono<HonoEnv> {
         .offset(offset);
     }
 
-    const [{ count }] = await db
+    const [countRow] = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.marketplaceSkills)
       .where(and(...conditions));
+    const count = countRow?.count ?? 0;
 
     return c.json({ skills: rows, total: Number(count), page: pageNum, limit: limitNum });
   });

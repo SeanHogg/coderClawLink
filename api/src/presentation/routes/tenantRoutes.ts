@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
+import { and, eq } from 'drizzle-orm';
 import { TenantService } from '../../application/tenant/TenantService';
 import { TenantRole } from '../../domain/shared/types';
 import type { HonoEnv } from '../../env';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware';
 import { webAuthMiddleware } from '../middleware/webAuthMiddleware';
+import type { Db } from '../../infrastructure/database/connection';
+import { coderclawInstances, clawProjects } from '../../infrastructure/database/schema';
 
-export function createTenantRoutes(tenantService: TenantService): Hono<HonoEnv> {
+export function createTenantRoutes(tenantService: TenantService, db: Db): Hono<HonoEnv> {
   const router = new Hono<HonoEnv>();
 
   // GET /api/tenants/mine  – WebJWT required; returns tenants the caller belongs to
@@ -40,6 +43,55 @@ export function createTenantRoutes(tenantService: TenantService): Hono<HonoEnv> 
     const id = Number(c.req.param('id'));
     const tenant = await tenantService.getTenant(id);
     return c.json(tenant.toPlain());
+  });
+
+  // GET /api/tenants/:id/claws?status=online
+  router.get('/:id/claws', async (c) => {
+    const tenantId = Number(c.req.param('id'));
+    const callerTenantId = c.get('tenantId') as number;
+    if (tenantId !== callerTenantId) return c.json({ error: 'Forbidden' }, 403);
+
+    const status = (c.req.query('status') ?? '').trim().toLowerCase();
+    const rows = await db
+      .select({
+        id: coderclawInstances.id,
+        name: coderclawInstances.name,
+        slug: coderclawInstances.slug,
+        status: coderclawInstances.status,
+        connectedAt: coderclawInstances.connectedAt,
+        lastSeenAt: coderclawInstances.lastSeenAt,
+      })
+      .from(coderclawInstances)
+      .where(eq(coderclawInstances.tenantId, tenantId));
+
+    const filtered = status === 'online'
+      ? rows.filter((row) => row.connectedAt !== null)
+      : rows;
+
+    const claws = await Promise.all(
+      filtered.map(async (row) => {
+        const associatedProjects = await db
+          .select({ projectId: clawProjects.projectId })
+          .from(clawProjects)
+          .where(
+            and(
+              eq(clawProjects.tenantId, tenantId),
+              eq(clawProjects.clawId, row.id),
+            ),
+          );
+        return {
+          ...row,
+          capabilitySummary: {
+            distributed: false,
+            remoteDispatch: false,
+            projectCount: associatedProjects.length,
+          },
+          projectIds: associatedProjects.map((p) => p.projectId),
+        };
+      }),
+    );
+
+    return c.json({ claws });
   });
 
   // POST /api/tenants – create another tenant (caller must have a valid tenant JWT already)

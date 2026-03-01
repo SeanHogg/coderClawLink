@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { AuthService } from '../../application/auth/AuthService';
 import type { HonoEnv } from '../../env';
 import { webAuthMiddleware } from '../middleware/webAuthMiddleware';
-import type { UserId } from '../../domain/shared/types';
+import { TenantRole, type UserId } from '../../domain/shared/types';
 import { coderclawInstances } from '../../infrastructure/database/schema';
 import { hashSecret } from '../../infrastructure/auth/HashService';
 import { signJwt } from '../../infrastructure/auth/JwtService';
@@ -95,7 +95,7 @@ export function createAuthRoutes(authService: AuthService, db: Db): Hono<HonoEnv
 
     const expiresIn = 3600;
     const token = await signJwt(
-      { sub: `claw:${claw.id}`, tid: claw.tenantId, role: 'developer' },
+      { sub: `claw:${claw.id}`, tid: claw.tenantId, role: TenantRole.DEVELOPER },
       c.env.JWT_SECRET,
       expiresIn,
     );

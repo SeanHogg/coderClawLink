@@ -14,6 +14,9 @@
  *   5. When CoderClaw disconnects → send { type:"claw_offline" } to clients
  */
 export class ClawRelayDO implements DurableObject {
+  // Required brand for DurableObjectNamespace<T> generic constraint
+  declare readonly "__DURABLE_OBJECT_BRAND": never;
+
   private upstreamSocket: WebSocket | null = null;
   private clientSockets: Set<WebSocket> = new Set();
   private pingInterval: ReturnType<typeof setInterval> | null = null;

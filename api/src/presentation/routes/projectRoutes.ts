@@ -14,6 +14,17 @@ export function createProjectRoutes(projectService: ProjectService): Hono<HonoEn
   const router = new Hono<HonoEnv>();
   router.use('*', authMiddleware);
 
+  const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
+  const buildProjectKey = (tenantId: number, name: string) => {
+    const slug = name
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 36) || 'PROJECT';
+    return `${tenantId}-${slug}`.slice(0, 50);
+  };
+
   // GET /api/projects
   router.get('/', async (c) => {
     const projects = await projectService.listProjects(c.get('tenantId'));
@@ -43,6 +54,45 @@ export function createProjectRoutes(projectService: ProjectService): Hono<HonoEn
       tenantId:      c.get('tenantId'),   // always from JWT, never from body
     });
     return c.json(project.toPlain(), 201);
+  });
+
+  // POST /api/projects/upsert
+  router.post('/upsert', async (c) => {
+    const tenantId = c.get('tenantId');
+    const body = await c.req.json<{
+      name: string;
+      description?: string | null;
+      githubRepoUrl?: string | null;
+    }>();
+
+    const name = body.name?.trim();
+    if (!name) return c.json({ error: 'name is required' }, 400);
+
+    const projects = await projectService.listProjects(tenantId);
+    const existing = projects.find((project) => normalizeName(project.name) === normalizeName(name));
+
+    if (existing) {
+      const updated = await projectService.updateProject(
+        existing.id,
+        {
+          name,
+          description: body.description,
+          githubRepoUrl: body.githubRepoUrl,
+        },
+        tenantId,
+      );
+      return c.json({ action: 'updated', project: updated.toPlain() });
+    }
+
+    const created = await projectService.createProject({
+      tenantId,
+      key: buildProjectKey(tenantId, name),
+      name,
+      description: body.description,
+      githubRepoUrl: body.githubRepoUrl,
+    });
+
+    return c.json({ action: 'created', project: created.toPlain() }, 201);
   });
 
   // PATCH /api/projects/:id

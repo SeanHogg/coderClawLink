@@ -60,6 +60,7 @@ export const auditEventTypeEnum = pgEnum('audit_event_type', [
 ]);
 
 export const clawStatusEnum = pgEnum('claw_status', ['active', 'inactive', 'suspended']);
+export const clawDirectoryStatusEnum = pgEnum('claw_directory_status', ['pending', 'synced', 'error']);
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -299,4 +300,52 @@ export const clawSkillAssignments = pgTable('claw_skill_assignments', {
   assignedAt: timestamp('assigned_at').notNull().defaultNow(),
 }, (t) => [
   primaryKey({ columns: [t.clawId, t.skillSlug] }),
+]);
+
+// ---------------------------------------------------------------------------
+// Claw ↔ Project associations and synced workspace directories
+// ---------------------------------------------------------------------------
+
+export const clawProjects = pgTable('claw_projects', {
+  id:        serial('id').primaryKey(),
+  tenantId:  integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:    integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
+  projectId: integer('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  role:      varchar('role', { length: 64 }).notNull().default('default'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.tenantId, t.clawId, t.projectId] }),
+]);
+
+export const clawDirectories = pgTable('claw_directories', {
+  id:           serial('id').primaryKey(),
+  tenantId:     integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:       integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
+  projectId:    integer('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  absPath:      text('abs_path').notNull(),
+  pathHash:     varchar('path_hash', { length: 128 }).notNull(),
+  status:       clawDirectoryStatusEnum('status').notNull().default('pending'),
+  metadata:     text('metadata'),
+  errorMessage: text('error_message'),
+  lastSeenAt:   timestamp('last_seen_at'),
+  lastSyncedAt: timestamp('last_synced_at'),
+  createdAt:    timestamp('created_at').notNull().defaultNow(),
+  updatedAt:    timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.tenantId, t.clawId, t.pathHash] }),
+]);
+
+export const clawDirectoryFiles = pgTable('claw_directory_files', {
+  id:          serial('id').primaryKey(),
+  tenantId:    integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:      integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
+  directoryId: integer('directory_id').notNull().references(() => clawDirectories.id, { onDelete: 'cascade' }),
+  relPath:     text('rel_path').notNull(),
+  contentHash: varchar('content_hash', { length: 128 }).notNull(),
+  sizeBytes:   integer('size_bytes').notNull().default(0),
+  content:     text('content'),
+  updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.directoryId, t.relPath] }),
 ]);

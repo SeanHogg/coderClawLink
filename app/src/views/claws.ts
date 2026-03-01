@@ -11,8 +11,10 @@ import "./claw/cron.js";
 import "./claw/nodes.js";
 import "./claw/channels.js";
 import "./claw/claw-logs.js";
+import "./claw/projects.js";
+import "./claw/workspace.js";
 
-type Tab = "chat" | "agents" | "config" | "sessions" | "skills" | "usage" | "cron" | "nodes" | "channels" | "logs";
+type Tab = "chat" | "agents" | "config" | "sessions" | "skills" | "usage" | "cron" | "nodes" | "channels" | "projects" | "workspace" | "logs";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "chat",     label: "Chat" },
@@ -24,6 +26,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "cron",     label: "Cron" },
   { id: "nodes",    label: "Nodes" },
   { id: "channels", label: "Channels" },
+  { id: "projects", label: "Projects" },
+  { id: "workspace", label: "Workspace" },
   { id: "logs",     label: "Logs" },
 ];
 
@@ -220,6 +224,8 @@ export class ClawsView extends LitElement {
           ${this.activeTab === "cron"     ? html`<ccl-claw-cron     .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-cron>` : ""}
           ${this.activeTab === "nodes"    ? html`<ccl-claw-nodes    .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-nodes>` : ""}
           ${this.activeTab === "channels" ? html`<ccl-claw-channels .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-channels>` : ""}
+          ${this.activeTab === "projects" ? html`<ccl-claw-projects .clawId=${claw.id}></ccl-claw-projects>` : ""}
+          ${this.activeTab === "workspace" ? html`<ccl-claw-workspace .clawId=${claw.id}></ccl-claw-workspace>` : ""}
           ${this.activeTab === "logs"     ? html`<ccl-claw-logs     .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-logs>` : ""}
         </div>
       </div>

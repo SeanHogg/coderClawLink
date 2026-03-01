@@ -144,6 +144,25 @@ export interface ClawRegistration extends Claw {
   apiKey: string; // one-time plaintext key
 }
 
+export interface ClawDirectory {
+  id: string;
+  projectId?: string | null;
+  absPath: string;
+  status: "pending" | "synced" | "error";
+  errorMessage?: string | null;
+  metadata?: string | null;
+  lastSeenAt?: string | null;
+  lastSyncedAt?: string | null;
+  updatedAt: string;
+}
+
+export interface ClawDirectoryFile {
+  relPath: string;
+  contentHash: string;
+  sizeBytes: number;
+  updatedAt: string;
+}
+
 export interface Execution {
   id: string;
   taskId: string;
@@ -245,6 +264,10 @@ export const projects = {
     return request("/api/projects", { method: "POST", body: JSON.stringify(data) });
   },
 
+  async upsert(data: { name: string; description?: string; githubRepoUrl?: string }): Promise<{ action: "created" | "updated"; project: Project }> {
+    return request("/api/projects/upsert", { method: "POST", body: JSON.stringify(data) });
+  },
+
   async update(id: string, data: Partial<Project>): Promise<Project> {
     return request(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) });
   },
@@ -308,6 +331,33 @@ export const claws = {
 
   async remove(id: string): Promise<void> {
     return request(`/api/claws/${id}`, { method: "DELETE" });
+  },
+
+  async projects(id: string): Promise<Project[]> {
+    const res = await request<{ projects: Project[] }>(`/api/claws/${id}/projects`);
+    return res.projects;
+  },
+
+  async associateProject(id: string, projectId: string): Promise<void> {
+    return request(`/api/claws/${id}/projects/${projectId}`, { method: "PUT" });
+  },
+
+  async unassociateProject(id: string, projectId: string): Promise<void> {
+    return request(`/api/claws/${id}/projects/${projectId}`, { method: "DELETE" });
+  },
+
+  async directories(id: string): Promise<ClawDirectory[]> {
+    const res = await request<{ directories: ClawDirectory[] }>(`/api/claws/${id}/directories`);
+    return res.directories;
+  },
+
+  async directoryFiles(id: string, directoryId: string): Promise<ClawDirectoryFile[]> {
+    const res = await request<{ files: ClawDirectoryFile[] }>(`/api/claws/${id}/directories/${directoryId}/files`);
+    return res.files;
+  },
+
+  async directoryFileContent(id: string, directoryId: string, filePath: string): Promise<{ relPath: string; content: string | null; contentHash: string; updatedAt: string }> {
+    return request(`/api/claws/${id}/directories/${directoryId}/files/content?path=${encodeURIComponent(filePath)}`);
   },
 
   async status(id: string): Promise<{ connected: boolean; clients: number }> {

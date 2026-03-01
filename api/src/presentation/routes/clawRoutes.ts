@@ -10,7 +10,13 @@
 import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/authMiddleware';
-import { coderclawInstances } from '../../infrastructure/database/schema';
+import {
+  coderclawInstances,
+  clawProjects,
+  clawDirectories,
+  clawDirectoryFiles,
+  projects,
+} from '../../infrastructure/database/schema';
 import { generateApiKey, hashSecret, verifySecret } from '../../infrastructure/auth/HashService';
 import type { HonoEnv } from '../../env';
 import type { Db } from '../../infrastructure/database/connection';
@@ -26,12 +32,29 @@ type ClawHonoEnv = HonoEnv & {
 export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
   const router = new Hono<ClawHonoEnv>();
 
-  // Tenant-authenticated routes
-  router.use('/', authMiddleware as never);
-  router.use('/:id', authMiddleware as never);
+  const hashPath = async (value: string): Promise<string> => {
+    const bytes = new TextEncoder().encode(value.trim().toLowerCase());
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const verifyClawApiKey = async (id: number, key?: string) => {
+    if (!key) return null;
+    const [claw] = await db
+      .select({
+        id: coderclawInstances.id,
+        tenantId: coderclawInstances.tenantId,
+        apiKeyHash: coderclawInstances.apiKeyHash,
+      })
+      .from(coderclawInstances)
+      .where(eq(coderclawInstances.id, id));
+    if (!claw) return null;
+    const valid = await verifySecret(key, claw.apiKeyHash);
+    return valid ? claw : null;
+  };
 
   // GET /api/claws – list all claws for the current tenant
-  router.get('/', async (c) => {
+  router.get('/', authMiddleware as never, async (c) => {
     const tenantId = c.get('tenantId') as number;
     const rows = await db
       .select({
@@ -40,6 +63,7 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
         slug:         coderclawInstances.slug,
         status:       coderclawInstances.status,
         registeredBy: coderclawInstances.registeredBy,
+        connectedAt:  coderclawInstances.connectedAt,
         lastSeenAt:   coderclawInstances.lastSeenAt,
         createdAt:    coderclawInstances.createdAt,
       })
@@ -50,7 +74,7 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
 
   // POST /api/claws – register a new CoderClaw instance
   // Returns the plaintext API key once – it is never stored in plaintext.
-  router.post('/', async (c) => {
+  router.post('/', authMiddleware as never, async (c) => {
     const tenantId = c.get('tenantId') as number;
     const userId   = c.get('userId') as string;
     const body     = await c.req.json<{ name: string }>();
@@ -88,13 +112,275 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
   });
 
   // DELETE /api/claws/:id – deactivate / remove a claw
-  router.delete('/:id', async (c) => {
+  router.delete('/:id', authMiddleware as never, async (c) => {
     const tenantId = c.get('tenantId') as number;
     const id       = Number(c.req.param('id'));
     await db
       .delete(coderclawInstances)
       .where(and(eq(coderclawInstances.id, id), eq(coderclawInstances.tenantId, tenantId)));
     return c.body(null, 204);
+  });
+
+  // GET /api/claws/:id/projects – list projects associated with this claw
+  router.get('/:id/projects', authMiddleware as never, async (c) => {
+    const tenantId = c.get('tenantId') as number;
+    const id = Number(c.req.param('id'));
+
+    const rows = await db
+      .select({
+        id: projects.id,
+        key: projects.key,
+        name: projects.name,
+        description: projects.description,
+        status: projects.status,
+        createdAt: projects.createdAt,
+      })
+      .from(clawProjects)
+      .innerJoin(projects, eq(projects.id, clawProjects.projectId))
+      .where(
+        and(
+          eq(clawProjects.tenantId, tenantId),
+          eq(clawProjects.clawId, id),
+        ),
+      );
+
+    return c.json({ projects: rows });
+  });
+
+  // PUT /api/claws/:id/projects/:projectId – associate project with claw
+  router.put('/:id/projects/:projectId', authMiddleware as never, async (c) => {
+    const tenantId = c.get('tenantId') as number;
+    const clawId = Number(c.req.param('id'));
+    const projectId = Number(c.req.param('projectId'));
+
+    const [project] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.tenantId, tenantId)));
+    if (!project) return c.json({ error: 'Project not found in tenant' }, 404);
+
+    await db
+      .insert(clawProjects)
+      .values({ tenantId, clawId, projectId, role: 'default' })
+      .onConflictDoUpdate({
+        target: [clawProjects.tenantId, clawProjects.clawId, clawProjects.projectId],
+        set: { updatedAt: new Date() },
+      });
+
+    return c.json({ ok: true });
+  });
+
+  // DELETE /api/claws/:id/projects/:projectId – unassociate project from claw
+  router.delete('/:id/projects/:projectId', authMiddleware as never, async (c) => {
+    const tenantId = c.get('tenantId') as number;
+    const clawId = Number(c.req.param('id'));
+    const projectId = Number(c.req.param('projectId'));
+
+    await db
+      .delete(clawProjects)
+      .where(
+        and(
+          eq(clawProjects.tenantId, tenantId),
+          eq(clawProjects.clawId, clawId),
+          eq(clawProjects.projectId, projectId),
+        ),
+      );
+
+    return c.body(null, 204);
+  });
+
+  // GET /api/claws/:id/directories – list synced directory manifest entries
+  router.get('/:id/directories', authMiddleware as never, async (c) => {
+    const tenantId = c.get('tenantId') as number;
+    const clawId = Number(c.req.param('id'));
+
+    const rows = await db
+      .select({
+        id: clawDirectories.id,
+        projectId: clawDirectories.projectId,
+        absPath: clawDirectories.absPath,
+        status: clawDirectories.status,
+        errorMessage: clawDirectories.errorMessage,
+        metadata: clawDirectories.metadata,
+        lastSeenAt: clawDirectories.lastSeenAt,
+        lastSyncedAt: clawDirectories.lastSyncedAt,
+        updatedAt: clawDirectories.updatedAt,
+      })
+      .from(clawDirectories)
+      .where(
+        and(
+          eq(clawDirectories.tenantId, tenantId),
+          eq(clawDirectories.clawId, clawId),
+        ),
+      );
+
+    return c.json({ directories: rows });
+  });
+
+  // GET /api/claws/:id/directories/:directoryId/files – list synced files
+  router.get('/:id/directories/:directoryId/files', authMiddleware as never, async (c) => {
+    const tenantId = c.get('tenantId') as number;
+    const clawId = Number(c.req.param('id'));
+    const directoryId = Number(c.req.param('directoryId'));
+
+    const files = await db
+      .select({
+        relPath: clawDirectoryFiles.relPath,
+        contentHash: clawDirectoryFiles.contentHash,
+        sizeBytes: clawDirectoryFiles.sizeBytes,
+        updatedAt: clawDirectoryFiles.updatedAt,
+      })
+      .from(clawDirectoryFiles)
+      .where(
+        and(
+          eq(clawDirectoryFiles.tenantId, tenantId),
+          eq(clawDirectoryFiles.clawId, clawId),
+          eq(clawDirectoryFiles.directoryId, directoryId),
+        ),
+      );
+
+    return c.json({ files });
+  });
+
+  // GET /api/claws/:id/directories/:directoryId/files/content?path=...
+  router.get('/:id/directories/:directoryId/files/content', authMiddleware as never, async (c) => {
+    const tenantId = c.get('tenantId') as number;
+    const clawId = Number(c.req.param('id'));
+    const directoryId = Number(c.req.param('directoryId'));
+    const relPath = c.req.query('path')?.trim();
+    if (!relPath) return c.json({ error: 'path is required' }, 400);
+
+    const [file] = await db
+      .select({
+        relPath: clawDirectoryFiles.relPath,
+        content: clawDirectoryFiles.content,
+        contentHash: clawDirectoryFiles.contentHash,
+        updatedAt: clawDirectoryFiles.updatedAt,
+      })
+      .from(clawDirectoryFiles)
+      .where(
+        and(
+          eq(clawDirectoryFiles.tenantId, tenantId),
+          eq(clawDirectoryFiles.clawId, clawId),
+          eq(clawDirectoryFiles.directoryId, directoryId),
+          eq(clawDirectoryFiles.relPath, relPath),
+        ),
+      );
+
+    if (!file) return c.json({ error: 'File not found' }, 404);
+    return c.json(file);
+  });
+
+  // PUT /api/claws/:id/directories/sync – startup/full/delta sync from local gateway
+  // Authentication: API key via ?key= query param.
+  router.put('/:id/directories/sync', async (c) => {
+    const clawId = Number(c.req.param('id'));
+    const key = c.req.query('key');
+    const claw = await verifyClawApiKey(clawId, key);
+    if (!claw) return c.text('Unauthorized', 401);
+
+    const body = await c.req.json<{
+      projectId?: number | null;
+      absPath: string;
+      status?: 'pending' | 'synced' | 'error';
+      metadata?: Record<string, unknown>;
+      errorMessage?: string | null;
+      files?: Array<{
+        relPath: string;
+        contentHash?: string;
+        sizeBytes?: number;
+        content?: string;
+      }>;
+    }>();
+
+    const absPath = body.absPath?.trim();
+    if (!absPath) return c.json({ error: 'absPath is required' }, 400);
+
+    const pathHash = await hashPath(absPath);
+    const [directory] = await db
+      .insert(clawDirectories)
+      .values({
+        tenantId: claw.tenantId,
+        clawId,
+        projectId: body.projectId ?? null,
+        absPath,
+        pathHash,
+        status: body.status ?? 'pending',
+        metadata: body.metadata ? JSON.stringify(body.metadata) : null,
+        errorMessage: body.errorMessage ?? null,
+        lastSeenAt: new Date(),
+        lastSyncedAt: body.status === 'synced' ? new Date() : null,
+      })
+      .onConflictDoUpdate({
+        target: [clawDirectories.tenantId, clawDirectories.clawId, clawDirectories.pathHash],
+        set: {
+          projectId: body.projectId ?? null,
+          absPath,
+          status: body.status ?? 'pending',
+          metadata: body.metadata ? JSON.stringify(body.metadata) : null,
+          errorMessage: body.errorMessage ?? null,
+          lastSeenAt: new Date(),
+          lastSyncedAt: body.status === 'synced' ? new Date() : clawDirectories.lastSyncedAt,
+          updatedAt: new Date(),
+        },
+      })
+      .returning({ id: clawDirectories.id });
+
+    if (!directory) {
+      return c.json({ error: 'Unable to persist directory manifest entry' }, 500);
+    }
+
+    if (body.files?.length) {
+      const fileRows = body.files
+        .filter((file) => file.relPath?.trim())
+        .map((file) => ({
+          tenantId: claw.tenantId,
+          clawId,
+          directoryId: directory.id,
+          relPath: file.relPath,
+          contentHash: file.contentHash ?? '',
+          sizeBytes: file.sizeBytes ?? (file.content ? file.content.length : 0),
+          content: file.content ?? null,
+          updatedAt: new Date(),
+        }));
+
+      for (const row of fileRows) {
+        await db
+          .insert(clawDirectoryFiles)
+          .values(row)
+          .onConflictDoUpdate({
+            target: [clawDirectoryFiles.directoryId, clawDirectoryFiles.relPath],
+            set: {
+              contentHash: row.contentHash,
+              sizeBytes: row.sizeBytes,
+              content: row.content,
+              updatedAt: row.updatedAt,
+            },
+          });
+      }
+    }
+
+    return c.json({ ok: true, directoryId: directory.id });
+  });
+
+  // -------------------------------------------------------------------------
+  // PATCH /api/claws/:id/heartbeat – claw keepalive, updates lastSeenAt
+  // Called periodically by ClawLinkRelayService via HTTP alongside the WS.
+  // Authentication: API key via ?key= query param (same as upstream WS).
+  // -------------------------------------------------------------------------
+  router.patch('/:id/heartbeat', async (c) => {
+    const id  = Number(c.req.param('id'));
+    const key = c.req.query('key');
+
+    const claw = await verifyClawApiKey(id, key);
+    if (!claw) return c.text('Unauthorized', 401);
+
+    await db
+      .update(coderclawInstances)
+      .set({ lastSeenAt: new Date() })
+      .where(eq(coderclawInstances.id, id));
+
+    return c.json({ ok: true });
   });
 
   // -------------------------------------------------------------------------
@@ -150,19 +436,8 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
     if (!env.CLAW_RELAY) return c.text('CLAW_RELAY binding not configured', 503);
     if (!key) return c.text('Unauthorized', 401);
 
-    const [claw] = await db
-      .select({
-        id:         coderclawInstances.id,
-        apiKeyHash: coderclawInstances.apiKeyHash,
-        tenantId:   coderclawInstances.tenantId,
-      })
-      .from(coderclawInstances)
-      .where(eq(coderclawInstances.id, id));
-
-    if (!claw) return c.text('Not found', 404);
-
-    const valid = await verifySecret(key, claw.apiKeyHash);
-    if (!valid) return c.text('Unauthorized', 401);
+    const claw = await verifyClawApiKey(id, key);
+    if (!claw) return c.text('Unauthorized', 401);
 
     // Mark as connected
     await db
