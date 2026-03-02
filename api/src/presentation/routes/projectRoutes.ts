@@ -5,7 +5,7 @@ import type { HonoEnv } from '../../env';
 import { authMiddleware, requireRole } from '../middleware/authMiddleware';
 import { ProjectStatus, TenantRole } from '../../domain/shared/types';
 import type { Db } from '../../infrastructure/database/connection';
-import { clawProjects, coderclawInstances, projects, sourceControlIntegrations, tasks, tenants } from '../../infrastructure/database/schema';
+import { clawProjects, coderclawInstances, projectInsightEvents, projects, sourceControlIntegrations, tasks, tenants } from '../../infrastructure/database/schema';
 
 type SourceControlProvider = 'github' | 'bitbucket';
 
@@ -288,6 +288,43 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
     return c.json(project.toPlain());
   });
 
+  // POST /api/projects/:id/insights/code-changes
+  // Record code-change deltas for project interactions (Insights is available on all plans)
+  router.post('/:id/insights/code-changes', async (c) => {
+    const projectId = Number(c.req.param('id'));
+    const tenantId = c.get('tenantId');
+    const userId = c.get('userId') as string;
+    const body = await c.req.json<{ codeChanges?: number; executionId?: number | null }>();
+
+    if (!Number.isFinite(body.codeChanges)) {
+      return c.json({ error: 'codeChanges is required' }, 400);
+    }
+
+    const codeChanges = Math.max(0, Math.floor(Number(body.codeChanges)));
+    const [projectRow] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.id, projectId),
+          eq(projects.tenantId, tenantId),
+        ),
+      )
+      .limit(1);
+
+    if (!projectRow) return c.json({ error: 'Project not found' }, 404);
+
+    await db.insert(projectInsightEvents).values({
+      tenantId,
+      projectId,
+      userId,
+      executionId: body.executionId ?? null,
+      codeChanges,
+    });
+
+    return c.json({ ok: true, projectId, codeChanges });
+  });
+
   // POST /api/projects
   router.post('/', async (c) => {
     const body = await c.req.json<{
@@ -541,6 +578,41 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
     const id = Number(c.req.param('id'));
     await projectService.deleteProject(id, c.get('tenantId'));
     return c.body(null, 204);
+  });
+
+  // GET /api/projects/:id/claws — list claws associated with a project
+  router.get('/:id/claws', async (c) => {
+    const projectId = Number(c.req.param('id'));
+    const tenantId = c.get('tenantId');
+
+    const rows = await db
+      .select({
+        id:          coderclawInstances.id,
+        name:        coderclawInstances.name,
+        slug:        coderclawInstances.slug,
+        status:      coderclawInstances.status,
+        connectedAt: coderclawInstances.connectedAt,
+        lastSeenAt:  coderclawInstances.lastSeenAt,
+        createdAt:   coderclawInstances.createdAt,
+      })
+      .from(clawProjects)
+      .innerJoin(coderclawInstances, eq(clawProjects.clawId, coderclawInstances.id))
+      .where(and(
+        eq(clawProjects.projectId, projectId),
+        eq(clawProjects.tenantId, tenantId),
+      ));
+
+    return c.json({
+      claws: rows.map((r) => ({
+        id:          String(r.id),
+        name:        r.name,
+        slug:        r.slug,
+        status:      r.status,
+        connectedAt: r.connectedAt?.toISOString() ?? null,
+        lastSeenAt:  r.lastSeenAt?.toISOString() ?? null,
+        createdAt:   r.createdAt.toISOString(),
+      })),
+    });
   });
 
   return router;

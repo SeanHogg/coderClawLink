@@ -136,9 +136,16 @@ All protected routes require `Authorization: Bearer <jwt>`.
 | `GET` | `/api/tenants/:id/subscription` | Get tenant subscription and pricing |
 | `POST` | `/api/tenants/:id/subscription/pro` | Upgrade to Pro (billing details required) |
 | `POST` | `/api/tenants/:id/subscription/free` | Downgrade to Free |
+| `GET` | `/api/tenants/:id/insights?days=30` | Tenant-level code-change insights (all plans) |
 | `POST` | `/api/tenants/:id/members` | Add member |
 | `DELETE` | `/api/tenants/:id/members/:userId` | Remove member |
 | `DELETE` | `/api/tenants/:id` | Delete tenant |
+
+### Project Insights
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/projects/:id/insights/code-changes` | Record project code changes from user interactions |
 
 ### coderClawLLM / coderClawLLMPro
 
@@ -175,7 +182,7 @@ PENDING/SUBMITTED/RUNNING → CANCELLED
 | `GET` | `/api/runtime/executions` | List executions for tenant |
 | `GET` | `/api/runtime/executions/:id` | Get execution state |
 | `POST` | `/api/runtime/executions/:id/cancel` | Cancel execution |
-| `PATCH` | `/api/runtime/executions/:id/state` | Agent callback: update state |
+| `PATCH` | `/api/runtime/executions/:id/state` | Agent callback: update state (`completed` supports optional `codeChanges`) |
 | `GET` | `/api/runtime/tasks/:taskId/executions` | Execution history for task |
 
 ### Audit (MANAGER+ only)

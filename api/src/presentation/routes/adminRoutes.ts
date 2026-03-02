@@ -10,13 +10,18 @@
  * POST /api/admin/impersonate          — issue a tenant JWT for any user+tenant pair
  */
 import { Hono } from 'hono';
-import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import type { HonoEnv } from '../../env';
 import { superAdminMiddleware } from '../middleware/superAdminMiddleware';
 import { buildDatabase, type Db } from '../../infrastructure/database/connection';
 import {
   authTokens,
   authUserSessions,
+  legalDocuments,
+  privacyRequests,
+  newsletterEvents,
+  newsletterSubscribers,
+  newsletterTemplates,
   users,
   tenants,
   tenantMembers,
@@ -39,10 +44,88 @@ import {
   verifyTotpCode,
 } from '../../infrastructure/auth/MfaService';
 
+type LegalDocResponse = {
+  documentType: 'terms' | 'privacy';
+  version: string;
+  title: string;
+  content: string;
+  publishedAt: string;
+};
+
+type PrivacyRequestStatus = 'pending' | 'completed' | 'closed';
+type PrivacyRequestType = 'ccpa' | 'gdpr';
+
+function isPrivacyRequestStatus(value: string): value is PrivacyRequestStatus {
+  return value === 'pending' || value === 'completed' || value === 'closed';
+}
+
+function isPrivacyRequestType(value: string): value is PrivacyRequestType {
+  return value === 'ccpa' || value === 'gdpr';
+}
+
+const DEFAULT_LEGAL: Record<'terms' | 'privacy', Omit<LegalDocResponse, 'documentType'>> = {
+  terms: {
+    version: '1.0.0',
+    title: 'Terms of Use',
+    content: 'By using CoderClawLink, you agree to these Terms of Use. Continued use of the service indicates acceptance of current terms.',
+    publishedAt: new Date(0).toISOString(),
+  },
+  privacy: {
+    version: '1.0.0',
+    title: 'Privacy Policy',
+    content: 'CoderClawLink processes account, usage, and operational metadata to provide and secure the service.',
+    publishedAt: new Date(0).toISOString(),
+  },
+};
+
+async function getActiveLegalDoc(db: Db, documentType: 'terms' | 'privacy'): Promise<LegalDocResponse> {
+  const [doc] = await db
+    .select({
+      version: legalDocuments.version,
+      title: legalDocuments.title,
+      content: legalDocuments.content,
+      publishedAt: legalDocuments.publishedAt,
+    })
+    .from(legalDocuments)
+    .where(and(eq(legalDocuments.documentType, documentType), eq(legalDocuments.isActive, true)))
+    .orderBy(desc(legalDocuments.publishedAt))
+    .limit(1);
+
+  if (!doc) {
+    return {
+      documentType,
+      ...DEFAULT_LEGAL[documentType],
+    };
+  }
+
+  return {
+    documentType,
+    version: doc.version,
+    title: doc.title,
+    content: doc.content,
+    publishedAt: doc.publishedAt ? doc.publishedAt.toISOString() : new Date().toISOString(),
+  };
+}
+
 function parseTenantId(raw: string | undefined): number | null {
   if (!raw) return null;
   const value = Number(raw);
   return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.floor(value);
+}
+
+function slugifyName(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 180);
 }
 
 async function assertTenantMember(db: Db, tenantId: number, userId: string): Promise<boolean> {
@@ -118,6 +201,441 @@ export function createAdminRoutes(): Hono<HonoEnv> {
 
   // All admin routes require superadmin WebJWT
   router.use('*', superAdminMiddleware);
+
+  // -------------------------------------------------------------------------
+  // GET /api/admin/legal/current
+  // -------------------------------------------------------------------------
+  router.get('/legal/current', async (c) => {
+    const db = buildDatabase(c.env);
+    const [terms, privacy] = await Promise.all([
+      getActiveLegalDoc(db, 'terms'),
+      getActiveLegalDoc(db, 'privacy'),
+    ]);
+    return c.json({ terms, privacy });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/admin/legal/terms/publish
+  // -------------------------------------------------------------------------
+  router.post('/legal/terms/publish', async (c) => {
+    const db = buildDatabase(c.env);
+    const actorUserId = c.get('userId') as string;
+    const body = await c.req.json<{ version: string; title?: string; content: string }>();
+
+    const version = body.version?.trim();
+    const content = body.content?.trim();
+    const title = body.title?.trim() || 'Terms of Use';
+
+    if (!version) return c.json({ error: 'version is required' }, 400);
+    if (!content) return c.json({ error: 'content is required' }, 400);
+
+    const [existing] = await db
+      .select({ id: legalDocuments.id })
+      .from(legalDocuments)
+      .where(
+        and(
+          eq(legalDocuments.documentType, 'terms'),
+          eq(legalDocuments.version, version),
+        ),
+      )
+      .limit(1);
+
+    if (existing) {
+      return c.json({ error: `Terms version ${version} already exists` }, 409);
+    }
+
+    await db
+      .update(legalDocuments)
+      .set({ isActive: false, updatedAt: sql`now()` })
+      .where(and(eq(legalDocuments.documentType, 'terms'), eq(legalDocuments.isActive, true)));
+
+    await db.insert(legalDocuments).values({
+      documentType: 'terms',
+      version,
+      title,
+      content,
+      isActive: true,
+      publishedBy: actorUserId,
+    });
+
+    const terms = await getActiveLegalDoc(db, 'terms');
+    return c.json({ terms }, 201);
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/admin/newsletter/subscribers
+  // -------------------------------------------------------------------------
+  router.get('/newsletter/subscribers', async (c) => {
+    const db = buildDatabase(c.env);
+    const status = c.req.query('status')?.trim();
+    const q = c.req.query('q')?.trim();
+    const limit = Math.min(parsePositiveInt(c.req.query('limit'), 200), 1000);
+
+    const filters = [
+      status ? eq(newsletterSubscribers.status, status as 'subscribed' | 'unsubscribed' | 'suppressed') : null,
+      q ? ilike(newsletterSubscribers.email, `%${q}%`) : null,
+    ].filter(Boolean) as Array<ReturnType<typeof eq>>;
+
+    const rows = await db
+      .select({
+        id: newsletterSubscribers.id,
+        userId: newsletterSubscribers.userId,
+        email: newsletterSubscribers.email,
+        firstName: newsletterSubscribers.firstName,
+        lastName: newsletterSubscribers.lastName,
+        source: newsletterSubscribers.source,
+        status: newsletterSubscribers.status,
+        subscribedAt: newsletterSubscribers.subscribedAt,
+        unsubscribedAt: newsletterSubscribers.unsubscribedAt,
+        unsubscribeReason: newsletterSubscribers.unsubscribeReason,
+        lastCommunicationAt: newsletterSubscribers.lastCommunicationAt,
+        createdAt: newsletterSubscribers.createdAt,
+        updatedAt: newsletterSubscribers.updatedAt,
+        userDisplayName: users.displayName,
+        userUsername: users.username,
+      })
+      .from(newsletterSubscribers)
+      .leftJoin(users, eq(newsletterSubscribers.userId, users.id))
+      .where(filters.length ? and(...filters) : undefined)
+      .orderBy(desc(newsletterSubscribers.updatedAt))
+      .limit(limit);
+
+    return c.json({
+      subscribers: rows.map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        email: row.email,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        source: row.source,
+        status: row.status,
+        subscribedAt: row.subscribedAt?.toISOString() ?? null,
+        unsubscribedAt: row.unsubscribedAt?.toISOString() ?? null,
+        unsubscribeReason: row.unsubscribeReason,
+        lastCommunicationAt: row.lastCommunicationAt?.toISOString() ?? null,
+        createdAt: row.createdAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+        userDisplayName: row.userDisplayName,
+        userUsername: row.userUsername,
+      })),
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/admin/newsletter/templates
+  // -------------------------------------------------------------------------
+  router.get('/newsletter/templates', async (c) => {
+    const db = buildDatabase(c.env);
+    const templates = await db
+      .select({
+        id: newsletterTemplates.id,
+        name: newsletterTemplates.name,
+        slug: newsletterTemplates.slug,
+        subject: newsletterTemplates.subject,
+        preheader: newsletterTemplates.preheader,
+        bodyMarkdown: newsletterTemplates.bodyMarkdown,
+        isActive: newsletterTemplates.isActive,
+        createdAt: newsletterTemplates.createdAt,
+        updatedAt: newsletterTemplates.updatedAt,
+      })
+      .from(newsletterTemplates)
+      .orderBy(desc(newsletterTemplates.updatedAt));
+
+    return c.json({
+      templates: templates.map((template) => ({
+        ...template,
+        createdAt: template.createdAt?.toISOString() ?? null,
+        updatedAt: template.updatedAt?.toISOString() ?? null,
+      })),
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/admin/newsletter/templates
+  // -------------------------------------------------------------------------
+  router.post('/newsletter/templates', async (c) => {
+    const db = buildDatabase(c.env);
+    const actorUserId = c.get('userId') as string;
+    const body = await c.req.json<{
+      name?: string;
+      slug?: string;
+      subject?: string;
+      preheader?: string;
+      bodyMarkdown?: string;
+      isActive?: boolean;
+    }>();
+
+    const name = body.name?.trim() ?? '';
+    const subject = body.subject?.trim() ?? '';
+    const bodyMarkdown = body.bodyMarkdown?.trim() ?? '';
+    const slug = (body.slug?.trim() || slugifyName(name));
+    const preheader = body.preheader?.trim() || null;
+    const isActive = body.isActive ?? true;
+
+    if (!name) return c.json({ error: 'name is required' }, 400);
+    if (!subject) return c.json({ error: 'subject is required' }, 400);
+    if (!bodyMarkdown) return c.json({ error: 'bodyMarkdown is required' }, 400);
+    if (!slug) return c.json({ error: 'slug is required' }, 400);
+
+    const [existing] = await db
+      .select({ id: newsletterTemplates.id })
+      .from(newsletterTemplates)
+      .where(eq(newsletterTemplates.slug, slug))
+      .limit(1);
+    if (existing) return c.json({ error: `Template slug '${slug}' already exists` }, 409);
+
+    const [created] = await db
+      .insert(newsletterTemplates)
+      .values({
+        name,
+        slug,
+        subject,
+        preheader,
+        bodyMarkdown,
+        isActive,
+        createdBy: actorUserId,
+        updatedBy: actorUserId,
+      })
+      .returning();
+
+    if (!created) return c.json({ error: 'Failed to create template' }, 500);
+
+    return c.json({
+      template: {
+        ...created,
+        createdAt: created.createdAt?.toISOString() ?? null,
+        updatedAt: created.updatedAt?.toISOString() ?? null,
+      },
+    }, 201);
+  });
+
+  // -------------------------------------------------------------------------
+  // PATCH /api/admin/newsletter/templates/:id
+  // -------------------------------------------------------------------------
+  router.patch('/newsletter/templates/:id', async (c) => {
+    const db = buildDatabase(c.env);
+    const actorUserId = c.get('userId') as string;
+    const templateId = Number(c.req.param('id'));
+    if (!Number.isFinite(templateId) || templateId <= 0) {
+      return c.json({ error: 'Invalid template id' }, 400);
+    }
+
+    const body = await c.req.json<{
+      name?: string;
+      slug?: string;
+      subject?: string;
+      preheader?: string | null;
+      bodyMarkdown?: string;
+      isActive?: boolean;
+    }>();
+
+    const patch: Partial<typeof newsletterTemplates.$inferInsert> = {
+      updatedBy: actorUserId,
+      updatedAt: new Date(),
+    };
+
+    if (typeof body.name === 'string') patch.name = body.name.trim();
+    if (typeof body.slug === 'string') patch.slug = body.slug.trim();
+    if (typeof body.subject === 'string') patch.subject = body.subject.trim();
+    if (typeof body.preheader === 'string') patch.preheader = body.preheader.trim();
+    if (body.preheader === null) patch.preheader = null;
+    if (typeof body.bodyMarkdown === 'string') patch.bodyMarkdown = body.bodyMarkdown.trim();
+    if (typeof body.isActive === 'boolean') patch.isActive = body.isActive;
+
+    const [updated] = await db
+      .update(newsletterTemplates)
+      .set(patch)
+      .where(eq(newsletterTemplates.id, templateId))
+      .returning();
+
+    if (!updated) return c.json({ error: 'Template not found' }, 404);
+
+    return c.json({
+      template: {
+        ...updated,
+        createdAt: updated.createdAt?.toISOString() ?? null,
+        updatedAt: updated.updatedAt?.toISOString() ?? null,
+      },
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/admin/newsletter/events
+  // -------------------------------------------------------------------------
+  router.get('/newsletter/events', async (c) => {
+    const db = buildDatabase(c.env);
+    const limit = Math.min(parsePositiveInt(c.req.query('limit'), 300), 1000);
+
+    const rows = await db
+      .select({
+        id: newsletterEvents.id,
+        eventType: newsletterEvents.eventType,
+        metadata: newsletterEvents.metadata,
+        createdAt: newsletterEvents.createdAt,
+        subscriberId: newsletterSubscribers.id,
+        email: newsletterSubscribers.email,
+        templateId: newsletterTemplates.id,
+        templateName: newsletterTemplates.name,
+        templateSlug: newsletterTemplates.slug,
+      })
+      .from(newsletterEvents)
+      .innerJoin(newsletterSubscribers, eq(newsletterEvents.subscriberId, newsletterSubscribers.id))
+      .leftJoin(newsletterTemplates, eq(newsletterEvents.templateId, newsletterTemplates.id))
+      .orderBy(desc(newsletterEvents.createdAt))
+      .limit(limit);
+
+    return c.json({
+      events: rows.map((row) => ({
+        id: row.id,
+        eventType: row.eventType,
+        metadata: row.metadata,
+        createdAt: row.createdAt?.toISOString() ?? null,
+        subscriberId: row.subscriberId,
+        email: row.email,
+        templateId: row.templateId,
+        templateName: row.templateName,
+        templateSlug: row.templateSlug,
+      })),
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/admin/privacy-requests
+  // -------------------------------------------------------------------------
+  router.get('/privacy-requests', async (c) => {
+    const db = buildDatabase(c.env);
+    const statusRaw = c.req.query('status')?.trim();
+    const typeRaw = c.req.query('type')?.trim();
+    const status = statusRaw && isPrivacyRequestStatus(statusRaw) ? statusRaw : undefined;
+    const type = typeRaw && isPrivacyRequestType(typeRaw) ? typeRaw : undefined;
+    const q = c.req.query('q')?.trim();
+    const limit = Math.min(parsePositiveInt(c.req.query('limit'), 200), 1000);
+
+    const filters = [
+      status ? eq(privacyRequests.status, status) : null,
+      type ? eq(privacyRequests.requestType, type) : null,
+      q ? ilike(privacyRequests.email, `%${q}%`) : null,
+    ].filter(Boolean) as Array<ReturnType<typeof eq>>;
+
+    const rows = await db
+      .select({
+        id: privacyRequests.id,
+        userId: privacyRequests.userId,
+        email: privacyRequests.email,
+        requestType: privacyRequests.requestType,
+        status: privacyRequests.status,
+        details: privacyRequests.details,
+        resolution: privacyRequests.resolution,
+        createdAt: privacyRequests.createdAt,
+        updatedAt: privacyRequests.updatedAt,
+        closedAt: privacyRequests.closedAt,
+      })
+      .from(privacyRequests)
+      .where(filters.length ? and(...filters) : undefined)
+      .orderBy(desc(privacyRequests.updatedAt))
+      .limit(limit);
+
+    return c.json({
+      requests: rows.map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        email: row.email,
+        requestType: row.requestType,
+        status: row.status,
+        details: row.details,
+        resolution: row.resolution,
+        createdAt: row.createdAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+        closedAt: row.closedAt?.toISOString() ?? null,
+      })),
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PATCH /api/admin/privacy-requests/:id
+  // -------------------------------------------------------------------------
+  router.patch('/privacy-requests/:id', async (c) => {
+    const db = buildDatabase(c.env);
+    const requestId = Number(c.req.param('id'));
+    if (!Number.isFinite(requestId) || requestId <= 0) {
+      return c.json({ error: 'Invalid request id' }, 400);
+    }
+
+    const body = await c.req.json<{
+      status?: PrivacyRequestStatus;
+      resolution?: string | null;
+    }>();
+
+    const patch: Partial<typeof privacyRequests.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (typeof body.status === 'string' && isPrivacyRequestStatus(body.status)) {
+      patch.status = body.status;
+    }
+    if (typeof body.resolution === 'string') patch.resolution = body.resolution.trim() || null;
+    if (body.resolution === null) patch.resolution = null;
+    if (body.status && body.status !== 'pending') {
+      patch.closedAt = new Date();
+    }
+
+    const [updated] = await db
+      .update(privacyRequests)
+      .set(patch)
+      .where(eq(privacyRequests.id, requestId))
+      .returning();
+
+    if (!updated) return c.json({ error: 'Privacy request not found' }, 404);
+
+    return c.json({
+      request: {
+        ...updated,
+        createdAt: updated.createdAt?.toISOString() ?? null,
+        updatedAt: updated.updatedAt?.toISOString() ?? null,
+        closedAt: updated.closedAt?.toISOString() ?? null,
+      },
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/admin/newsletter/events
+  // -------------------------------------------------------------------------
+  router.post('/newsletter/events', async (c) => {
+    const db = buildDatabase(c.env);
+    const body = await c.req.json<{
+      subscriberEmail?: string;
+      templateId?: number | null;
+      eventType?: 'template_sent' | 'email_opened' | 'email_clicked';
+      metadata?: string;
+    }>();
+
+    const email = body.subscriberEmail?.trim().toLowerCase();
+    const eventType = body.eventType;
+    if (!email || !email.includes('@')) return c.json({ error: 'subscriberEmail is required' }, 400);
+    if (!eventType) return c.json({ error: 'eventType is required' }, 400);
+
+    const [subscriber] = await db
+      .select({ id: newsletterSubscribers.id })
+      .from(newsletterSubscribers)
+      .where(eq(newsletterSubscribers.email, email))
+      .limit(1);
+    if (!subscriber) return c.json({ error: 'Subscriber not found' }, 404);
+
+    await db.insert(newsletterEvents).values({
+      subscriberId: subscriber.id,
+      templateId: body.templateId ?? null,
+      eventType,
+      metadata: body.metadata ?? null,
+    });
+
+    if (eventType === 'template_sent') {
+      await db
+        .update(newsletterSubscribers)
+        .set({ lastCommunicationAt: sql`now()`, updatedAt: sql`now()` })
+        .where(eq(newsletterSubscribers.id, subscriber.id));
+    }
+
+    return c.json({ ok: true }, 201);
+  });
 
   // -------------------------------------------------------------------------
   // GET /api/admin/security/users?tenantId=123

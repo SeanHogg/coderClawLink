@@ -6,6 +6,7 @@ import { verifyJwt } from '../../infrastructure/auth/JwtService';
 import { buildDatabase } from '../../infrastructure/database/connection';
 import { authTokens, authUserSessions } from '../../infrastructure/database/schema';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { checkTermsAcceptance } from './termsEnforcement';
 
 /**
  * JWT authentication middleware.
@@ -85,6 +86,19 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
 
   if (payload.tid == null) {
     throw new UnauthorizedError('This endpoint requires a workspace token; please select a workspace first');
+  }
+
+  if (!payload.sub.startsWith('claw:')) {
+    const db = buildDatabase(c.env);
+    const terms = await checkTermsAcceptance(db, payload.sub);
+    if (terms.needsAcceptance) {
+      return c.json({
+        error: 'Terms acceptance required',
+        code: 'TERMS_ACCEPTANCE_REQUIRED',
+        requiredVersion: terms.requiredVersion,
+        acceptedVersion: terms.acceptedVersion,
+      }, 428);
+    }
   }
 
   c.set('userId',   payload.sub);

@@ -1,0 +1,138 @@
+/**
+ * Tenant-level Chats history view.
+ * Lists all chat sessions across all claws for this tenant.
+ * Clicking a session loads its full message thread on the right.
+ */
+import { LitElement, html } from "lit";
+import { customElement, property, state } from "lit/decorators.js";
+import { chats, type ChatSession, type ChatMessage } from "../api.js";
+
+@customElement("ccl-chats")
+export class CclChatsView extends LitElement {
+  override createRenderRoot() { return this; }
+
+  @property() tenantId = "";
+
+  @state() private sessions: ChatSession[] = [];
+  @state() private loading = true;
+  @state() private error = "";
+  @state() private selectedSession: ChatSession | null = null;
+  @state() private messages: ChatMessage[] = [];
+  @state() private messagesLoading = false;
+
+  override connectedCallback() {
+    super.connectedCallback();
+    void this.loadSessions();
+  }
+
+  private async loadSessions() {
+    this.loading = true;
+    this.error = "";
+    try {
+      this.sessions = await chats.list({ limit: 100 });
+    } catch (e) {
+      this.error = (e as Error).message ?? "Failed to load chat sessions";
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async selectSession(s: ChatSession) {
+    this.selectedSession = s;
+    this.messages = [];
+    this.messagesLoading = true;
+    try {
+      this.messages = await chats.messages(s.id, 200);
+    } catch (e) {
+      this.error = (e as Error).message ?? "Failed to load messages";
+    } finally {
+      this.messagesLoading = false;
+    }
+  }
+
+  private formatTime(ts: string | null | undefined) {
+    if (!ts) return "—";
+    return new Date(ts).toLocaleString();
+  }
+
+  override render() {
+    return html`
+      <div style="padding:16px;display:grid;gap:16px;height:100%;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:18px;font-weight:600;color:var(--text-strong)">Chats</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:2px">All chat sessions across claws in this workspace</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click=${() => void this.loadSessions()} ?disabled=${this.loading}>Refresh</button>
+        </div>
+
+        ${this.error ? html`<div class="error-banner">${this.error}</div>` : ""}
+
+        ${this.loading
+          ? html`<div class="empty-state">Loading…</div>`
+          : this.sessions.length === 0
+            ? html`
+                <div class="empty-state">
+                  <div class="empty-state-title">No chat sessions yet</div>
+                  <div class="empty-state-sub">Chat history will appear here once claws start receiving messages</div>
+                </div>`
+            : html`
+                <div style="display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:12px;min-height:480px;">
+                  <!-- Session list -->
+                  <div class="card" style="overflow:auto;">
+                    <div class="card-title" style="margin-bottom:8px;">Sessions</div>
+                    <div style="display:grid;gap:4px;">
+                      ${this.sessions.map(s => html`
+                        <button
+                          class="btn btn-ghost btn-sm"
+                          style="justify-content:flex-start;flex-direction:column;align-items:flex-start;padding:8px 10px;border:1px solid ${this.selectedSession?.id === s.id ? "var(--accent)" : "var(--border)"};"
+                          @click=${() => void this.selectSession(s)}
+                        >
+                          <div style="display:flex;width:100%;align-items:center;gap:6px;">
+                            <span style="font-family:var(--mono);font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.sessionKey}</span>
+                            <span class="badge badge-gray" style="font-size:10px;flex-shrink:0">${s.msgCount} msgs</span>
+                          </div>
+                          <div style="display:flex;width:100%;gap:4px;margin-top:3px;font-size:11px;color:var(--muted);">
+                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.clawName ?? `claw ${s.clawId}`}</span>
+                            <span>${s.lastMsgAt ? new Date(s.lastMsgAt).toLocaleString() : "—"}</span>
+                          </div>
+                        </button>
+                      `)}
+                    </div>
+                  </div>
+
+                  <!-- Message thread -->
+                  <div class="card" style="overflow:auto;display:flex;flex-direction:column;">
+                    ${this.selectedSession
+                      ? html`
+                          <div class="card-title" style="margin-bottom:8px;flex-shrink:0;">
+                            <span style="font-family:var(--mono)">${this.selectedSession.sessionKey}</span>
+                            <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px">${this.selectedSession.clawName ?? ""} · started ${this.formatTime(this.selectedSession.startedAt)}</span>
+                          </div>
+                          ${this.messagesLoading
+                            ? html`<div style="font-size:13px;color:var(--muted)">Loading messages…</div>`
+                            : this.messages.length === 0
+                              ? html`<div style="font-size:13px;color:var(--muted)">No messages recorded for this session.</div>`
+                              : html`
+                                  <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;">
+                                    ${this.messages.map(m => html`
+                                      <div class="msg ${m.role === "user" ? "msg-user" : ""}">
+                                        <div class="msg-bubble ${m.role === "user" ? "msg-bubble-user" : "msg-bubble-assistant"}">
+                                          ${m.content}
+                                        </div>
+                                        <div class="msg-meta">${m.role} · ${new Date(m.createdAt).toLocaleTimeString()}</div>
+                                      </div>
+                                    `)}
+                                  </div>
+                                `}
+                        `
+                      : html`<div style="font-size:13px;color:var(--muted)">Select a session to view its messages.</div>`}
+                  </div>
+                </div>
+              `}
+      </div>
+    `;
+  }
+}
+
+declare global { interface HTMLElementTagNameMap { "ccl-chats": CclChatsView; } }

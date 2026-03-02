@@ -48,7 +48,7 @@ async function request<T>(
   opts: RequestInit & { token?: string | null } = {}
 ): Promise<T> {
   const { token, ...rest } = opts;
-  const bearer = token ?? getTenantToken() ?? getWebToken();
+  const bearer = token === undefined ? (getTenantToken() ?? getWebToken()) : token;
   const headers = new Headers(rest.headers);
   headers.set("Content-Type", "application/json");
   if (bearer) headers.set("Authorization", `Bearer ${bearer}`);
@@ -58,6 +58,15 @@ async function request<T>(
   if (res.status === 401) {
     clearSession();
     window.dispatchEvent(new CustomEvent("ccl:unauthorized"));
+  }
+
+  if (res.status === 428) {
+    try {
+      const payload = await res.json() as { error?: string; code?: string; requiredVersion?: string; acceptedVersion?: string | null };
+      window.dispatchEvent(new CustomEvent("ccl:terms-required", { detail: payload }));
+    } catch {
+      window.dispatchEvent(new CustomEvent("ccl:terms-required", { detail: { error: "Terms acceptance required" } }));
+    }
   }
 
   if (!res.ok) {
@@ -204,11 +213,137 @@ export interface TenantLlmUsage {
   }>;
 }
 
+export interface TenantProjectInsight {
+  project_id: number;
+  project_name: string;
+  events: number;
+  code_changes: number;
+  last_activity_at: string | null;
+}
+
+export interface TenantInsightByDay {
+  day: string;
+  events: number;
+  code_changes: number;
+}
+
+export interface TenantInsights {
+  days: number;
+  tenantId: number;
+  totals: {
+    events: number;
+    codeChanges: number;
+    activeUsers: number;
+  };
+  byProject: TenantProjectInsight[];
+  byDay: TenantInsightByDay[];
+}
+
 export interface TenantMember {
   userId: string;
   email: string;
   role: string;
   joinedAt: string;
+}
+
+export interface TenantSecurityUser {
+  id: string;
+  email: string;
+  username: string | null;
+  displayName: string | null;
+  mfaEnabled: boolean;
+  mfaEnabledAt: string | null;
+  activeSessions: number;
+  activeTokens: number;
+}
+
+export interface TenantSecurityDetails {
+  user: {
+    id: string;
+    email: string;
+    username: string | null;
+    displayName: string | null;
+  };
+  mfa: MfaStatus;
+  sessions: Array<Omit<AuthSessionInfo, "isCurrent">>;
+  tokens: Array<Omit<AuthTokenInfo, "isCurrent">>;
+}
+
+export interface LegalDocument {
+  documentType: "terms" | "privacy";
+  version: string;
+  title: string;
+  content: string;
+  publishedAt: string;
+}
+
+export interface TermsAcceptanceStatus {
+  requiredVersion: string | null;
+  acceptedVersion: string | null;
+  needsAcceptance: boolean;
+  terms: LegalDocument;
+}
+
+export interface NewsletterSubscribeResponse {
+  ok: boolean;
+  email: string;
+  status: "subscribed" | "unsubscribed";
+  subscribed: boolean;
+}
+
+export interface AdminNewsletterSubscriber {
+  id: number;
+  userId: string | null;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  source: string;
+  status: "subscribed" | "unsubscribed" | "suppressed";
+  subscribedAt: string | null;
+  unsubscribedAt: string | null;
+  unsubscribeReason: string | null;
+  lastCommunicationAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  userDisplayName: string | null;
+  userUsername: string | null;
+}
+
+export interface AdminPrivacyRequest {
+  id: number;
+  userId: string | null;
+  email: string;
+  requestType: "ccpa" | "gdpr";
+  status: string;
+  details: string | null;
+  resolution: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  closedAt: string | null;
+}
+
+export interface AdminNewsletterTemplate {
+  id: number;
+  name: string;
+  slug: string;
+  subject: string;
+  preheader: string | null;
+  bodyMarkdown: string;
+  isActive: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface AdminNewsletterEvent {
+  id: number;
+  eventType: "subscribed" | "unsubscribed" | "template_sent" | "email_opened" | "email_clicked";
+  metadata: string | null;
+  createdAt: string | null;
+  subscriberId: number;
+  email: string;
+  templateId: number | null;
+  templateName: string | null;
+  templateSlug: string | null;
 }
 
 export type SourceControlProvider = "github" | "bitbucket";
@@ -300,6 +435,36 @@ export interface ClawDirectoryFile {
   contentHash: string;
   sizeBytes: number;
   updatedAt: string;
+}
+
+export interface ClawSyncHistoryEntry {
+  id: number;
+  triggeredBy: string;
+  fileCount: number;
+  bytesTotal: number;
+  status: string;
+  errorMsg?: string | null;
+  createdAt: string;
+}
+
+export interface ChatSession {
+  id: number;
+  clawId: number;
+  clawName?: string;
+  sessionKey: string;
+  startedAt: string;
+  endedAt?: string | null;
+  msgCount: number;
+  lastMsgAt?: string | null;
+}
+
+export interface ChatMessage {
+  id: number;
+  role: string;
+  content: string;
+  metadata?: string | null;
+  seq: number;
+  createdAt: string;
 }
 
 export interface Execution {
@@ -448,6 +613,38 @@ export const auth = {
   async revokeToken(jti: string): Promise<void> {
     return request(`/api/auth/tokens/${jti}/revoke`, { method: "POST", body: JSON.stringify({}) });
   },
+
+  async legalCurrent(): Promise<{ terms: LegalDocument; privacy: LegalDocument }> {
+    return request("/api/auth/legal/current", { method: "GET", token: null });
+  },
+
+  async termsStatus(): Promise<TermsAcceptanceStatus> {
+    return request("/api/auth/legal/terms/status", { method: "GET" });
+  },
+
+  async acceptTerms(version?: string): Promise<{ acceptedVersion: string; acceptedAt: string; terms: LegalDocument }> {
+    return request("/api/auth/legal/terms/accept", {
+      method: "POST",
+      body: JSON.stringify(version ? { version } : {}),
+    });
+  },
+};
+
+export const newsletter = {
+  async updateSubscription(data: {
+    email: string;
+    action?: "subscribe" | "unsubscribe";
+    source?: string;
+    firstName?: string;
+    lastName?: string;
+    reason?: string;
+  }): Promise<NewsletterSubscribeResponse> {
+    return request("/api/auth/newsletter/subscribers", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token: null,
+    });
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -474,8 +671,44 @@ export const tenants = {
     return request(`/api/tenants/${id}/members/${userId}`, { method: "DELETE" });
   },
 
+  async securityUsers(id: string): Promise<TenantSecurityUser[]> {
+    const res = await request<{ users: TenantSecurityUser[] }>(`/api/tenants/${id}/security/users`);
+    return res.users;
+  },
+
+  async securityDetails(id: string, userId: string): Promise<TenantSecurityDetails> {
+    return request<TenantSecurityDetails>(`/api/tenants/${id}/security/users/${encodeURIComponent(userId)}`);
+  },
+
+  async securityRevokeSession(id: string, userId: string, sessionId: string): Promise<void> {
+    return request(`/api/tenants/${id}/security/users/${encodeURIComponent(userId)}/sessions/${encodeURIComponent(sessionId)}/revoke`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
+
+  async securityRevokeAllSessions(id: string, userId: string): Promise<void> {
+    return request(`/api/tenants/${id}/security/users/${encodeURIComponent(userId)}/sessions/revoke-all`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
+
+  async securityRevokeToken(id: string, userId: string, jti: string): Promise<void> {
+    return request(`/api/tenants/${id}/security/users/${encodeURIComponent(userId)}/tokens/${encodeURIComponent(jti)}/revoke`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
+
   async subscription(id: string): Promise<TenantSubscription> {
     return request(`/api/tenants/${id}/subscription`);
+  },
+
+  async insights(id: string, days = 30): Promise<TenantInsights> {
+    const q = new URLSearchParams();
+    q.set("days", String(days));
+    return request<TenantInsights>(`/api/tenants/${id}/insights?${q.toString()}`);
   },
 
   async defaultClaw(id: string): Promise<{ defaultClawId: number | null }> {
@@ -599,6 +832,18 @@ export const projects = {
 
   async remove(id: string): Promise<void> {
     return request(`/api/projects/${id}`, { method: "DELETE" });
+  },
+
+  async recordCodeChanges(id: string, data: { codeChanges: number; executionId?: number | null }): Promise<{ ok: true; projectId: number; codeChanges: number }> {
+    return request(`/api/projects/${id}/insights/code-changes`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async listClaws(id: string): Promise<Claw[]> {
+    const res = await request<{ claws: Claw[] }>(`/api/projects/${id}/claws`);
+    return res.claws;
   },
 };
 
@@ -738,6 +983,37 @@ export const claws = {
     const base = baseUrl.replace(/^http/, "ws");
     const token = getTenantToken() ?? "";
     return `${base}/api/claws/${id}/ws?token=${encodeURIComponent(token)}`;
+  },
+
+  async syncHistory(id: string): Promise<ClawSyncHistoryEntry[]> {
+    const res = await request<{ history: ClawSyncHistoryEntry[] }>(`/api/claws/${id}/sync-history`);
+    return res.history;
+  },
+
+  async sessionMessages(id: string, sessionKey: string, limit = 50): Promise<ChatMessage[]> {
+    const res = await request<{ messages: ChatMessage[] }>(
+      `/api/claws/${id}/sessions/${encodeURIComponent(sessionKey)}/messages?limit=${limit}`,
+    );
+    return res.messages;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Chats (tenant-level chat history)
+// ---------------------------------------------------------------------------
+
+export const chats = {
+  async list(params?: { limit?: number; offset?: number }): Promise<ChatSession[]> {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.offset) q.set("offset", String(params.offset));
+    const res = await request<{ sessions: ChatSession[] }>(`/api/chats${q.size ? `?${q}` : ""}`);
+    return res.sessions;
+  },
+
+  async messages(sessionId: number, limit = 100): Promise<ChatMessage[]> {
+    const res = await request<{ messages: ChatMessage[] }>(`/api/chats/${sessionId}/messages?limit=${limit}`);
+    return res.messages;
   },
 };
 
@@ -904,6 +1180,11 @@ export interface AdminSecurityDetails {
   tokens: Array<Omit<AuthTokenInfo, "isCurrent">>;
 }
 
+export interface AdminLegalCurrent {
+  terms: LegalDocument;
+  privacy: LegalDocument;
+}
+
 /** Admin API uses the WebJWT (not tenant token) since it crosses tenant boundaries. */
 function adminRequest<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return request<T>(path, { ...opts, token: getWebToken() });
@@ -1031,6 +1312,95 @@ export const adminApi = {
     return adminRequest(`/api/admin/security/users/${encodeURIComponent(userId)}/tokens/${encodeURIComponent(jti)}/revoke?tenantId=${tenantId}`, {
       method: "POST",
       body: JSON.stringify({}),
+    });
+  },
+
+  async legalCurrent(): Promise<AdminLegalCurrent> {
+    return adminRequest("/api/admin/legal/current");
+  },
+
+  async publishTerms(data: { version: string; title?: string; content: string }): Promise<{ terms: LegalDocument }> {
+    return adminRequest("/api/admin/legal/terms/publish", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async newsletterSubscribers(params?: { status?: "subscribed" | "unsubscribed" | "suppressed"; q?: string; limit?: number }): Promise<AdminNewsletterSubscriber[]> {
+    const query = new URLSearchParams();
+    if (params?.status) query.set("status", params.status);
+    if (params?.q) query.set("q", params.q);
+    if (params?.limit) query.set("limit", String(params.limit));
+    const suffix = query.toString();
+    const res = await adminRequest<{ subscribers: AdminNewsletterSubscriber[] }>(`/api/admin/newsletter/subscribers${suffix ? `?${suffix}` : ""}`);
+    return res.subscribers;
+  },
+
+  async newsletterTemplates(): Promise<AdminNewsletterTemplate[]> {
+    const res = await adminRequest<{ templates: AdminNewsletterTemplate[] }>("/api/admin/newsletter/templates");
+    return res.templates;
+  },
+
+  async createNewsletterTemplate(data: {
+    name: string;
+    slug?: string;
+    subject: string;
+    preheader?: string;
+    bodyMarkdown: string;
+    isActive?: boolean;
+  }): Promise<{ template: AdminNewsletterTemplate }> {
+    return adminRequest("/api/admin/newsletter/templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateNewsletterTemplate(id: number, data: {
+    name?: string;
+    slug?: string;
+    subject?: string;
+    preheader?: string | null;
+    bodyMarkdown?: string;
+    isActive?: boolean;
+  }): Promise<{ template: AdminNewsletterTemplate }> {
+    return adminRequest(`/api/admin/newsletter/templates/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async privacyRequests(params?: { status?: string; type?: string; q?: string; limit?: number }): Promise<AdminPrivacyRequest[]> {
+    const query = new URLSearchParams();
+    if (params?.status) query.set("status", params.status);
+    if (params?.type) query.set("type", params.type);
+    if (params?.q) query.set("q", params.q);
+    if (params?.limit) query.set("limit", String(params.limit));
+    const suffix = query.toString();
+    const res = await adminRequest<{ requests: AdminPrivacyRequest[] }>(`/api/admin/privacy-requests${suffix ? `?${suffix}` : ""}`);
+    return res.requests;
+  },
+
+  async updatePrivacyRequest(id: number, data: { status?: string; resolution?: string | null }): Promise<{ request: AdminPrivacyRequest }> {
+    return adminRequest(`/api/admin/privacy-requests/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async newsletterEvents(limit = 300): Promise<AdminNewsletterEvent[]> {
+    const res = await adminRequest<{ events: AdminNewsletterEvent[] }>(`/api/admin/newsletter/events?limit=${Math.max(1, Math.min(limit, 1000))}`);
+    return res.events;
+  },
+
+  async trackNewsletterEvent(data: {
+    subscriberEmail: string;
+    templateId?: number | null;
+    eventType: "template_sent" | "email_opened" | "email_clicked";
+    metadata?: string;
+  }): Promise<{ ok: boolean }> {
+    return adminRequest("/api/admin/newsletter/events", {
+      method: "POST",
+      body: JSON.stringify(data),
     });
   },
 };

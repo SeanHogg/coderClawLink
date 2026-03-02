@@ -12,7 +12,21 @@
  *   3. Messages from CoderClaw → broadcast to all clientSockets
  *   4. Messages from any client → forwarded to upstreamSocket
  *   5. When CoderClaw disconnects → send { type:"claw_offline" } to clients
+ *
+ * Chat persistence:
+ *   - Complete chat.message events are buffered in-memory (last 100 per session)
+ *   - Each complete message is asynchronously persisted to Postgres via the
+ *     main API endpoint (fire-and-forget, best-effort)
+ *   - New browser clients receive the in-memory history replay immediately
  */
+
+interface BufferedMessage {
+  role: string;
+  content: string;
+  metadata?: string;
+  seq: number;
+}
+
 export class ClawRelayDO implements DurableObject {
   // Required brand for DurableObjectNamespace<T> generic constraint
   declare readonly "__DURABLE_OBJECT_BRAND": never;
@@ -20,6 +34,15 @@ export class ClawRelayDO implements DurableObject {
   private upstreamSocket: WebSocket | null = null;
   private clientSockets: Set<WebSocket> = new Set();
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+
+  // --- Chat persistence state (in-memory, lives as long as DO is alive) ---
+  private clawId: number | null = null;
+  private clawApiKey: string | null = null;
+  private currentSessionKey = "default";
+  private msgSeq = 0;
+  /** Circular buffer of last 100 messages for history replay on reconnect */
+  private msgBuffer: BufferedMessage[] = [];
+  private readonly MSG_BUFFER_MAX = 100;
 
   constructor(private state: DurableObjectState, private env: unknown) {}
 
@@ -60,6 +83,7 @@ export class ClawRelayDO implements DurableObject {
     server.accept();
 
     if (role === "upstream") {
+      this.extractClawMeta(url);
       this.attachUpstream(server);
     } else {
       this.attachClient(server);
@@ -72,6 +96,14 @@ export class ClawRelayDO implements DurableObject {
   // Upstream (CoderClaw instance)
   // ---------------------------------------------------------------------------
 
+  /** Extract claw ID and API key from the upstream connect URL. */
+  private extractClawMeta(url: URL) {
+    const match = url.pathname.match(/\/api\/claws\/(\d+)\//);
+    if (match) this.clawId = Number(match[1]);
+    const key = url.searchParams.get("key");
+    if (key) this.clawApiKey = key;
+  }
+
   private attachUpstream(ws: WebSocket) {
     // Close any existing upstream connection
     if (this.upstreamSocket) {
@@ -81,8 +113,11 @@ export class ClawRelayDO implements DurableObject {
     this.schedulePings();
 
     ws.addEventListener("message", (ev) => {
+      const data = ev.data as string;
       // Broadcast every upstream message to all connected clients
-      this.broadcast(ev.data as string);
+      this.broadcast(data);
+      // Persist complete messages (not deltas) to Postgres
+      this.handleUpstreamMessage(data);
     });
 
     ws.addEventListener("close", () => {
@@ -117,10 +152,18 @@ export class ClawRelayDO implements DurableObject {
       ws.send(JSON.stringify({ type: "claw_online" }));
     }
 
+    // Replay buffered history so the browser sees recent messages immediately
+    if (this.msgBuffer.length > 0) {
+      ws.send(JSON.stringify({ type: "chat.history", messages: this.msgBuffer }));
+    }
+
     ws.addEventListener("message", (ev) => {
+      const data = ev.data as string;
       // Forward client messages to the upstream claw
       if (this.upstreamSocket?.readyState === WebSocket.OPEN) {
-        this.upstreamSocket.send(ev.data as string);
+        this.upstreamSocket.send(data);
+        // Track the session key so we can associate persisted messages
+        this.handleClientMessage(data);
       } else {
         ws.send(JSON.stringify({ type: "claw_offline" }));
       }
@@ -131,6 +174,72 @@ export class ClawRelayDO implements DurableObject {
     });
 
     ws.addEventListener("error", () => { /* close follows */ });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chat message handling
+  // ---------------------------------------------------------------------------
+
+  /** Track session key from outgoing client messages. */
+  private handleClientMessage(data: string) {
+    try {
+      const msg = JSON.parse(data) as { type?: string; session?: string };
+      if (msg.type === "session.new") {
+        // New session — reset buffer and seq but keep tracking
+        this.msgBuffer = [];
+        this.msgSeq = 0;
+      }
+      if (msg.session) {
+        this.currentSessionKey = msg.session;
+      }
+    } catch { /* ignore non-JSON */ }
+  }
+
+  /** Persist complete chat messages from upstream. Deltas are skipped. */
+  private handleUpstreamMessage(data: string) {
+    try {
+      const msg = JSON.parse(data) as { type?: string; role?: string; text?: string };
+      if (msg.type !== "chat.message" || !msg.role || typeof msg.text !== "string") return;
+
+      this.msgSeq++;
+      const buffered: BufferedMessage = {
+        role:    msg.role,
+        content: msg.text,
+        seq:     this.msgSeq,
+      };
+
+      // Add to circular buffer
+      this.msgBuffer.push(buffered);
+      if (this.msgBuffer.length > this.MSG_BUFFER_MAX) {
+        this.msgBuffer.shift();
+      }
+
+      // Async persist to Postgres — fire and forget
+      void this.persistMessage(buffered);
+    } catch { /* ignore non-JSON or non-message events */ }
+  }
+
+  /** POST a single message to the main API for Postgres persistence. */
+  private async persistMessage(msg: BufferedMessage) {
+    if (!this.clawId || !this.clawApiKey) return;
+
+    // Determine the base URL: prefer SELF_URL binding, fall back to production URL
+    const env = this.env as Partial<{ SELF_URL: string }>;
+    const baseUrl = env.SELF_URL ?? "https://api.coderclaw.ai";
+
+    try {
+      await fetch(
+        `${baseUrl}/api/claws/${this.clawId}/messages?key=${encodeURIComponent(this.clawApiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionKey: this.currentSessionKey,
+            messages: [msg],
+          }),
+        },
+      );
+    } catch { /* best-effort; do not crash the relay */ }
   }
 
   // ---------------------------------------------------------------------------

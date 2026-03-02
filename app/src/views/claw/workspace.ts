@@ -1,7 +1,7 @@
 import { LitElement, html } from "lit";
 import type { PropertyValues } from "lit";
 import { customElement } from "lit/decorators.js";
-import { claws as clawsApi, type ClawDirectory, type ClawDirectoryFile } from "../../api.js";
+import { claws as clawsApi, type ClawDirectory, type ClawDirectoryFile, type ClawSyncHistoryEntry } from "../../api.js";
 
 @customElement("ccl-claw-workspace")
 export class CclClawWorkspace extends LitElement {
@@ -18,6 +18,8 @@ export class CclClawWorkspace extends LitElement {
     selectedFilePath: { state: true },
     selectedFileContent: { state: true },
     fileLoading: { state: true },
+    syncHistory: { state: true },
+    syncHistoryLoading: { state: true },
   };
 
   clawId = "";
@@ -30,6 +32,8 @@ export class CclClawWorkspace extends LitElement {
   private selectedFilePath = "";
   private selectedFileContent = "";
   private fileLoading = false;
+  private syncHistory: ClawSyncHistoryEntry[] = [];
+  private syncHistoryLoading = false;
 
   override connectedCallback() {
     super.connectedCallback();
@@ -43,6 +47,7 @@ export class CclClawWorkspace extends LitElement {
   private async load() {
     if (!this.clawId) return;
     this.loading = true;
+    this.syncHistoryLoading = true;
     this.error = "";
     this.selectedDirectoryId = "";
     this.files = [];
@@ -50,7 +55,12 @@ export class CclClawWorkspace extends LitElement {
     this.selectedFileContent = "";
 
     try {
-      this.directories = await clawsApi.directories(this.clawId);
+      const [dirs, history] = await Promise.all([
+        clawsApi.directories(this.clawId),
+        clawsApi.syncHistory(this.clawId).catch(() => [] as ClawSyncHistoryEntry[]),
+      ]);
+      this.directories = dirs;
+      this.syncHistory = history;
       if (this.directories.length > 0) {
         this.selectedDirectoryId = this.directories[0]!.id;
         await this.loadFiles(this.selectedDirectoryId);
@@ -59,6 +69,7 @@ export class CclClawWorkspace extends LitElement {
       this.error = (e as Error).message ?? "Failed to load workspace sync metadata";
     } finally {
       this.loading = false;
+      this.syncHistoryLoading = false;
     }
   }
 
@@ -107,6 +118,21 @@ export class CclClawWorkspace extends LitElement {
           <div style="font-size:14px;font-weight:600;color:var(--text-strong)">.coderClaw Sync</div>
           <button class="btn btn-secondary btn-sm" @click=${() => void this.load()} ?disabled=${this.loading || this.filesLoading || this.fileLoading}>Refresh</button>
         </div>
+        ${this.syncHistory.length > 0 ? html`
+          <div class="card">
+            <div class="card-title" style="margin-bottom:8px">Sync History</div>
+            <div style="display:grid;gap:4px;">
+              ${this.syncHistory.slice(0, 10).map((h) => html`
+                <div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border);">
+                  <span class="badge ${h.status === 'success' ? 'badge-green' : 'badge-red'}" style="font-size:10px">${h.status}</span>
+                  <span style="color:var(--muted);flex:1">${new Date(h.createdAt).toLocaleString()}</span>
+                  <span style="font-family:var(--mono)">${h.fileCount} files</span>
+                  <span style="color:var(--muted);font-size:10px">${h.triggeredBy}</span>
+                </div>
+              `)}
+            </div>
+          </div>
+        ` : ""}
 
         ${this.error ? html`<div class="error-banner">${this.error}</div>` : ""}
 

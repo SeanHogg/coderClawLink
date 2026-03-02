@@ -44,6 +44,7 @@ import { createClawRoutes }        from './presentation/routes/clawRoutes';
 import { createSkillAssignmentRoutes } from './presentation/routes/skillAssignmentRoutes';
 import { createLlmRoutes }          from './presentation/routes/llmRoutes';
 import { createAdminRoutes }        from './presentation/routes/adminRoutes';
+import { createChatRoutes }         from './presentation/routes/chatRoutes';
 
 // Middleware
 import { corsMiddleware } from './presentation/middleware/cors';
@@ -98,6 +99,9 @@ function buildApp(env: Env): Hono<HonoEnv> {
   // CoderClaw instances + skill assignments (tenant JWT inside each router)
   app.route('/api/claws',            createClawRoutes(db));
   app.route('/api/skill-assignments', createSkillAssignmentRoutes(db));
+
+  // Chat persistence (claw-auth writes + tenant-JWT reads)
+  app.route('/api', createChatRoutes(db));
 
   // Protected endpoints (JWT injected by authMiddleware inside each router)
   app.route('/api/projects', createProjectRoutes(projectService, db));

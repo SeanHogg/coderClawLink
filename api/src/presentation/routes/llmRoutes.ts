@@ -16,9 +16,10 @@ import {
   type LlmUsage,
 } from '../../application/llm/LlmProxyService';
 import { buildDatabase } from '../../infrastructure/database/connection';
-import { llmUsageLog, llmFailoverLog, tenants, tenantMembers } from '../../infrastructure/database/schema';
+import { llmUsageLog, llmFailoverLog, tenants, tenantMembers, coderclawInstances } from '../../infrastructure/database/schema';
 import type { FailoverEvent } from '../../application/llm/LlmProxyService';
 import { verifyJwt } from '../../infrastructure/auth/JwtService';
+import { hashSecret } from '../../infrastructure/auth/HashService';
 import { TenantRole } from '../../domain/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,50 @@ async function requireTenantAccess(c: Context<HonoEnv>): Promise<TenantAccess> {
   }
 
   const token = authHeader.slice(7);
+
+  // Claw API key path: local CoderClaw instances send their raw clk_xxx key
+  // directly as the Bearer token rather than exchanging it for a JWT first.
+  if (token.startsWith('clk_')) {
+    const db = buildDatabase(c.env);
+    const keyHash = await hashSecret(token);
+    const [claw] = await db
+      .select({
+        id:       coderclawInstances.id,
+        tenantId: coderclawInstances.tenantId,
+        status:   coderclawInstances.status,
+      })
+      .from(coderclawInstances)
+      .where(eq(coderclawInstances.apiKeyHash, keyHash))
+      .limit(1);
+
+    if (!claw || claw.status !== 'active') {
+      throw new Error('Invalid or inactive claw API key');
+    }
+
+    const [tenantRow] = await db
+      .select({ id: tenants.id, plan: tenants.plan, billingStatus: tenants.billingStatus })
+      .from(tenants)
+      .where(eq(tenants.id, claw.tenantId))
+      .limit(1);
+
+    if (!tenantRow) throw new Error('Tenant not found');
+
+    const plan = (tenantRow.plan ?? 'free') as TenantAccess['plan'];
+    const billingStatus = (tenantRow.billingStatus ?? 'none') as TenantAccess['billingStatus'];
+    const effectivePlan: TenantAccess['effectivePlan'] =
+      plan === 'pro' && billingStatus === 'active' ? 'pro' : 'free';
+
+    return {
+      userId: null,
+      tenantId: claw.tenantId,
+      role: TenantRole.DEVELOPER,
+      plan,
+      billingStatus,
+      effectivePlan,
+    };
+  }
+
+  // JWT path: web users and claws that exchanged their API key for a JWT
   const payload = await verifyJwt(token, c.env.JWT_SECRET);
   if (payload.tid == null) {
     throw new Error('Workspace token is required');

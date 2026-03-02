@@ -56,6 +56,7 @@ export class CclBrain extends LitElement {
 
   @property() tenantId = "";
   @property() page: DashboardPage = "tasks";
+  @property() launcher: "fab" | "header" | "none" = "fab";
 
   @state() private focusProjectId = "";
   @state() private open = false;
@@ -337,11 +338,14 @@ export class CclBrain extends LitElement {
   }
 
   override render() {
+    const launcherClass = this.launcher === "header" ? "brain-fab brain-fab-inline" : "brain-fab";
     return html`
-      <button class="brain-fab" @click=${() => { this.open = true; }}>
-        <span>🧠</span>
-        Brain
-      </button>
+      ${this.launcher === "none" ? "" : html`
+        <button class=${launcherClass} @click=${() => { this.open = true; }}>
+          <span>🧠</span>
+          Brain
+        </button>
+      `}
 
       <div class="brain-overlay ${this.open ? "open" : ""}" @click=${() => { this.open = false; }}></div>
 

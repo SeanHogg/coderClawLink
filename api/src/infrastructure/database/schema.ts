@@ -65,6 +65,26 @@ export const authTokenTypeEnum = pgEnum('auth_token_type', [
   'web', 'tenant', 'api', 'claw',
 ]);
 
+export const legalDocumentTypeEnum = pgEnum('legal_document_type', [
+  'terms', 'privacy',
+]);
+
+export const newsletterSubscriptionStatusEnum = pgEnum('newsletter_subscription_status', [
+  'subscribed', 'unsubscribed', 'suppressed',
+]);
+
+export const newsletterEventTypeEnum = pgEnum('newsletter_event_type', [
+  'subscribed', 'unsubscribed', 'template_sent', 'email_opened', 'email_clicked',
+]);
+
+export const privacyRequestTypeEnum = pgEnum('privacy_request_type', [
+  'ccpa', 'gdpr',
+]);
+
+export const privacyRequestStatusEnum = pgEnum('privacy_request_status', [
+  'pending', 'completed', 'closed',
+]);
+
 export const executionStatusEnum = pgEnum('execution_status', [
   'pending', 'submitted', 'running', 'completed', 'failed', 'cancelled',
 ]);
@@ -111,6 +131,81 @@ export const users = pgTable('users', {
   createdAt:     timestamp('created_at').notNull().defaultNow(),
   updatedAt:     timestamp('updated_at').notNull().defaultNow(),
 });
+
+export const newsletterSubscribers = pgTable('newsletter_subscribers', {
+  id:                  serial('id').primaryKey(),
+  userId:              varchar('user_id', { length: 36 }).references(() => users.id, { onDelete: 'set null' }),
+  email:               varchar('email', { length: 255 }).notNull().unique(),
+  firstName:           varchar('first_name', { length: 120 }),
+  lastName:            varchar('last_name', { length: 120 }),
+  source:              varchar('source', { length: 120 }).notNull().default('marketing_site'),
+  status:              newsletterSubscriptionStatusEnum('status').notNull().default('subscribed'),
+  subscribedAt:        timestamp('subscribed_at').notNull().defaultNow(),
+  unsubscribedAt:      timestamp('unsubscribed_at'),
+  unsubscribeReason:   text('unsubscribe_reason'),
+  lastCommunicationAt: timestamp('last_communication_at'),
+  createdAt:           timestamp('created_at').notNull().defaultNow(),
+  updatedAt:           timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const newsletterTemplates = pgTable('newsletter_templates', {
+  id:            serial('id').primaryKey(),
+  name:          varchar('name', { length: 180 }).notNull(),
+  slug:          varchar('slug', { length: 180 }).notNull().unique(),
+  subject:       varchar('subject', { length: 255 }).notNull(),
+  preheader:     varchar('preheader', { length: 255 }),
+  bodyMarkdown:  text('body_markdown').notNull(),
+  isActive:      boolean('is_active').notNull().default(true),
+  createdBy:     varchar('created_by', { length: 36 }).references(() => users.id, { onDelete: 'set null' }),
+  updatedBy:     varchar('updated_by', { length: 36 }).references(() => users.id, { onDelete: 'set null' }),
+  createdAt:     timestamp('created_at').notNull().defaultNow(),
+  updatedAt:     timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const newsletterEvents = pgTable('newsletter_events', {
+  id:            serial('id').primaryKey(),
+  subscriberId:  integer('subscriber_id').notNull().references(() => newsletterSubscribers.id, { onDelete: 'cascade' }),
+  templateId:    integer('template_id').references(() => newsletterTemplates.id, { onDelete: 'set null' }),
+  eventType:     newsletterEventTypeEnum('event_type').notNull(),
+  metadata:      text('metadata'),
+  createdAt:     timestamp('created_at').notNull().defaultNow(),
+});
+
+export const privacyRequests = pgTable('privacy_requests', {
+  id:           serial('id').primaryKey(),
+  userId:       varchar('user_id', { length: 36 }).references(() => users.id, { onDelete: 'set null' }),
+  email:        varchar('email', { length: 255 }).notNull(),
+  requestType:  privacyRequestTypeEnum('request_type').notNull(),
+  details:      text('details'),
+  status:       privacyRequestStatusEnum('status').notNull().default('pending'),
+  resolution:   text('resolution'),
+  createdAt:    timestamp('created_at').notNull().defaultNow(),
+  updatedAt:    timestamp('updated_at').notNull().defaultNow(),
+  closedAt:     timestamp('closed_at'),
+});
+
+export const legalDocuments = pgTable('legal_documents', {
+  id:           serial('id').primaryKey(),
+  documentType: legalDocumentTypeEnum('document_type').notNull(),
+  version:      varchar('version', { length: 50 }).notNull(),
+  title:        varchar('title', { length: 255 }).notNull(),
+  content:      text('content').notNull(),
+  isActive:     boolean('is_active').notNull().default(true),
+  publishedBy:  varchar('published_by', { length: 36 }).references(() => users.id, { onDelete: 'set null' }),
+  publishedAt:  timestamp('published_at').notNull().defaultNow(),
+  createdAt:    timestamp('created_at').notNull().defaultNow(),
+  updatedAt:    timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const userLegalAcceptances = pgTable('user_legal_acceptances', {
+  userId:       varchar('user_id', { length: 36 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  documentType: legalDocumentTypeEnum('document_type').notNull(),
+  version:      varchar('version', { length: 50 }).notNull(),
+  acceptedAt:   timestamp('accepted_at').notNull().defaultNow(),
+  updatedAt:    timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.documentType] }),
+]);
 
 export const userMfaRecoveryCodes = pgTable('user_mfa_recovery_codes', {
   id:          serial('id').primaryKey(),
@@ -174,6 +269,16 @@ export const llmFailoverLog = pgTable('llm_failover_log', {
   model:     varchar('model', { length: 200 }).notNull(),
   errorCode: integer('error_code').notNull().default(0),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const projectInsightEvents = pgTable('project_insight_events', {
+  id:          serial('id').primaryKey(),
+  tenantId:    integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  projectId:   integer('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId:      varchar('user_id', { length: 36 }).references(() => users.id, { onDelete: 'set null' }),
+  executionId: integer('execution_id').references(() => executions.id, { onDelete: 'set null' }),
+  codeChanges: integer('code_changes').notNull().default(0),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
 });
 
 // ---------------------------------------------------------------------------
@@ -442,3 +547,47 @@ export const clawDirectoryFiles = pgTable('claw_directory_files', {
 }, (t) => [
   primaryKey({ columns: [t.directoryId, t.relPath] }),
 ]);
+
+// ---------------------------------------------------------------------------
+// Sync history
+// ---------------------------------------------------------------------------
+
+export const clawSyncHistory = pgTable('claw_sync_history', {
+  id:          serial('id').primaryKey(),
+  tenantId:    integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:      integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
+  directoryId: integer('directory_id').references(() => clawDirectories.id, { onDelete: 'set null' }),
+  triggeredBy: varchar('triggered_by', { length: 32 }).notNull().default('startup'),
+  fileCount:   integer('file_count').notNull().default(0),
+  bytesTotal:  integer('bytes_total').notNull().default(0),
+  status:      varchar('status', { length: 16 }).notNull().default('success'),
+  errorMsg:    text('error_msg'),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Chat sessions and messages
+// ---------------------------------------------------------------------------
+
+export const chatSessions = pgTable('chat_sessions', {
+  id:         serial('id').primaryKey(),
+  tenantId:   integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:     integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
+  sessionKey: varchar('session_key', { length: 255 }).notNull(),
+  startedAt:  timestamp('started_at').notNull().defaultNow(),
+  endedAt:    timestamp('ended_at'),
+  msgCount:   integer('msg_count').notNull().default(0),
+  lastMsgAt:  timestamp('last_msg_at'),
+});
+
+export const chatMessages = pgTable('chat_messages', {
+  id:        serial('id').primaryKey(),
+  tenantId:  integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:    integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
+  sessionId: integer('session_id').notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
+  role:      varchar('role', { length: 16 }).notNull(),
+  content:   text('content').notNull().default(''),
+  metadata:  text('metadata'),
+  seq:       integer('seq').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});

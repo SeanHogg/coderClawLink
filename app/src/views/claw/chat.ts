@@ -1,6 +1,7 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { ClawGateway, type GatewayEvent } from "../../gateway.js";
+import { claws as clawsApi } from "../../api.js";
 
 interface ChatMessage {
   id: string;
@@ -55,21 +56,41 @@ export class CclClawChat extends LitElement {
 
   private connect() {
     this.connState = "connecting";
+    this.messages = [];
+    this.tools = [];
     this.gw = new ClawGateway({
       url: this.wsUrl,
-      onEvent: (ev: GatewayEvent) => this.handleGwEvent(ev),
+      onEvent: (ev: GatewayEvent) => {
+        this.handleGwEvent(ev);
+        // Load Postgres history once we know the relay is reachable
+        if (ev.type === "connected" || ev.type === "message") {
+          if (this.messages.length === 0) void this.loadSessionHistory();
+        }
+      },
     });
   }
 
   private handleGwEvent(ev: GatewayEvent) {
     if (ev.type === "connected")    { this.connState = "connected"; return; }
+    if (ev.type === "claw_online")  { this.connState = "connected"; return; }
     if (ev.type === "claw_offline") { this.connState = "offline"; return; }
     if (ev.type === "disconnected") { this.connState = "disconnected"; return; }
     if (ev.type !== "message") return;
 
-    const msg = ev.data as { type: string; role?: string; text?: string; delta?: string; toolName?: string; toolInput?: string; toolResult?: string; toolCallId?: string };
+    const msg = ev.data as { type: string; role?: string; text?: string; delta?: string; toolName?: string; toolInput?: string; toolResult?: string; toolCallId?: string; messages?: Array<{ role: string; content: string; seq: number }> };
 
     switch (msg.type) {
+      case "chat.history": {
+        // Replay buffered history from the relay DO on (re)connect
+        if (Array.isArray(msg.messages) && this.messages.length === 0) {
+          this.messages = msg.messages.map(m => ({
+            id: crypto.randomUUID(),
+            role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+            text: m.content,
+          }));
+        }
+        return;
+      }
       case "chat.message": {
         if (msg.role === "user") {
           this.messages = [...this.messages, { id: crypto.randomUUID(), role: "user", text: msg.text ?? "" }];
@@ -127,6 +148,20 @@ export class CclClawChat extends LitElement {
     this.gw?.send({ type: "session.new" });
   }
 
+  private async loadSessionHistory() {
+    if (!this.clawId || !this.session) return;
+    try {
+      const msgs = await clawsApi.sessionMessages(this.clawId, this.session, 50);
+      if (msgs.length > 0 && this.messages.length === 0) {
+        this.messages = msgs.map(m => ({
+          id: crypto.randomUUID(),
+          role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+          text: m.content,
+        }));
+      }
+    } catch { /* best-effort */ }
+  }
+
   private scrollToBottom() {
     this.msgEnd?.scrollIntoView({ behavior: "smooth" });
   }
@@ -149,7 +184,8 @@ export class CclClawChat extends LitElement {
           <div style="flex:1"></div>
           <input class="input" style="width:140px;height:28px;padding:3px 8px;font-size:12px"
             placeholder="session name" .value=${this.session}
-            @input=${(e: InputEvent) => { this.session = (e.target as HTMLInputElement).value; }}>
+            @input=${(e: InputEvent) => { this.session = (e.target as HTMLInputElement).value; }}
+            @change=${() => { this.messages = []; this.tools = []; void this.loadSessionHistory(); }}>
           <button class="btn btn-ghost btn-sm" @click=${this.newChat}>New chat</button>
         </div>
 

@@ -8,6 +8,11 @@ import {
   authTokens,
   authUserSessions,
   coderclawInstances,
+  legalDocuments,
+  newsletterEvents,
+  newsletterSubscribers,
+  privacyRequests,
+  userLegalAcceptances,
   userMfaRecoveryCodes,
   users,
 } from '../../infrastructure/database/schema';
@@ -25,6 +30,7 @@ import {
   parseTokenTimeToDate,
   verifyTotpCode,
 } from '../../infrastructure/auth/MfaService';
+import { checkTermsAcceptance } from '../middleware/termsEnforcement';
 
 type TokenPayload = {
   sub: string;
@@ -33,6 +39,12 @@ type TokenPayload = {
   tid?: number;
   exp: number;
 };
+
+const SUPERADMIN_EMAIL = 'seanhogg@gmail.com';
+
+function canUseSuperAdmin(user: Pick<typeof users.$inferSelect, 'email' | 'isSuperadmin'>): boolean {
+  return user.isSuperadmin && normalizeEmail(user.email) === SUPERADMIN_EMAIL;
+}
 
 function getClientIp(c: Context<HonoEnv>): string | null {
   const cfIp = c.req.header('CF-Connecting-IP');
@@ -50,6 +62,7 @@ function getUserAgent(c: Context<HonoEnv>): string | null {
 }
 
 function toUserResponse(user: typeof users.$inferSelect) {
+  const superadmin = canUseSuperAdmin(user);
   return {
     id: user.id,
     email: user.email,
@@ -57,8 +70,64 @@ function toUserResponse(user: typeof users.$inferSelect) {
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
-    isSuperadmin: user.isSuperadmin,
+    isSuperadmin: superadmin,
     mfaEnabled: user.mfaEnabled,
+  };
+}
+
+function normalizeEmail(input: string): string {
+  return input.trim().toLowerCase();
+}
+
+type LegalDocResponse = {
+  documentType: 'terms' | 'privacy';
+  version: string;
+  title: string;
+  content: string;
+  publishedAt: string;
+};
+
+const DEFAULT_LEGAL: Record<'terms' | 'privacy', Omit<LegalDocResponse, 'documentType'>> = {
+  terms: {
+    version: '1.0.0',
+    title: 'Terms of Use',
+    content: 'By using CoderClawLink, you agree to these Terms of Use. Continued use of the service indicates acceptance of current terms.',
+    publishedAt: new Date(0).toISOString(),
+  },
+  privacy: {
+    version: '1.0.0',
+    title: 'Privacy Policy',
+    content: 'CoderClawLink processes account, usage, and operational metadata to provide and secure the service.',
+    publishedAt: new Date(0).toISOString(),
+  },
+};
+
+async function getActiveLegalDoc(db: Db, documentType: 'terms' | 'privacy'): Promise<LegalDocResponse> {
+  const [doc] = await db
+    .select({
+      version: legalDocuments.version,
+      title: legalDocuments.title,
+      content: legalDocuments.content,
+      publishedAt: legalDocuments.publishedAt,
+    })
+    .from(legalDocuments)
+    .where(and(eq(legalDocuments.documentType, documentType), eq(legalDocuments.isActive, true)))
+    .orderBy(desc(legalDocuments.publishedAt))
+    .limit(1);
+
+  if (!doc) {
+    return {
+      documentType,
+      ...DEFAULT_LEGAL[documentType],
+    };
+  }
+
+  return {
+    documentType,
+    version: doc.version,
+    title: doc.title,
+    content: doc.content,
+    publishedAt: doc.publishedAt ? doc.publishedAt.toISOString() : new Date().toISOString(),
   };
 }
 
@@ -212,6 +281,217 @@ async function replaceRecoveryCodes(db: Db, userId: string, codes: string[]) {
 export function createAuthRoutes(authService: AuthService, db: Db): Hono<HonoEnv> {
   const router = new Hono<HonoEnv>();
 
+  // POST /api/auth/newsletter/subscribers
+  // Public endpoint used by marketing surfaces for subscribe/unsubscribe.
+  router.post('/newsletter/subscribers', async (c) => {
+    const body = await c.req.json<{
+      email?: string;
+      action?: 'subscribe' | 'unsubscribe';
+      source?: string;
+      firstName?: string;
+      lastName?: string;
+      reason?: string;
+    }>();
+
+    const rawEmail = body.email ?? '';
+    const email = normalizeEmail(rawEmail);
+    if (!email || !email.includes('@')) {
+      return c.json({ error: 'Valid email is required' }, 400);
+    }
+
+    const action = body.action === 'unsubscribe' ? 'unsubscribe' : 'subscribe';
+    const source = body.source?.trim() || 'marketing_site';
+    const firstName = body.firstName?.trim() || null;
+    const lastName = body.lastName?.trim() || null;
+    const reason = body.reason?.trim() || null;
+
+    const [user] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    const [existing] = await db
+      .select({ id: newsletterSubscribers.id })
+      .from(newsletterSubscribers)
+      .where(eq(newsletterSubscribers.email, email))
+      .limit(1);
+
+    let subscriberId: number;
+
+    if (action === 'subscribe') {
+      if (existing) {
+        const [updated] = await db
+          .update(newsletterSubscribers)
+          .set({
+            userId: user?.id ?? null,
+            firstName,
+            lastName,
+            source,
+            status: 'subscribed',
+            unsubscribedAt: null,
+            unsubscribeReason: null,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(newsletterSubscribers.id, existing.id))
+          .returning({ id: newsletterSubscribers.id });
+        subscriberId = updated!.id;
+      } else {
+        const [created] = await db
+          .insert(newsletterSubscribers)
+          .values({
+            userId: user?.id ?? null,
+            email,
+            firstName,
+            lastName,
+            source,
+            status: 'subscribed',
+          })
+          .returning({ id: newsletterSubscribers.id });
+        subscriberId = created!.id;
+      }
+
+      await db.insert(newsletterEvents).values({
+        subscriberId,
+        eventType: 'subscribed',
+        metadata: JSON.stringify({ source }),
+      });
+
+      return c.json({ ok: true, email, status: 'subscribed', subscribed: true });
+    }
+
+    if (existing) {
+      const [updated] = await db
+        .update(newsletterSubscribers)
+        .set({
+          status: 'unsubscribed',
+          unsubscribedAt: sql`now()`,
+          unsubscribeReason: reason,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(newsletterSubscribers.id, existing.id))
+        .returning({ id: newsletterSubscribers.id });
+      subscriberId = updated!.id;
+    } else {
+      const [created] = await db
+        .insert(newsletterSubscribers)
+        .values({
+          userId: user?.id ?? null,
+          email,
+          source,
+          status: 'unsubscribed',
+          unsubscribedAt: new Date(),
+          unsubscribeReason: reason,
+        })
+        .returning({ id: newsletterSubscribers.id });
+      subscriberId = created!.id;
+    }
+
+    await db.insert(newsletterEvents).values({
+      subscriberId,
+      eventType: 'unsubscribed',
+      metadata: JSON.stringify({ source, reason }),
+    });
+
+    return c.json({ ok: true, email, status: 'unsubscribed', subscribed: false });
+  });
+
+  // POST /api/auth/privacy-requests
+  // Public endpoint for CCPA/GDPR information requests from marketing/legal pages.
+  router.post('/privacy-requests', async (c) => {
+    const body = await c.req.json<{
+      email?: string;
+      requestType?: 'ccpa' | 'gdpr';
+      details?: string;
+    }>();
+
+    const rawEmail = body.email ?? '';
+    const email = normalizeEmail(rawEmail);
+    if (!email || !email.includes('@')) {
+      return c.json({ error: 'Valid email is required' }, 400);
+    }
+
+    const requestType = body.requestType === 'gdpr' ? 'gdpr' : 'ccpa';
+    const details = body.details?.trim() || null;
+
+    const [user] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    const [created] = await db
+      .insert(privacyRequests)
+      .values({
+        userId: user?.id ?? null,
+        email,
+        requestType,
+        details,
+      })
+      .returning({ id: privacyRequests.id });
+
+    if (!created) {
+      return c.json({ error: 'Failed to create privacy request' }, 500);
+    }
+
+    return c.json({ ok: true, id: created.id });
+  });
+
+  // GET /api/auth/legal/current
+  router.get('/legal/current', async (c) => {
+    const [terms, privacy] = await Promise.all([
+      getActiveLegalDoc(db, 'terms'),
+      getActiveLegalDoc(db, 'privacy'),
+    ]);
+    return c.json({ terms, privacy });
+  });
+
+  // GET /api/auth/legal/terms/status (requires WebJWT)
+  router.get('/legal/terms/status', webAuthMiddleware, async (c) => {
+    const userId = c.get('userId') as string;
+    const terms = await getActiveLegalDoc(db, 'terms');
+    const status = await checkTermsAcceptance(db, userId);
+    return c.json({
+      requiredVersion: status.requiredVersion ?? terms.version,
+      acceptedVersion: status.acceptedVersion,
+      needsAcceptance: status.needsAcceptance,
+      terms,
+    });
+  });
+
+  // POST /api/auth/legal/terms/accept (requires WebJWT)
+  router.post('/legal/terms/accept', webAuthMiddleware, async (c) => {
+    const userId = c.get('userId') as string;
+    const body = await c.req.json<{ version?: string }>();
+
+    const terms = await getActiveLegalDoc(db, 'terms');
+    if (body.version && body.version !== terms.version) {
+      return c.json({ error: `Active terms version is ${terms.version}` }, 409);
+    }
+
+    await db
+      .insert(userLegalAcceptances)
+      .values({
+        userId,
+        documentType: 'terms',
+        version: terms.version,
+      })
+      .onConflictDoUpdate({
+        target: [userLegalAcceptances.userId, userLegalAcceptances.documentType],
+        set: {
+          version: terms.version,
+          acceptedAt: sql`now()`,
+          updatedAt: sql`now()`,
+        },
+      });
+
+    return c.json({
+      acceptedVersion: terms.version,
+      acceptedAt: new Date().toISOString(),
+      terms,
+    });
+  });
+
   // POST /api/auth/register
   router.post('/register', async (c) => {
     const body = await c.req.json<{ email: string; tenantId: number }>();
@@ -333,12 +613,13 @@ export function createAuthRoutes(authService: AuthService, db: Db): Hono<HonoEnv
     }
 
     if (user.mfaEnabled) {
+      const superadmin = canUseSuperAdmin(user);
       const mfaToken = await signWebJwt(
         {
           sub: user.id,
           email: user.email,
           username: user.username ?? '',
-          sa: user.isSuperadmin ? true : undefined,
+          sa: superadmin ? true : undefined,
           mfaPending: true,
           amr: ['pwd'],
         },
@@ -355,12 +636,13 @@ export function createAuthRoutes(authService: AuthService, db: Db): Hono<HonoEnv
       });
     }
 
+    const superadmin = canUseSuperAdmin(user);
     const token = await signWebJwt(
       {
         sub: user.id,
         email: user.email,
         username: user.username ?? '',
-        sa: user.isSuperadmin ? true : undefined,
+        sa: superadmin ? true : undefined,
         mfa: false,
         amr: ['pwd'],
       },
@@ -420,12 +702,13 @@ export function createAuthRoutes(authService: AuthService, db: Db): Hono<HonoEnv
     const valid = await assertMfa(db, c.env.JWT_SECRET, user, body.code, body.recoveryCode);
     if (!valid) return c.json({ error: 'Invalid MFA code' }, 401);
 
+    const superadmin = canUseSuperAdmin(user);
     const token = await signWebJwt(
       {
         sub: user.id,
         email: user.email,
         username: user.username ?? '',
-        sa: user.isSuperadmin ? true : undefined,
+        sa: superadmin ? true : undefined,
         mfa: true,
         amr: ['pwd', 'mfa'],
       },

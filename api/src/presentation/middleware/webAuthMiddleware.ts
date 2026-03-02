@@ -5,6 +5,7 @@ import { verifyWebJwt } from '../../infrastructure/auth/JwtService';
 import { buildDatabase } from '../../infrastructure/database/connection';
 import { authTokens, authUserSessions } from '../../infrastructure/database/schema';
 import { and, eq, isNull, gt, sql } from 'drizzle-orm';
+import { checkTermsAcceptance } from './termsEnforcement';
 
 /**
  * Web/marketplace JWT middleware.
@@ -81,6 +82,19 @@ export const webAuthMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => 
       .where(eq(authTokens.jti, payload.jti));
 
     c.set('tokenJti', payload.jti);
+  }
+
+  if (!c.req.path.startsWith('/api/auth/legal')) {
+    const db = buildDatabase(c.env);
+    const terms = await checkTermsAcceptance(db, payload.sub);
+    if (terms.needsAcceptance) {
+      return c.json({
+        error: 'Terms acceptance required',
+        code: 'TERMS_ACCEPTANCE_REQUIRED',
+        requiredVersion: terms.requiredVersion,
+        acceptedVersion: terms.acceptedVersion,
+      }, 428);
+    }
   }
 
   c.set('userId', payload.sub);

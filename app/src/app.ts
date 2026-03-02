@@ -5,8 +5,11 @@ import {
   auth, tenants, projects as projectsApi, tasks as tasksApi, clearSession,
   getWebToken, getTenantToken, getTenantId, getUser,
   setWebToken, setTenantToken, setTenantId, setUser,
+  type LegalDocument,
   type TenantSummary, type UserInfo,
 } from "./api.js";
+
+declare const __APP_VERSION__: string;
 
 // Views
 import "./views/auth.js";
@@ -21,10 +24,12 @@ import "./views/logs.js";
 import "./views/admin.js";
 import "./views/quickstart.js";
 import "./views/brain.js";
+import "./views/agents.js";
+import "./views/chats.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs";
-type WorkspaceTab = "members" | "settings";
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats";
+type WorkspaceTab = "security" | "settings";
 type WorkspaceSection = "settings" | "billing" | "consumption" | "details" | "security";
 
 @customElement("ccl-app")
@@ -42,12 +47,18 @@ export class CclApp extends LitElement {
   @state() private tenant: TenantSummary | null = null;
   @state() private theme: "dark" | "light" = "dark";
   @state() private navCollapsed = false;
-  @state() private workspaceInitialTab: WorkspaceTab = "members";
+  @state() private workspaceInitialTab: WorkspaceTab = "security";
   @state() private workspaceInitialSection = "";
+  @state() private legalTerms: LegalDocument | null = null;
+  @state() private legalPrivacy: LegalDocument | null = null;
+  @state() private termsGateRequired = false;
+  @state() private acceptingTerms = false;
+  @state() private legalModalType: "terms" | "privacy" | null = null;
 
   override connectedCallback() {
     super.connectedCallback();
     this.loadTheme();
+    void this.loadLegalDocs();
     this.bootstrap();
     window.addEventListener("ccl:unauthorized", this.handleUnauthorized);
     window.addEventListener("ccl:exit-admin", this.handleExitAdmin);
@@ -57,6 +68,7 @@ export class CclApp extends LitElement {
     window.addEventListener("ccl:navigate", this.handleNavigate as EventListener);
     window.addEventListener("ccl:dashboard-prompt", this.handleDashboardPrompt as EventListener);
     window.addEventListener("ccl:open-admin-security", this.handleOpenAdminSecurity as EventListener);
+    window.addEventListener("ccl:terms-required", this.handleTermsRequired as EventListener);
   }
 
   override disconnectedCallback() {
@@ -69,6 +81,7 @@ export class CclApp extends LitElement {
     window.removeEventListener("ccl:navigate", this.handleNavigate as EventListener);
     window.removeEventListener("ccl:dashboard-prompt", this.handleDashboardPrompt as EventListener);
     window.removeEventListener("ccl:open-admin-security", this.handleOpenAdminSecurity as EventListener);
+    window.removeEventListener("ccl:terms-required", this.handleTermsRequired as EventListener);
   }
 
   override updated(changed: PropertyValues) {
@@ -82,8 +95,66 @@ export class CclApp extends LitElement {
     clearSession();
     this.user = null;
     this.tenant = null;
+    this.termsGateRequired = false;
     this.appState = "landing";
   };
+
+  private handleTermsRequired = async () => {
+    this.termsGateRequired = true;
+    await this.loadLegalDocs();
+  };
+
+  private async loadLegalDocs() {
+    try {
+      const legal = await auth.legalCurrent();
+      this.legalTerms = legal.terms;
+      this.legalPrivacy = legal.privacy;
+    } catch {
+      // Keep footer resilient even if legal docs endpoint is temporarily unavailable.
+    }
+  }
+
+  private async ensureTermsAccepted(): Promise<boolean> {
+    const webToken = getWebToken();
+    if (!webToken) {
+      this.termsGateRequired = false;
+      return true;
+    }
+
+    try {
+      const status = await auth.termsStatus();
+      this.legalTerms = status.terms;
+      this.termsGateRequired = status.needsAcceptance;
+      return !status.needsAcceptance;
+    } catch {
+      this.termsGateRequired = true;
+      return false;
+    }
+  }
+
+  private async acceptCurrentTerms() {
+    if (!this.legalTerms) return;
+    this.acceptingTerms = true;
+    try {
+      const accepted = await auth.acceptTerms(this.legalTerms.version);
+      this.legalTerms = accepted.terms;
+      this.termsGateRequired = false;
+      await this.bootstrap();
+    } finally {
+      this.acceptingTerms = false;
+    }
+  }
+
+  private openLegalModal(type: "terms" | "privacy") {
+    this.legalModalType = type;
+    if (!this.legalTerms || !this.legalPrivacy) {
+      void this.loadLegalDocs();
+    }
+  }
+
+  private closeLegalModal() {
+    this.legalModalType = null;
+  }
 
   private handleExitAdmin = () => {
     // Return to workspace picker (or dashboard if they already had a tenant)
@@ -106,6 +177,12 @@ export class CclApp extends LitElement {
   private async bootstrap() {
     const webToken = getWebToken();
     if (!webToken) { this.appState = "landing"; return; }
+
+    const termsOk = await this.ensureTermsAccepted();
+    if (!termsOk) {
+      this.appState = "auth";
+      return;
+    }
 
     const tenantToken = getTenantToken();
     const tenantId = getTenantId();
@@ -143,6 +220,13 @@ export class CclApp extends LitElement {
     setWebToken(token);
     setUser(user);
     this.user = user;
+
+    const termsOk = await this.ensureTermsAccepted();
+    if (!termsOk) {
+      this.appState = "auth";
+      return;
+    }
+
     try {
       this.tenantList = await auth.listTenants();
       this.appState = "workspace-picker";
@@ -343,6 +427,18 @@ export class CclApp extends LitElement {
         view = el;
         break;
       }
+      case "agents": {
+        const el = document.createElement("ccl-agents") as HTMLElement & { tenantId?: string };
+        el.tenantId = tenantId;
+        view = el;
+        break;
+      }
+      case "chats": {
+        const el = document.createElement("ccl-chats") as HTMLElement & { tenantId?: string };
+        el.tenantId = tenantId;
+        view = el;
+        break;
+      }
     }
 
     host.replaceChildren(view);
@@ -391,6 +487,7 @@ export class CclApp extends LitElement {
       sun: `<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>`,
       moon: `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`,
       logout: `<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>`,
+      agents: `<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>`,
       panelLeft: `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>`,
       chevronsLeft: `<polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>`,
       chevronsRight: `<polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>`,
@@ -403,12 +500,95 @@ export class CclApp extends LitElement {
   // ---------------------------------------------------------------------------
 
   override render() {
-    if (this.appState === "loading")          return this.renderLoading();
-    if (this.appState === "landing")          return this.renderLanding();
-    if (this.appState === "auth")             return this.renderAuth();
-    if (this.appState === "workspace-picker") return this.renderWorkspacePicker();
-    if (this.appState === "admin")            return this.renderAdmin();
-    return this.renderDashboard();
+    if (this.termsGateRequired) {
+      return html`
+        ${this.renderTermsGate()}
+        ${this.renderGlobalFooter()}
+      `;
+    }
+
+    const page = this.appState === "loading"
+      ? this.renderLoading()
+      : this.appState === "landing"
+        ? this.renderLanding()
+        : this.appState === "auth"
+          ? this.renderAuth()
+          : this.appState === "workspace-picker"
+            ? this.renderWorkspacePicker()
+            : this.appState === "admin"
+              ? this.renderAdmin()
+              : this.renderDashboard();
+
+    return html`
+      ${page}
+      ${this.renderGlobalFooter()}
+      ${this.renderLegalModal()}
+    `;
+  }
+
+  private renderTermsGate() {
+    const terms = this.legalTerms;
+    return html`
+      <div class="auth-shell" style="padding-bottom:80px">
+        <div class="auth-card" style="width:min(900px,94vw)">
+          <div class="auth-title" style="margin-bottom:8px">Terms update required</div>
+          <div class="auth-sub" style="margin-bottom:14px">
+            You must accept the latest Terms of Use to continue.
+            ${terms ? html`Current version: <strong>${terms.version}</strong>` : ""}
+          </div>
+          <div class="field" style="margin:0">
+            <label class="label">${terms?.title ?? "Terms of Use"}</label>
+            <textarea class="textarea" style="min-height:320px" readonly>${terms?.content ?? "Loading terms…"}</textarea>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:12px">
+            <button class="btn btn-primary" @click=${this.acceptCurrentTerms} ?disabled=${this.acceptingTerms || !terms}>
+              ${this.acceptingTerms ? "Accepting…" : "Accept Terms and Continue"}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderGlobalFooter() {
+    const termsVersion = this.legalTerms?.version ?? "—";
+    return html`
+      <footer
+        class="global-footer"
+        style="position:fixed;left:0;right:0;bottom:0;z-index:70;border-top:1px solid var(--border,#d1d5db);background:var(--chrome-strong,rgba(18,20,26,0.98));backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)"
+      >
+        <div
+          class="global-footer-inner"
+          style="max-width:1200px;margin:0 auto;min-height:44px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--muted,#6b7280);font-size:12px"
+        >
+          <span>App v${__APP_VERSION__} · Terms v${termsVersion}</span>
+          <span class="global-footer-links" style="display:inline-flex;align-items:center;gap:12px">
+            <a href="/terms" style="color:var(--text,#111827);text-decoration:none" @click=${(e: Event) => { e.preventDefault(); this.openLegalModal("terms"); }}>Terms of Use</a>
+            <a href="/privacy" style="color:var(--text,#111827);text-decoration:none" @click=${(e: Event) => { e.preventDefault(); this.openLegalModal("privacy"); }}>Privacy Policy</a>
+          </span>
+        </div>
+      </footer>
+    `;
+  }
+
+  private renderLegalModal() {
+    if (!this.legalModalType) return html``;
+    const doc = this.legalModalType === "terms" ? this.legalTerms : this.legalPrivacy;
+    const title = this.legalModalType === "terms" ? "Terms of Use" : "Privacy Policy";
+    return html`
+      <div class="modal-backdrop" @click=${(e: Event) => {
+        if (e.target === e.currentTarget) this.closeLegalModal();
+      }}>
+        <div class="modal" style="max-width:920px">
+          <div class="modal-title">${title} ${doc?.version ? html`· v${doc.version}` : ""}</div>
+          <div class="modal-sub">Published ${doc?.publishedAt ? new Date(doc.publishedAt).toLocaleString() : "—"}</div>
+          <textarea class="textarea" style="min-height:420px;margin-top:12px" readonly>${doc?.content ?? "Loading…"}</textarea>
+          <div class="modal-footer">
+            <button class="btn btn-primary" @click=${this.closeLegalModal}>Close</button>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   private renderLoading() {
@@ -532,10 +712,6 @@ export class CclApp extends LitElement {
           </div>
         </section>
 
-        <!-- Footer -->
-        <footer class="landing-footer">
-          <span>© 2026 CoderClaw · <a href="https://coderclaw.ai" target="_blank" rel="noopener">coderclaw.ai</a></span>
-        </footer>
       </div>
     `;
   }
@@ -589,15 +765,16 @@ export class CclApp extends LitElement {
     const meshItems: Array<{ id: DashTab; label: string; icon: string }> = [
       { id: "claws",  label: "Claws",  icon: "claws"  },
       { id: "skills", label: "Skills", icon: "skills" },
+      { id: "agents", label: "Agents", icon: "agents" },
+      { id: "chats",  label: "Chats",  icon: "logs"   },
     ];
     const systemItems: Array<
       { id: DashTab; label: string; icon: string; workspaceTab?: WorkspaceTab; workspaceSection?: WorkspaceSection }
     > = [
-      { id: "workspace", label: "Members", icon: "projects", workspaceTab: "members" },
+      { id: "workspace", label: "Security", icon: "settings", workspaceTab: "security", workspaceSection: "security" },
       { id: "workspace", label: "Settings", icon: "settings", workspaceTab: "settings", workspaceSection: "settings" },
       { id: "workspace", label: "Billing", icon: "billing", workspaceTab: "settings", workspaceSection: "billing" },
       { id: "workspace", label: "Consumption", icon: "tasks", workspaceTab: "settings", workspaceSection: "consumption" },
-      { id: "workspace", label: "Security", icon: "settings", workspaceTab: "settings", workspaceSection: "security" },
       { id: "workspace", label: "Tenant & Workspace", icon: "workspace", workspaceTab: "settings", workspaceSection: "details" },
       { id: "logs", label: "Logs", icon: "logs" },
     ];
@@ -616,10 +793,6 @@ export class CclApp extends LitElement {
         title="${item.label}"
         @click=${() => {
           if (item.id === "workspace") {
-            if (item.workspaceSection === "security" && this.user?.isSuperadmin) {
-              this.appState = "admin";
-              return;
-            }
             this.openWorkspaceArea(item.workspaceTab ?? "settings", item.workspaceSection);
             return;
           }
@@ -642,6 +815,16 @@ export class CclApp extends LitElement {
             </div>
           </div>
           <div class="topbar-right">
+                <button
+                  class="btn btn-ghost btn-sm"
+                  style="display:flex;align-items:center;gap:6px"
+                  @click=${() => {
+                    window.dispatchEvent(new CustomEvent("ccl:brain-open"));
+                  }}
+                  title="Brain"
+                >
+                  🧠 Brain
+                </button>
             ${this.user?.isSuperadmin ? html`
               <button
                 class="btn btn-ghost btn-sm"
@@ -704,9 +887,9 @@ export class CclApp extends LitElement {
         <!-- Content -->
         <main class="content">
           <div id="dashboard-view-host"></div>
+              <ccl-brain .tenantId=${this.tenant?.id ?? ""} .page=${this.tab} .launcher=${"none"}></ccl-brain>
         </main>
 
-        <ccl-brain .tenantId=${this.tenant?.id ?? ""} .page=${this.tab}></ccl-brain>
       </div>
     `;
   }

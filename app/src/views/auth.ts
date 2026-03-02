@@ -1,6 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { auth, claws as clawsApi, type UserInfo, type MfaChallenge, type AuthSuccess } from "../api.js";
+import { auth, claws as clawsApi, type UserInfo, type MfaChallenge, type AuthSuccess, type LegalDocument } from "../api.js";
 import "./quickstart.js";
 
 @customElement("ccl-auth")
@@ -11,6 +11,7 @@ export class CclAuth extends LitElement {
   @state() private email = "";
   @state() private username = "";
   @state() private password = "";
+  @state() private agreeTerms = false;
   @state() private loading = false;
   @state() private error = "";
   @state() private mfaStep = false;
@@ -19,12 +20,28 @@ export class CclAuth extends LitElement {
   @state() private recoveryCode = "";
   @state() private mfaMethod: "totp" | "recovery" = "totp";
   @state() private pendingUser: UserInfo | null = null;
+  @state() private legalTerms: LegalDocument | null = null;
   @state() private showRegisterQuickstart = false;
   @state() private checkingQuickstartVisibility = false;
 
   override connectedCallback() {
     super.connectedCallback();
+    void this.loadLegalTerms();
     void this.refreshRegisterQuickstartVisibility();
+  }
+
+  private async loadLegalTerms() {
+    try {
+      const legal = await auth.legalCurrent();
+      this.legalTerms = legal.terms;
+    } catch {
+      this.legalTerms = null;
+    }
+  }
+
+  private openLegalModal(type: "terms" | "privacy") {
+    const url = type === "terms" ? "https://coderclaw.ai/terms/" : "https://coderclaw.ai/privacy/";
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   override updated(changed: Map<string, unknown>) {
@@ -57,9 +74,24 @@ export class CclAuth extends LitElement {
     this.loading = true;
     this.error = "";
     try {
+      if (this.mode === "register" && !this.agreeTerms) {
+        this.error = "You must agree to the Terms of Use.";
+        this.loading = false;
+        return;
+      }
+
       const res = this.mode === "login"
         ? await auth.login(this.email, this.password, "Web App")
         : await auth.register(this.email, this.username || this.email.split("@")[0], this.password);
+
+      // if registered, accept current terms automatically
+      if (this.mode === "register" && this.legalTerms) {
+        try {
+          await auth.acceptTerms(this.legalTerms.version);
+        } catch {
+          // ignore; user can accept later
+        }
+      }
 
       if (this.mode === "login" && "mfaRequired" in res && res.mfaRequired) {
         const challenge = res as MfaChallenge;
@@ -233,7 +265,19 @@ export class CclAuth extends LitElement {
                 @input=${(e: InputEvent) => { this.username = (e.target as HTMLInputElement).value; }}
                 autocomplete="username"
               >
-            </div>` : ""}
+            </div>
+            <div class="field" style="display:flex;align-items:center;gap:6px">
+              <input
+                id="agreeTerms"
+                type="checkbox"
+                .checked=${this.agreeTerms}
+                @change=${(e: Event) => { this.agreeTerms = (e.target as HTMLInputElement).checked; }}
+              />
+              <label for="agreeTerms" class="label" style="margin:0">
+                I agree to the <a href="#" @click=${() => this.openLegalModal('terms')}>Terms of Use</a>
+              </label>
+            </div>
+            ` : ""}
             <div class="field">
               <label class="label">Password</label>
               <input

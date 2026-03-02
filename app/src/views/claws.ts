@@ -2,7 +2,6 @@ import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { claws as clawsApi, getTenantToken, tenants, type Claw, type ClawRegistration } from "../api.js";
 import "./claw/chat.js";
-import "./claw/agents.js";
 import "./claw/config.js";
 import "./claw/sessions.js";
 import "./claw/claw-skills.js";
@@ -15,11 +14,10 @@ import "./claw/projects.js";
 import "./claw/workspace.js";
 import "./quickstart.js";
 
-type Tab = "chat" | "agents" | "config" | "sessions" | "skills" | "usage" | "cron" | "nodes" | "channels" | "projects" | "workspace" | "logs";
+type Tab = "chat" | "config" | "sessions" | "skills" | "usage" | "cron" | "nodes" | "channels" | "projects" | "workspace" | "logs";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "chat",     label: "Chat" },
-  { id: "agents",   label: "Agents" },
   { id: "config",   label: "Config" },
   { id: "sessions", label: "Sessions" },
   { id: "skills",   label: "Skills" },
@@ -338,11 +336,8 @@ export class ClawsView extends LitElement {
     const claw = this.activeClaw;
     const wsUrl = clawsApi.wsUrl(claw.id);
     return html`
-      <div style="position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:40;transition:opacity 0.2s;
-        opacity:${this.panelOpen ? "1" : "0"};" @click=${this.closePanel}></div>
-      <div style="position:fixed;top:0;right:0;bottom:0;width:min(860px,100vw);
-        background:var(--bg-1,#fff);z-index:50;display:flex;flex-direction:column;
-        box-shadow:-4px 0 24px rgba(0,0,0,0.15);
+      <div class="panel-overlay" style="transition:opacity 0.2s;opacity:${this.panelOpen ? "1" : "0"};" @click=${this.closePanel}></div>
+      <div class="panel-drawer" style="--panel-width:min(860px,100vw);
         transform:translateX(${this.panelOpen ? "0" : "100%"});
         transition:transform 0.28s cubic-bezier(0.4,0,0.2,1);">
         <div style="display:flex;align-items:center;gap:0.75rem;padding:1rem 1.25rem;
@@ -374,7 +369,6 @@ export class ClawsView extends LitElement {
         </div>
         <div style="flex:1;overflow:auto;min-height:0;">
           ${this.activeTab === "chat"     ? html`<ccl-claw-chat     .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-chat>` : ""}
-          ${this.activeTab === "agents"   ? html`<ccl-claw-agents   .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-agents>` : ""}
           ${this.activeTab === "config"   ? html`<ccl-claw-config   .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-config>` : ""}
           ${this.activeTab === "sessions" ? html`<ccl-claw-sessions .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-sessions>` : ""}
           ${this.activeTab === "skills"   ? html`<ccl-claw-skills   .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-skills>` : ""}

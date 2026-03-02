@@ -1,7 +1,7 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import {
-  auth,
+  ApiError,
   getTenantToken,
   tenants,
   claws,
@@ -13,11 +13,10 @@ import {
   type Claw,
   type AuthSessionInfo,
   type AuthTokenInfo,
-  type MfaStatus,
+  type TenantSecurityUser,
   type SourceControlIntegration,
   type SourceControlProvider,
 } from "../api.js";
-import QRCode from "qrcode";
 
 const ROLES = ["owner", "manager", "developer", "viewer"];
 
@@ -26,13 +25,13 @@ export class CclWorkspace extends LitElement {
   override createRenderRoot() { return this; }
 
   @property({ type: Object }) tenant: TenantSummary | null = null;
-  @property({ type: String }) initialTab: "members" | "settings" = "members";
+  @property({ type: String }) initialTab: "security" | "settings" = "security";
   @property({ type: String }) initialSection = "";
 
   @state() private detail: Tenant | null = null;
   @state() private loading = true;
   @state() private error = "";
-  @state() private tab: "members" | "settings" = "members";
+  @state() private tab: "security" | "settings" = "security";
   @state() private subscription: TenantSubscription | null = null;
   @state() private usage: TenantLlmUsage | null = null;
   @state() private usageDays = 30;
@@ -48,19 +47,12 @@ export class CclWorkspace extends LitElement {
   @state() private copiedTenantToken = false;
   @state() private copiedPluginEnv = false;
   @state() private downloadedPluginEnv = false;
-  @state() private mfaStatus: MfaStatus | null = null;
-  @state() private mfaSetupBusy = false;
-  @state() private mfaEnableBusy = false;
-  @state() private mfaDisableBusy = false;
-  @state() private mfaRegenerateBusy = false;
-  @state() private mfaVerifyCode = "";
-  @state() private mfaRecoveryInput = "";
-  @state() private mfaMode: "totp" | "recovery" = "totp";
-  @state() private mfaManualKey = "";
-  @state() private mfaQrDataUrl = "";
-  @state() private recoveryCodes: string[] = [];
-  @state() private authSessions: AuthSessionInfo[] = [];
-  @state() private authTokens: AuthTokenInfo[] = [];
+  @state() private securityUsers: TenantSecurityUser[] = [];
+  @state() private securityUserId: string | null = null;
+  @state() private securityUserEmail = "";
+  @state() private securitySessions: Array<Omit<AuthSessionInfo, "isCurrent">> = [];
+  @state() private securityTokens: Array<Omit<AuthTokenInfo, "isCurrent">> = [];
+  @state() private securityBusy = false;
   @state() private loadingSecurity = false;
   @state() private pendingSection = "";
   @state() private sourceControlIntegrations: SourceControlIntegration[] = [];
@@ -107,8 +99,9 @@ export class CclWorkspace extends LitElement {
   private applySectionNavigation() {
     if (!this.pendingSection) return;
     const section = this.pendingSection;
-    if (this.tab !== "settings") {
-      this.tab = "settings";
+    const targetTab = section === "security" ? "security" : "settings";
+    if (this.tab !== targetTab) {
+      this.tab = targetTab;
     }
     requestAnimationFrame(() => {
       const target = this.querySelector(`[data-workspace-section="${section}"]`) as HTMLElement | null;
@@ -140,6 +133,7 @@ export class CclWorkspace extends LitElement {
       this.billingLast4 = subscription.billingPaymentLast4 ?? "";
       this.billingCycle = subscription.billingCycle ?? "monthly";
       await this.loadSourceControlIntegrations();
+      await this.loadSecurity();
     }
     catch (e) { this.error = (e as Error).message; }
     finally {
@@ -149,141 +143,106 @@ export class CclWorkspace extends LitElement {
   }
 
   private async loadSecurity() {
+    if (!this.tenant || !this.canManageSecurity()) {
+      this.securityUsers = [];
+      this.securityUserId = null;
+      this.securityUserEmail = "";
+      this.securitySessions = [];
+      this.securityTokens = [];
+      return;
+    }
+
     this.loadingSecurity = true;
     try {
-      const [status, sessions, tokens] = await Promise.all([
-        auth.mfaStatus(),
-        auth.listSessions(),
-        auth.listTokens(),
-      ]);
-      this.mfaStatus = status;
-      this.authSessions = sessions;
-      this.authTokens = tokens;
+      this.securityUsers = await tenants.securityUsers(this.tenant.id);
+
+      if (!this.securityUsers.length) {
+        this.securityUserId = null;
+        this.securityUserEmail = "";
+        this.securitySessions = [];
+        this.securityTokens = [];
+        return;
+      }
+
+      if (!this.securityUserId || !this.securityUsers.some((user) => user.id === this.securityUserId)) {
+        this.securityUserId = this.securityUsers[0].id;
+      }
+
+      await this.loadSecurityDetails();
     } catch (err) {
-      this.error = (err as Error).message;
+      if (err instanceof ApiError && err.status === 404) {
+        this.securityUsers = [];
+        this.securityUserId = null;
+        this.securityUserEmail = "";
+        this.securitySessions = [];
+        this.securityTokens = [];
+        this.error = "Security controls are not available on the current API deployment for this tenant yet.";
+      } else {
+        this.error = (err as Error).message;
+      }
     } finally {
       this.loadingSecurity = false;
     }
   }
 
-  private async startMfaSetup() {
-    this.mfaSetupBusy = true;
-    this.error = "";
+  private async loadSecurityDetails() {
+    if (!this.tenant || !this.securityUserId) {
+      this.securityUserEmail = "";
+      this.securitySessions = [];
+      this.securityTokens = [];
+      return;
+    }
+
+    const details = await tenants.securityDetails(this.tenant.id, this.securityUserId);
+    this.securityUserEmail = details.user.email;
+    this.securitySessions = details.sessions;
+    this.securityTokens = details.tokens;
+  }
+
+  private canManageSecurity() {
+    const role = this.tenant?.role?.toLowerCase();
+    return role === "owner" || role === "manager";
+  }
+
+  private async revokeUserSession(sessionId: string) {
+    if (!this.tenant || !this.securityUserId) return;
+    if (!confirm("Revoke this session and sign this device out?")) return;
+    this.securityBusy = true;
     try {
-      const setup = await auth.mfaSetup();
-      this.mfaManualKey = setup.manualEntryKey;
-      this.mfaQrDataUrl = await QRCode.toDataURL(setup.otpauthUrl, { width: 220, margin: 1 });
-      this.recoveryCodes = [];
+      await tenants.securityRevokeSession(this.tenant.id, this.securityUserId, sessionId);
       await this.loadSecurity();
     } catch (err) {
       this.error = (err as Error).message;
     } finally {
-      this.mfaSetupBusy = false;
+      this.securityBusy = false;
     }
   }
 
-  private async enableMfa() {
-    if (!this.mfaVerifyCode.trim()) return;
-    this.mfaEnableBusy = true;
-    this.error = "";
+  private async revokeAllUserSessions() {
+    if (!this.tenant || !this.securityUserId) return;
+    if (!confirm("Revoke all sessions for this user?")) return;
+    this.securityBusy = true;
     try {
-      const res = await auth.mfaEnable(this.mfaVerifyCode.trim());
-      this.recoveryCodes = res.recoveryCodes;
-      this.mfaVerifyCode = "";
-      this.mfaQrDataUrl = "";
-      this.mfaManualKey = "";
+      await tenants.securityRevokeAllSessions(this.tenant.id, this.securityUserId);
       await this.loadSecurity();
     } catch (err) {
       this.error = (err as Error).message;
     } finally {
-      this.mfaEnableBusy = false;
+      this.securityBusy = false;
     }
   }
 
-  private async disableMfa() {
-    if (this.mfaMode === "totp" && !this.mfaVerifyCode.trim()) return;
-    if (this.mfaMode === "recovery" && !this.mfaRecoveryInput.trim()) return;
-    this.mfaDisableBusy = true;
-    this.error = "";
+  private async revokeUserToken(jti: string) {
+    if (!this.tenant || !this.securityUserId) return;
+    if (!confirm("Revoke this JWT token?")) return;
+    this.securityBusy = true;
     try {
-      await auth.mfaDisable({
-        code: this.mfaMode === "totp" ? this.mfaVerifyCode.trim() : undefined,
-        recoveryCode: this.mfaMode === "recovery" ? this.mfaRecoveryInput.trim() : undefined,
-      });
-      this.mfaVerifyCode = "";
-      this.mfaRecoveryInput = "";
-      this.recoveryCodes = [];
+      await tenants.securityRevokeToken(this.tenant.id, this.securityUserId, jti);
       await this.loadSecurity();
     } catch (err) {
       this.error = (err as Error).message;
     } finally {
-      this.mfaDisableBusy = false;
-    }
-  }
-
-  private async regenerateRecoveryCodes() {
-    if (this.mfaMode === "totp" && !this.mfaVerifyCode.trim()) return;
-    if (this.mfaMode === "recovery" && !this.mfaRecoveryInput.trim()) return;
-    this.mfaRegenerateBusy = true;
-    this.error = "";
-    try {
-      const res = await auth.mfaRegenerateRecoveryCodes({
-        code: this.mfaMode === "totp" ? this.mfaVerifyCode.trim() : undefined,
-        recoveryCode: this.mfaMode === "recovery" ? this.mfaRecoveryInput.trim() : undefined,
-      });
-      this.recoveryCodes = res.recoveryCodes;
-      this.mfaRecoveryInput = "";
-      this.mfaVerifyCode = "";
-      await this.loadSecurity();
-    } catch (err) {
-      this.error = (err as Error).message;
-    } finally {
-      this.mfaRegenerateBusy = false;
-    }
-  }
-
-  private downloadRecoveryCodes() {
-    if (!this.recoveryCodes.length) return;
-    const content = this.recoveryCodes.join("\n");
-    const blob = new Blob([`${content}\n`], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "coderclawlink-recovery-codes.txt";
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
-  }
-
-  private async revokeSession(sessionId: string) {
-    if (!confirm("Revoke this session and sign it out?")) return;
-    try {
-      await auth.revokeSession(sessionId);
-      await this.loadSecurity();
-    } catch (err) {
-      this.error = (err as Error).message;
-    }
-  }
-
-  private async revokeOthers() {
-    if (!confirm("Revoke all other sessions?")) return;
-    try {
-      await auth.revokeOtherSessions();
-      await this.loadSecurity();
-    } catch (err) {
-      this.error = (err as Error).message;
-    }
-  }
-
-  private async revokeToken(jti: string) {
-    if (!confirm("Revoke this token?")) return;
-    try {
-      await auth.revokeToken(jti);
-      await this.loadSecurity();
-    } catch (err) {
-      this.error = (err as Error).message;
+      this.securityBusy = false;
     }
   }
 
@@ -515,29 +474,30 @@ export class CclWorkspace extends LitElement {
       <div class="page-header">
         <div>
           <div class="page-title">${this.tenant?.name ?? "Workspace"}</div>
-          <div class="page-sub">Manage members and settings</div>
+          <div class="page-sub">Manage security and settings</div>
         </div>
       </div>
 
       ${this.error ? html`<div class="error-banner">${this.error}</div>` : ""}
 
       <div style="display:flex;gap:4px;margin-bottom:20px">
-        <button class="btn ${this.tab === "members" ? "btn-primary" : "btn-secondary"}" @click=${() => { this.tab = "members"; }}>Members</button>
+        <button class="btn ${this.tab === "security" ? "btn-primary" : "btn-secondary"}" @click=${() => { this.tab = "security"; void this.loadSecurity(); }}>Security</button>
         <button class="btn ${this.tab === "settings" ? "btn-primary" : "btn-secondary"}" @click=${() => { this.tab = "settings"; }}>Settings</button>
       </div>
 
       ${this.loading ? html`<div style="color:var(--muted);font-size:13px">Loading…</div>`
-        : this.tab === "members" ? this.renderMembers()
+        : this.tab === "security" ? this.renderSecurity()
         : this.renderSettings()}
     `;
   }
 
-  private renderMembers() {
+  private renderSecurity() {
     const members = this.detail?.members ?? [];
+    const canManageSecurity = this.canManageSecurity();
     return html`
-      <div data-workspace-section="members">
+      <div data-workspace-section="security">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-          <button class="btn btn-primary" @click=${() => { this.showInvite = true; }}>Invite member</button>
+          <button class="btn btn-primary" @click=${() => { this.showInvite = true; }} ?disabled=${!canManageSecurity}>Invite member</button>
         </div>
 
         ${members.length === 0
@@ -553,7 +513,7 @@ export class CclWorkspace extends LitElement {
                       <td>${this.roleBadge(m.role)}</td>
                       <td style="font-size:12px;color:var(--muted)">${new Date(m.joinedAt).toLocaleDateString()}</td>
                       <td>
-                        ${m.role !== "owner"
+                        ${canManageSecurity && m.role !== "owner"
                           ? html`<button class="btn btn-danger btn-sm" @click=${() => this.removeMember(m.userId)}>Remove</button>`
                           : ""}
                       </td>
@@ -582,6 +542,85 @@ export class CclWorkspace extends LitElement {
               </form>
             </div>
           </div>` : ""}
+
+        <div class="card" style="margin-top:16px">
+          <div class="card-title" style="margin-bottom:8px">User login devices and JWT security</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">
+            Tenant owner/manager can inspect login devices, last login times, active sessions, and active JWT tokens for each member.
+          </div>
+
+          ${!canManageSecurity
+            ? html`<div style="font-size:12px;color:var(--muted)">Only owner/manager can access tenant security controls.</div>`
+            : this.loadingSecurity
+              ? html`<div style="font-size:12px;color:var(--muted)">Loading security details…</div>`
+              : html`
+                  <div class="field" style="margin-bottom:12px">
+                    <label class="label">Member account</label>
+                    <select class="select" .value=${this.securityUserId ?? ""} @change=${async (e: Event) => {
+                      this.securityUserId = (e.target as HTMLSelectElement).value || null;
+                      await this.loadSecurityDetails();
+                    }}>
+                      ${this.securityUsers.map((user) => html`
+                        <option value=${user.id}>${user.email} · sessions ${user.activeSessions} · tokens ${user.activeTokens}</option>
+                      `)}
+                    </select>
+                    <div style="font-size:12px;color:var(--muted);margin-top:6px">Selected: ${this.securityUserEmail || "—"}</div>
+                  </div>
+
+                  <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+                    <button class="btn btn-danger btn-sm" @click=${this.revokeAllUserSessions} ?disabled=${this.securityBusy || !this.securityUserId}>Revoke all sessions</button>
+                  </div>
+
+                  <div class="table-wrap" style="margin-bottom:12px">
+                    <table class="table">
+                      <thead><tr><th>Device</th><th>IP</th><th>Last login</th><th>Status</th><th></th></tr></thead>
+                      <tbody>
+                        ${this.securitySessions.length
+                          ? this.securitySessions.map((session) => html`
+                              <tr>
+                                <td>
+                                  <div style="font-size:12px;color:var(--text-strong);font-weight:600">${session.sessionName || "Session"}</div>
+                                  <div style="font-size:11px;color:var(--muted)">${session.userAgent || "Unknown device"}</div>
+                                </td>
+                                <td style="font-size:12px">${session.ipAddress || "—"}</td>
+                                <td style="font-size:12px">${new Date(session.lastSeenAt).toLocaleString()}</td>
+                                <td style="font-size:12px">${session.isActive ? "active" : "revoked"}</td>
+                                <td>
+                                  ${session.isActive
+                                    ? html`<button class="btn btn-danger btn-sm" @click=${() => this.revokeUserSession(session.id)} ?disabled=${this.securityBusy}>Revoke</button>`
+                                    : ""}
+                                </td>
+                              </tr>
+                            `)
+                          : html`<tr><td colspan="5" style="font-size:12px;color:var(--muted)">No sessions for selected user.</td></tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div class="table-wrap">
+                    <table class="table">
+                      <thead><tr><th>JWT JTI</th><th>Type</th><th>Last seen</th><th>Status</th><th></th></tr></thead>
+                      <tbody>
+                        ${this.securityTokens.length
+                          ? this.securityTokens.map((token) => html`
+                              <tr>
+                                <td class="truncate" style="font-family:var(--mono);font-size:11px;max-width:250px">${token.jti}</td>
+                                <td style="font-size:12px">${token.tokenType}</td>
+                                <td style="font-size:12px">${new Date(token.lastSeenAt).toLocaleString()}</td>
+                                <td style="font-size:12px">${token.isActive ? "active" : "inactive"}</td>
+                                <td>
+                                  ${token.isActive
+                                    ? html`<button class="btn btn-danger btn-sm" @click=${() => this.revokeUserToken(token.jti)} ?disabled=${this.securityBusy}>Revoke</button>`
+                                    : ""}
+                                </td>
+                              </tr>
+                            `)
+                          : html`<tr><td colspan="5" style="font-size:12px;color:var(--muted)">No tokens for selected user.</td></tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+                `}
+        </div>
       </div>
     `;
   }
@@ -817,20 +856,6 @@ export class CclWorkspace extends LitElement {
                 </form>
               `
             : html`<div style="font-size:12px;color:var(--muted)">Only owner/manager can manage integrations.</div>`}
-        </div>
-
-        <div class="card" style="max-width:680px" data-workspace-section="security">
-          <div class="card-title" style="margin-bottom:8px">Security management</div>
-          <div style="font-size:12px;color:var(--muted);line-height:1.5">
-            MFA, recovery codes, active session revocation, and JWT token revocation are managed from
-            <strong>SuperAdmin → Admin → Security</strong> with tenant-level targeting.
-          </div>
-          <div style="margin-top:10px">
-            <button
-              class="btn btn-secondary btn-sm"
-              @click=${() => this.dispatchEvent(new CustomEvent("ccl:open-admin-security", { bubbles: true, composed: true }))}
-            >Open Security Center</button>
-          </div>
         </div>
 
       </div>

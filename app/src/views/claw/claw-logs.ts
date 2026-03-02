@@ -46,6 +46,7 @@ export class CclClawLogs extends LitElement {
       url: this.wsUrl,
       onEvent: (ev: GatewayEvent) => {
         if (ev.type === "connected")    { this.connState = "connected"; this.gw?.send({ type: "logs.subscribe" }); return; }
+        if (ev.type === "claw_online")  { this.connState = "connected"; return; }
         if (ev.type === "disconnected") { this.connState = "disconnected"; return; }
         if (ev.type === "claw_offline") { this.connState = "offline"; return; }
         if (ev.type !== "message") return;

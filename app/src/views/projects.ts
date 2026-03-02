@@ -3,6 +3,9 @@ import { customElement, property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import "./claw/chat.js";
+import "./claw/workspace.js";
+import "./claw/claw-logs.js";
 import {
   llm,
   projects as projectsApi,
@@ -28,7 +31,7 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   blocked: "Blocked",
 };
 
-type WorkspaceTab = "details" | "board" | "tasks" | "prds" | "brain";
+type WorkspaceTab = "details" | "board" | "tasks" | "prds" | "brain" | "chat" | "workspace" | "logs";
 type BrainRole = "user" | "assistant";
 
 type ProjectBrainAction =
@@ -134,6 +137,7 @@ export class CclProjects extends LitElement {
   @state() private brainMessages: BrainMessage[] = [];
   @state() private brainActions: BrainActionState[] = [];
   @state() private dragTaskId = "";
+  @state() private activeProjectClawId = "";
 
   override connectedCallback() {
     super.connectedCallback();
@@ -299,6 +303,7 @@ export class CclProjects extends LitElement {
     this.projectClaws = [];
     this.sourceControlIntegrations = [];
     this.workspaceTab = "details";
+    this.activeProjectClawId = "";
   }
 
   private async loadWorkspace() {
@@ -307,11 +312,15 @@ export class CclProjects extends LitElement {
     try {
       const [tasks, claws, integrations] = await Promise.all([
         tasksApi.list(),
-        clawsApi.list(),
+        projectsApi.listClaws(String(this.activeProject.id)),
         this.tenantId ? tenants.listSourceControlIntegrations(this.tenantId) : Promise.resolve([]),
       ]);
       this.projectTasks = tasks.filter((task) => String(task.projectId ?? "") === String(this.activeProject?.id));
       this.projectClaws = claws;
+      // Default to first associated claw; let <ccl-claw-chat> report live connection state
+      if (!this.activeProjectClawId && claws.length > 0) {
+        this.activeProjectClawId = String(claws[0].id);
+      }
       this.sourceControlIntegrations = integrations;
     } catch (e) {
       this.error = (e as Error).message;
@@ -754,6 +763,9 @@ export class CclProjects extends LitElement {
             ["tasks", "Tasks"],
             ["prds", "PRDs"],
             ["brain", "Brain"],
+            ["chat", "Chat"],
+            ["workspace", "Workspace"],
+            ["logs", "Logs"],
           ] as Array<[WorkspaceTab, string]>).map(([tab, label]) => html`
             <button class="panel-tab ${this.workspaceTab === tab ? "active" : ""}" @click=${() => { this.workspaceTab = tab; }}>${label}</button>
           `)}
@@ -770,7 +782,53 @@ export class CclProjects extends LitElement {
                   ? this.renderTasksTab(tasks)
                   : this.workspaceTab === "prds"
                     ? this.renderPrdsTab()
-                    : this.renderBrainTab()}
+                    : this.workspaceTab === "chat"
+                      ? this.renderClawTab("chat")
+                      : this.workspaceTab === "workspace"
+                        ? this.renderClawTab("workspace")
+                        : this.workspaceTab === "logs"
+                          ? this.renderClawTab("logs")
+                          : this.renderBrainTab()}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderClawTab(tab: "chat" | "workspace" | "logs") {
+    const claw = this.projectClaws.find((item) => String(item.id) === this.activeProjectClawId) ?? this.projectClaws[0] ?? null;
+    if (!claw) {
+      return html`
+        <div class="empty-state" style="margin-top:24px">
+          <div class="empty-state-title">No claws assigned</div>
+          <div class="empty-state-sub">Assign a claw to this project to use ${tab}.</div>
+        </div>
+      `;
+    }
+
+    if (!this.activeProjectClawId) {
+      this.activeProjectClawId = String(claw.id);
+    }
+
+    const wsUrl = clawsApi.wsUrl(claw.id);
+
+    return html`
+      <div style="display:grid;gap:12px;min-height:420px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--muted)">Active claw</span>
+          <select
+            class="select"
+            style="min-width:220px"
+            .value=${String(claw.id)}
+            @change=${(e: Event) => { this.activeProjectClawId = (e.target as HTMLSelectElement).value; }}
+          >
+            ${this.projectClaws.map((item) => html`<option value=${String(item.id)}>${item.name}</option>`)}
+          </select>
+        </div>
+
+        <div class="card" style="padding:0;min-height:360px;overflow:hidden">
+          ${tab === "chat" ? html`<ccl-claw-chat .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-chat>` : ""}
+          ${tab === "workspace" ? html`<ccl-claw-workspace .clawId=${claw.id}></ccl-claw-workspace>` : ""}
+          ${tab === "logs" ? html`<ccl-claw-logs .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-logs>` : ""}
         </div>
       </div>
     `;

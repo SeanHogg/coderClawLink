@@ -10,6 +10,7 @@ export type GatewayEvent =
   | { type: "connected" }
   | { type: "disconnected"; code: number; reason: string }
   | { type: "claw_offline" }
+  | { type: "claw_online" }
   | { type: "message"; data: unknown };
 
 export type GatewayEventHandler = (ev: GatewayEvent) => void;
@@ -45,11 +46,13 @@ export class ClawGateway {
     this.ws.addEventListener("message", (ev) => {
       let data: unknown;
       try { data = JSON.parse(ev.data as string); } catch { data = ev.data; }
-      if (
-        data && typeof data === "object" &&
-        (data as { type?: string }).type === "claw_offline"
-      ) {
+      const msgType = data && typeof data === "object" ? (data as { type?: string }).type : undefined;
+      if (msgType === "claw_offline") {
         this.opts.onEvent({ type: "claw_offline" });
+        return;
+      }
+      if (msgType === "claw_online") {
+        this.opts.onEvent({ type: "claw_online" });
         return;
       }
       this.opts.onEvent({ type: "message", data });

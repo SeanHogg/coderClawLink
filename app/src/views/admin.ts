@@ -1,16 +1,22 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import {
+  ApiError,
   adminApi,
   getWebToken,
   setTenantToken, setTenantId,
   type AdminUser, type AdminTenant, type AdminHealth, type AdminError,
   type AdminSecurityUser,
+  type AdminLegalCurrent,
+  type AdminNewsletterSubscriber,
+  type AdminPrivacyRequest,
+  type AdminNewsletterTemplate,
+  type AdminNewsletterEvent,
   type LlmUsageStats,
 } from "../api.js";
 import QRCode from "qrcode";
 
-type AdminTab = "health" | "billing" | "users" | "tenants" | "errors" | "usage" | "security";
+type AdminTab = "health" | "billing" | "users" | "tenants" | "errors" | "usage" | "security" | "legal" | "newsletter" | "privacy";
 type LlmPoolTab = "coderClawLLM" | "coderClawLLMPro";
 
 @customElement("ccl-admin")
@@ -76,6 +82,30 @@ export class CclAdmin extends LitElement {
   @state() private securityMfaManualKey = "";
   @state() private securityMfaQrDataUrl = "";
   @state() private securityRecoveryCodes: string[] = [];
+  @state() private legalCurrent: AdminLegalCurrent | null = null;
+  @state() private legalPublishVersion = "";
+  @state() private legalPublishTitle = "Terms of Use";
+  @state() private legalPublishContent = "";
+  @state() private legalPublishing = false;
+  @state() private newsletterSubscribers: AdminNewsletterSubscriber[] = [];
+  @state() private newsletterTemplates: AdminNewsletterTemplate[] = [];
+  @state() private newsletterEvents: AdminNewsletterEvent[] = [];
+  @state() private newsletterStatusFilter: "all" | "subscribed" | "unsubscribed" | "suppressed" = "subscribed";
+  @state() private newsletterSearch = "";
+  @state() private newsletterTemplateName = "";
+  @state() private newsletterTemplateSubject = "";
+  @state() private newsletterTemplatePreheader = "";
+  @state() private newsletterTemplateBody = "";
+  @state() private newsletterTemplateBusy = false;
+  @state() private newsletterTrackTemplateId = "";
+  @state() private newsletterTrackEmail = "";
+  @state() private newsletterTrackBusy = false;
+
+  @state() private privacyRequests: AdminPrivacyRequest[] = [];
+  @state() private privacyStatusFilter: string = "";
+  @state() private privacyTypeFilter: string = "";
+  @state() private privacySearch = "";
+  @state() private privacyUpdateBusy = false;
 
   override connectedCallback() {
     super.connectedCallback();
@@ -106,12 +136,39 @@ export class CclAdmin extends LitElement {
         this.errors = errors;
       } else if (tab === "security") {
         await this.loadSecurityContext();
+      } else if (tab === "legal") {
+        this.legalCurrent = await adminApi.legalCurrent();
+      } else if (tab === "newsletter") {
+        await this.loadNewsletterContext();
+      } else if (tab === "privacy") {
+        await this.loadPrivacyContext();
       }
     } catch (e: unknown) {
       this.errorMsg = e instanceof Error ? e.message : String(e);
     } finally {
       this.loading = false;
     }
+  }
+
+  private async loadNewsletterContext() {
+    const status = this.newsletterStatusFilter === "all" ? undefined : this.newsletterStatusFilter;
+    const [subscribers, templates, events] = await Promise.all([
+      adminApi.newsletterSubscribers({ status, q: this.newsletterSearch || undefined, limit: 400 }),
+      adminApi.newsletterTemplates(),
+      adminApi.newsletterEvents(300),
+    ]);
+    this.newsletterSubscribers = subscribers;
+    this.newsletterTemplates = templates;
+    this.newsletterEvents = events;
+  }
+
+  private async loadPrivacyContext() {
+    const status = this.privacyStatusFilter || undefined;
+    const type = this.privacyTypeFilter || undefined;
+    const [requests] = await Promise.all([
+      adminApi.privacyRequests({ status, type, q: this.privacySearch || undefined, limit: 400 }),
+    ]);
+    this.privacyRequests = requests;
   }
 
   private async loadSecurityContext() {
@@ -138,7 +195,21 @@ export class CclAdmin extends LitElement {
       this.securityUserId = null;
       return;
     }
-    this.securityUsers = await adminApi.securityUsers(this.securityTenantId);
+    try {
+      this.securityUsers = await adminApi.securityUsers(this.securityTenantId);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        this.securityUsers = [];
+        this.securityUserId = null;
+        this.securityUserEmail = "";
+        this.securityMfaStatus = null;
+        this.securitySessions = [];
+        this.securityTokens = [];
+        this.errorMsg = "Security endpoints are not available on the current API deployment. Deploy the latest api service to enable the Security tab.";
+        return;
+      }
+      throw error;
+    }
     if (!this.securityUsers.length) {
       this.securityUserId = null;
       this.securityUserEmail = "";
@@ -295,7 +366,7 @@ export class CclAdmin extends LitElement {
 
         <!-- Tabs -->
         <nav class="admin-tabs">
-          ${(["health", "billing", "usage", "users", "tenants", "security", "errors"] as AdminTab[]).map(t => html`
+          ${(["health", "billing", "usage", "users", "tenants", "security", "legal", "newsletter", "privacy", "errors"] as AdminTab[]).map(t => html`
             <button
               class="admin-tab ${this.tab === t ? "active" : ""}"
               @click=${() => this.loadTab(t)}
@@ -324,8 +395,366 @@ export class CclAdmin extends LitElement {
     if (this.tab === "users")   return this.renderUsers();
     if (this.tab === "tenants") return this.renderTenants();
     if (this.tab === "security") return this.renderSecurity();
+    if (this.tab === "legal")   return this.renderLegal();
+    if (this.tab === "newsletter") return this.renderNewsletter();
+    if (this.tab === "privacy") return this.renderPrivacy();
     if (this.tab === "errors")  return this.renderErrors();
     return html``;
+  }
+
+  private async publishTerms() {
+    if (!this.legalPublishVersion.trim() || !this.legalPublishContent.trim()) {
+      this.errorMsg = "Version and content are required.";
+      return;
+    }
+
+    this.legalPublishing = true;
+    this.errorMsg = "";
+    try {
+      await adminApi.publishTerms({
+        version: this.legalPublishVersion.trim(),
+        title: this.legalPublishTitle.trim() || "Terms of Use",
+        content: this.legalPublishContent.trim(),
+      });
+      this.legalCurrent = await adminApi.legalCurrent();
+      this.legalPublishVersion = "";
+      this.legalPublishTitle = "Terms of Use";
+      this.legalPublishContent = "";
+    } catch (e: unknown) {
+      this.errorMsg = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.legalPublishing = false;
+    }
+  }
+
+  private renderLegal() {
+    const current = this.legalCurrent;
+    return html`
+      <div class="health-grid" style="margin-bottom:16px">
+        <div class="health-card">
+          <div class="health-label">Terms Version</div>
+          <div class="health-value">${current?.terms.version ?? "—"}</div>
+          <div class="health-sub">Published ${current?.terms.publishedAt ? this.fmtDateTime(current.terms.publishedAt) : "—"}</div>
+        </div>
+        <div class="health-card">
+          <div class="health-label">Privacy Version</div>
+          <div class="health-value">${current?.privacy.version ?? "—"}</div>
+          <div class="health-sub">Published ${current?.privacy.publishedAt ? this.fmtDateTime(current.privacy.publishedAt) : "—"}</div>
+        </div>
+      </div>
+
+      <div class="card" style="max-width:900px;margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:10px">Current Terms</div>
+        <div style="font-size:12px;color:var(--text-muted,#6b7280);margin-bottom:10px">
+          ${current?.terms.title ?? "Terms of Use"} · v${current?.terms.version ?? "—"}
+        </div>
+        <textarea class="textarea" style="min-height:220px" readonly>${current?.terms.content ?? ""}</textarea>
+      </div>
+
+      <div class="card" style="max-width:900px">
+        <div class="card-title" style="margin-bottom:10px">Publish New Terms Version</div>
+        <div style="display:grid;grid-template-columns:200px 1fr;gap:10px;margin-bottom:10px">
+          <input
+            class="input"
+            placeholder="Version (e.g. 1.1.0)"
+            .value=${this.legalPublishVersion}
+            @input=${(e: InputEvent) => { this.legalPublishVersion = (e.target as HTMLInputElement).value; }}
+          />
+          <input
+            class="input"
+            placeholder="Title"
+            .value=${this.legalPublishTitle}
+            @input=${(e: InputEvent) => { this.legalPublishTitle = (e.target as HTMLInputElement).value; }}
+          />
+        </div>
+        <textarea
+          class="textarea"
+          style="min-height:240px;margin-bottom:10px"
+          placeholder="Terms content"
+          .value=${this.legalPublishContent}
+          @input=${(e: InputEvent) => { this.legalPublishContent = (e.target as HTMLTextAreaElement).value; }}
+        ></textarea>
+        <div style="display:flex;justify-content:flex-end">
+          <button class="btn btn-primary btn-sm" @click=${this.publishTerms} ?disabled=${this.legalPublishing}>
+            ${this.legalPublishing ? "Publishing…" : "Publish Terms"}
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  private async createNewsletterTemplate() {
+    if (!this.newsletterTemplateName.trim() || !this.newsletterTemplateSubject.trim() || !this.newsletterTemplateBody.trim()) {
+      this.errorMsg = "Template name, subject, and body are required.";
+      return;
+    }
+
+    this.newsletterTemplateBusy = true;
+    this.errorMsg = "";
+    try {
+      await adminApi.createNewsletterTemplate({
+        name: this.newsletterTemplateName.trim(),
+        subject: this.newsletterTemplateSubject.trim(),
+        preheader: this.newsletterTemplatePreheader.trim() || undefined,
+        bodyMarkdown: this.newsletterTemplateBody,
+      });
+      this.newsletterTemplateName = "";
+      this.newsletterTemplateSubject = "";
+      this.newsletterTemplatePreheader = "";
+      this.newsletterTemplateBody = "";
+      await this.loadNewsletterContext();
+    } catch (e: unknown) {
+      this.errorMsg = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.newsletterTemplateBusy = false;
+    }
+  }
+
+  private async trackNewsletterSend() {
+    if (!this.newsletterTrackEmail.trim() || !this.newsletterTrackTemplateId.trim()) {
+      this.errorMsg = "Subscriber email and template are required to track a send.";
+      return;
+    }
+
+    this.newsletterTrackBusy = true;
+    this.errorMsg = "";
+    try {
+      await adminApi.trackNewsletterEvent({
+        subscriberEmail: this.newsletterTrackEmail.trim(),
+        templateId: Number(this.newsletterTrackTemplateId),
+        eventType: "template_sent",
+      });
+      this.newsletterTrackEmail = "";
+      await this.loadNewsletterContext();
+    } catch (e: unknown) {
+      this.errorMsg = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.newsletterTrackBusy = false;
+    }
+  }
+
+  private renderNewsletter() {
+    return html`
+      <div class="health-grid" style="margin-bottom:16px">
+        <div class="health-card">
+          <div class="health-label">Subscribers</div>
+          <div class="health-value">${this.newsletterSubscribers.length}</div>
+          <div class="health-sub">Current filtered audience</div>
+        </div>
+        <div class="health-card">
+          <div class="health-label">Templates</div>
+          <div class="health-value">${this.newsletterTemplates.length}</div>
+          <div class="health-sub">Managed in app.coderclaw.ai</div>
+        </div>
+        <div class="health-card">
+          <div class="health-label">Tracked Events</div>
+          <div class="health-value">${this.newsletterEvents.length}</div>
+          <div class="health-sub">Recent activity window</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:8px">Subscribers (CRM)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <select class="input" style="max-width:220px" .value=${this.newsletterStatusFilter} @change=${async (e: Event) => {
+            this.newsletterStatusFilter = (e.target as HTMLSelectElement).value as typeof this.newsletterStatusFilter;
+            await this.loadNewsletterContext();
+          }}>
+            <option value="all">All statuses</option>
+            <option value="subscribed">Subscribed</option>
+            <option value="unsubscribed">Unsubscribed</option>
+            <option value="suppressed">Suppressed</option>
+          </select>
+          <input class="input" style="max-width:280px" placeholder="Search email" .value=${this.newsletterSearch} @change=${async (e: Event) => {
+            this.newsletterSearch = (e.target as HTMLInputElement).value;
+            await this.loadNewsletterContext();
+          }} />
+          <button class="btn btn-ghost btn-sm" @click=${() => this.loadNewsletterContext()}>↻ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Source</th>
+                <th>User</th>
+                <th>Subscribed</th>
+                <th>Unsubscribed</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${this.newsletterSubscribers.map((subscriber) => html`
+                <tr>
+                  <td>${subscriber.email}</td>
+                  <td><span class="badge ${subscriber.status === "subscribed" ? "badge-success" : "badge-neutral"}">${subscriber.status}</span></td>
+                  <td class="text-muted">${subscriber.source}</td>
+                  <td class="text-muted">${subscriber.userDisplayName ?? subscriber.userUsername ?? "—"}</td>
+                  <td class="text-muted">${subscriber.subscribedAt ? this.fmtDateTime(subscriber.subscribedAt) : "—"}</td>
+                  <td class="text-muted">${subscriber.unsubscribedAt ? this.fmtDateTime(subscriber.unsubscribedAt) : "—"}</td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:8px">Email Templates</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <input class="input" placeholder="Template name" .value=${this.newsletterTemplateName} @input=${(e: InputEvent) => { this.newsletterTemplateName = (e.target as HTMLInputElement).value; }} />
+          <input class="input" placeholder="Subject" .value=${this.newsletterTemplateSubject} @input=${(e: InputEvent) => { this.newsletterTemplateSubject = (e.target as HTMLInputElement).value; }} />
+        </div>
+        <input class="input" style="margin-bottom:10px" placeholder="Preheader (optional)" .value=${this.newsletterTemplatePreheader} @input=${(e: InputEvent) => { this.newsletterTemplatePreheader = (e.target as HTMLInputElement).value; }} />
+        <textarea class="textarea" style="min-height:140px;margin-bottom:10px" placeholder="Markdown body" .value=${this.newsletterTemplateBody} @input=${(e: InputEvent) => { this.newsletterTemplateBody = (e.target as HTMLTextAreaElement).value; }}></textarea>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+          <button class="btn btn-primary btn-sm" @click=${this.createNewsletterTemplate} ?disabled=${this.newsletterTemplateBusy}>${this.newsletterTemplateBusy ? "Saving…" : "Save Template"}</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Subject</th>
+                <th>Slug</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${this.newsletterTemplates.map((template) => html`
+                <tr>
+                  <td>${template.name}</td>
+                  <td>${template.subject}</td>
+                  <td class="text-muted">${template.slug}</td>
+                  <td class="text-muted">${template.updatedAt ? this.fmtDateTime(template.updatedAt) : "—"}</td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" style="margin-bottom:8px">Email Tracking</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <select class="input" style="max-width:260px" .value=${this.newsletterTrackTemplateId} @change=${(e: Event) => { this.newsletterTrackTemplateId = (e.target as HTMLSelectElement).value; }}>
+            <option value="">Select template</option>
+            ${this.newsletterTemplates.map((template) => html`<option value=${String(template.id)}>${template.name}</option>`)}
+          </select>
+          <input class="input" style="max-width:320px" placeholder="subscriber@email.com" .value=${this.newsletterTrackEmail} @input=${(e: InputEvent) => { this.newsletterTrackEmail = (e.target as HTMLInputElement).value; }} />
+          <button class="btn btn-secondary btn-sm" @click=${this.trackNewsletterSend} ?disabled=${this.newsletterTrackBusy}>${this.newsletterTrackBusy ? "Tracking…" : "Track Send"}</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Event</th>
+                <th>Email</th>
+                <th>Template</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${this.newsletterEvents.map((event) => html`
+                <tr>
+                  <td class="text-muted">${event.createdAt ? this.fmtDateTime(event.createdAt) : "—"}</td>
+                  <td>${event.eventType}</td>
+                  <td>${event.email}</td>
+                  <td class="text-muted">${event.templateName ?? "—"}</td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  private async updatePrivacyEntry(id: number, status?: string, resolution?: string | null) {
+    if (!id) return;
+    this.privacyUpdateBusy = true;
+    this.errorMsg = "";
+    try {
+      await adminApi.updatePrivacyRequest(id, { status, resolution });
+      await this.loadPrivacyContext();
+    } catch (e: unknown) {
+      this.errorMsg = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.privacyUpdateBusy = false;
+    }
+  }
+
+  private renderPrivacy() {
+    return html`
+      <div class="health-grid" style="margin-bottom:16px">
+        <div class="health-card">
+          <div class="health-label">Requests</div>
+          <div class="health-value">${this.privacyRequests.length}</div>
+          <div class="health-sub">Current filtered set</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:8px">Filter</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <select class="input" style="max-width:200px" .value=${this.privacyStatusFilter} @change=${async (e: Event) => {
+            this.privacyStatusFilter = (e.target as HTMLSelectElement).value;
+            await this.loadPrivacyContext();
+          }}>
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="resolved">Resolved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <select class="input" style="max-width:200px" .value=${this.privacyTypeFilter} @change=${async (e: Event) => {
+            this.privacyTypeFilter = (e.target as HTMLSelectElement).value;
+            await this.loadPrivacyContext();
+          }}>
+            <option value="">All types</option>
+            <option value="ccpa">CCPA</option>
+            <option value="gdpr">GDPR</option>
+          </select>
+          <input class="input" style="max-width:280px" placeholder="Search email" .value=${this.privacySearch} @change=${async (e: Event) => {
+            this.privacySearch = (e.target as HTMLInputElement).value;
+            await this.loadPrivacyContext();
+          }} />
+          <button class="btn btn-ghost btn-sm" @click=${() => this.loadPrivacyContext()}>↻ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Requested</th>
+                <th>Details</th>
+                <th>Resolution</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${this.privacyRequests.map(req => html`
+                <tr>
+                  <td>${req.email}</td>
+                  <td>${req.requestType.toUpperCase()}</td>
+                  <td><span class="badge ${req.status === "pending" ? "badge-neutral" : "badge-success"}">${req.status}</span></td>
+                  <td class="text-muted">${req.createdAt ? this.fmtDateTime(req.createdAt) : "—"}</td>
+                  <td class="text-muted">${req.details || "—"}</td>
+                  <td class="text-muted">${req.resolution || "—"}</td>
+                  <td>
+                    ${req.status === "pending" ? html`
+                      <button class="btn btn-sm btn-secondary" @click=${() => this.updatePrivacyEntry(req.id, "resolved", "processed")} ?disabled=${this.privacyUpdateBusy}>Mark Resolved</button>
+                      <button class="btn btn-sm btn-ghost" @click=${() => this.updatePrivacyEntry(req.id, "rejected", null)} ?disabled=${this.privacyUpdateBusy}>Reject</button>
+                    ` : ""}
+                  </td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
   }
 
   private composeMailto(email: string, subject: string, body: string) {

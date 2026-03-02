@@ -8,13 +8,15 @@
  * All routes require a tenant-scoped JWT (authMiddleware).
  */
 import { Hono } from 'hono';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, desc } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/authMiddleware';
 import {
   coderclawInstances,
   clawProjects,
   clawDirectories,
   clawDirectoryFiles,
+  clawSyncHistory,
+  chatSessions,
   projects,
   tenants,
 } from '../../infrastructure/database/schema';
@@ -518,12 +520,73 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
       }
     }
 
+    // Record sync history entry
+    const triggeredBy = (body.metadata as Record<string, string> | undefined)?.triggeredBy ?? 'startup';
+    const fileCount = body.files?.length ?? 0;
+    const bytesTotal = body.files?.reduce((sum, f) => sum + (f.sizeBytes ?? (f.content?.length ?? 0)), 0) ?? 0;
+    await db.insert(clawSyncHistory).values({
+      tenantId: claw.tenantId,
+      clawId,
+      directoryId: directory.id,
+      triggeredBy,
+      fileCount,
+      bytesTotal,
+      status: 'success',
+    });
+
     return c.json({ ok: true, directoryId: directory.id });
   });
 
-  // GET /api/claws/:id/sessions – list sessions for this claw (stub)
+  // GET /api/claws/:id/sync-history – recent sync history (JWT auth)
+  router.get('/:id/sync-history', authMiddleware as never, async (c) => {
+    const clawId = Number(c.req.param('id'));
+    const tenantId = (c as unknown as { get: (k: string) => unknown }).get('tenantId') as number;
+
+    const rows = await db
+      .select({
+        id:          clawSyncHistory.id,
+        triggeredBy: clawSyncHistory.triggeredBy,
+        fileCount:   clawSyncHistory.fileCount,
+        bytesTotal:  clawSyncHistory.bytesTotal,
+        status:      clawSyncHistory.status,
+        errorMsg:    clawSyncHistory.errorMsg,
+        createdAt:   clawSyncHistory.createdAt,
+      })
+      .from(clawSyncHistory)
+      .where(and(
+        eq(clawSyncHistory.clawId, clawId),
+        eq(clawSyncHistory.tenantId, tenantId),
+      ))
+      .orderBy(desc(clawSyncHistory.createdAt))
+      .limit(20);
+
+    return c.json({ history: rows });
+  });
+
+  // GET /api/claws/:id/sessions – list chat sessions for this claw
   router.get('/:id/sessions', authMiddleware as never, async (c) => {
-    return c.json({ sessions: [] });
+    const clawId  = Number(c.req.param('id'));
+    const tenantId = c.get('tenantId') as number;
+    const limit = Math.min(Number(c.req.query('limit') ?? 50), 100);
+
+    const rows = await db
+      .select({
+        id:         chatSessions.id,
+        sessionKey: chatSessions.sessionKey,
+        startedAt:  chatSessions.startedAt,
+        endedAt:    chatSessions.endedAt,
+        msgCount:   chatSessions.msgCount,
+        lastMsgAt:  chatSessions.lastMsgAt,
+      })
+      .from(chatSessions)
+      .where(and(
+        eq(chatSessions.clawId, clawId),
+        eq(chatSessions.tenantId, tenantId),
+      ))
+      .orderBy(desc(chatSessions.lastMsgAt))
+      .limit(limit);
+
+    return c.json({ sessions: rows });
   });
 
   // GET /api/claws/:id/cron – list cron jobs for this claw (stub)

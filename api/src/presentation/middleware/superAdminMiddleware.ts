@@ -2,6 +2,10 @@ import { MiddlewareHandler } from 'hono';
 import type { HonoEnv } from '../../env';
 import { verifyWebJwt } from '../../infrastructure/auth/JwtService';
 import { UnauthorizedError, ForbiddenError } from '../../domain/shared/errors';
+import { buildDatabase } from '../../infrastructure/database/connection';
+import { checkTermsAcceptance } from './termsEnforcement';
+
+const SUPERADMIN_EMAIL = 'seanhogg@gmail.com';
 
 /**
  * Middleware that gates access to superadmin-only endpoints.
@@ -25,6 +29,22 @@ export const superAdminMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) 
 
   if (!payload.sa) {
     throw new ForbiddenError('Superadmin access required');
+  }
+
+  const email = (payload.email ?? '').toLowerCase().trim();
+  if (email !== SUPERADMIN_EMAIL) {
+    throw new ForbiddenError('Superadmin access is restricted to the platform owner account');
+  }
+
+  const db = buildDatabase(c.env);
+  const terms = await checkTermsAcceptance(db, payload.sub);
+  if (terms.needsAcceptance) {
+    return c.json({
+      error: 'Terms acceptance required',
+      code: 'TERMS_ACCEPTANCE_REQUIRED',
+      requiredVersion: terms.requiredVersion,
+      acceptedVersion: terms.acceptedVersion,
+    }, 428);
   }
 
   c.set('userId', payload.sub);

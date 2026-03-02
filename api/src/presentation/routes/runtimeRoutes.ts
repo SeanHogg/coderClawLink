@@ -5,7 +5,7 @@ import { ExecutionStatus } from '../../domain/shared/types';
 import type { HonoEnv } from '../../env';
 import { authMiddleware } from '../middleware/authMiddleware';
 import type { Db } from '../../infrastructure/database/connection';
-import { coderclawInstances, projects, tasks } from '../../infrastructure/database/schema';
+import { coderclawInstances, executions, projectInsightEvents, projects, tasks } from '../../infrastructure/database/schema';
 import type { ClawRelayDO } from '../../infrastructure/relay/ClawRelayDO';
 
 /**
@@ -35,6 +35,66 @@ type DispatchMessage = {
     description?: string | null;
   };
 };
+
+function normalizeCodeChanges(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.floor(value));
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.max(0, Math.floor(parsed));
+  }
+  return null;
+}
+
+function extractCodeChangesFromResult(result?: string): number | null {
+  if (!result?.trim()) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result);
+  } catch {
+    return null;
+  }
+
+  const queue: unknown[] = [parsed];
+  const visited = new Set<unknown>();
+  const keys = [
+    'codeChanges',
+    'code_changes',
+    'linesChanged',
+    'lines_changed',
+    'changedLines',
+    'totalChangedLines',
+    'total_changed_lines',
+  ] as const;
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    if (Array.isArray(current)) {
+      for (const item of current) queue.push(item);
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    for (const key of keys) {
+      const direct = normalizeCodeChanges(record[key]);
+      if (direct != null) return direct;
+    }
+
+    const insertions = normalizeCodeChanges(record.insertions ?? record.additions ?? record.addedLines ?? record.added_lines);
+    const deletions = normalizeCodeChanges(record.deletions ?? record.removals ?? record.deletedLines ?? record.deleted_lines);
+    if (insertions != null || deletions != null) {
+      return (insertions ?? 0) + (deletions ?? 0);
+    }
+
+    for (const value of Object.values(record)) queue.push(value);
+  }
+
+  return null;
+}
 
 async function dispatchToClaw(env: RuntimeHonoEnv['Bindings'], clawId: number, message: DispatchMessage): Promise<boolean> {
   if (!env.CLAW_RELAY) return false;
@@ -174,8 +234,43 @@ export function createRuntimeRoutes(runtimeService: RuntimeService, db: Db): Hon
       status:        ExecutionStatus;
       result?:       string;
       errorMessage?: string;
+      codeChanges?:  number;
     }>();
     const execution = await runtimeService.update(id, body);
+
+    if (body.status === ExecutionStatus.COMPLETED) {
+      const explicitCodeChanges = normalizeCodeChanges(body.codeChanges);
+      const inferredCodeChanges = extractCodeChangesFromResult(body.result);
+      const codeChanges = explicitCodeChanges ?? inferredCodeChanges;
+
+      if (codeChanges != null) {
+        const [taskRow] = await db
+          .select({
+            projectId: tasks.projectId,
+          })
+          .from(executions)
+          .innerJoin(tasks, eq(tasks.id, executions.taskId))
+          .innerJoin(projects, eq(projects.id, tasks.projectId))
+          .where(
+            and(
+              eq(executions.id, id),
+              eq(projects.tenantId, c.get('tenantId')),
+            ),
+          )
+          .limit(1);
+
+        if (taskRow) {
+          await db.insert(projectInsightEvents).values({
+            tenantId: c.get('tenantId'),
+            projectId: taskRow.projectId,
+            userId: c.get('userId') as string,
+            executionId: id,
+            codeChanges,
+          });
+        }
+      }
+    }
+
     return c.json(execution.toPlain());
   });
 
