@@ -26,9 +26,11 @@ import "./views/quickstart.js";
 import "./views/brain.js";
 import "./views/agents.js";
 import "./views/chats.js";
+import "./views/code-editor.js";
+import "./views/content.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats";
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content";
 type WorkspaceTab = "security" | "settings";
 type WorkspaceSection = "settings" | "billing" | "consumption" | "details" | "security";
 
@@ -439,6 +441,18 @@ export class CclApp extends LitElement {
         view = el;
         break;
       }
+      case "code-editor": {
+        const el = document.createElement("ccl-code-editor") as HTMLElement & { tenantId?: string };
+        el.tenantId = tenantId;
+        view = el;
+        break;
+      }
+      case "content": {
+        const el = document.createElement("ccl-content") as HTMLElement & { tenantId?: string };
+        el.tenantId = tenantId;
+        view = el;
+        break;
+      }
     }
 
     host.replaceChildren(view);
@@ -491,6 +505,8 @@ export class CclApp extends LitElement {
       panelLeft: `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>`,
       chevronsLeft: `<polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>`,
       chevronsRight: `<polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>`,
+      "code-editor": `<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>`,
+      content: `<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>`,
     };
     return `<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0">${paths[name] ?? ""}</svg>`;
   }
@@ -768,6 +784,10 @@ export class CclApp extends LitElement {
       { id: "agents", label: "Agents", icon: "agents" },
       { id: "chats",  label: "Chats",  icon: "logs"   },
     ];
+    const buildItems: Array<{ id: DashTab; label: string; icon: string }> = [
+      { id: "code-editor", label: "Code Editor",      icon: "code-editor" },
+      { id: "content",     label: "Content Manager", icon: "content"     },
+    ];
     const systemItems: Array<
       { id: DashTab; label: string; icon: string; workspaceTab?: WorkspaceTab; workspaceSection?: WorkspaceSection }
     > = [
@@ -863,6 +883,11 @@ export class CclApp extends LitElement {
             <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">Mesh</div>
             <div class="nav-section">
               ${meshItems.map(navBtn)}
+            </div>
+
+            <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">Build</div>
+            <div class="nav-section">
+              ${buildItems.map(navBtn)}
             </div>
 
             <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">System</div>

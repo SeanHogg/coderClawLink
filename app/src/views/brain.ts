@@ -17,7 +17,7 @@ import {
   type TaskStatus,
 } from "../api.js";
 
-type DashboardPage = "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs";
+type DashboardPage = "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "code-editor" | "content";
 type BrainRole = "user" | "assistant";
 
 type BrainAction =
@@ -42,6 +42,25 @@ interface BrainMessage {
   id: string;
   role: BrainRole;
   text: string;
+}
+
+function brainMemoryKey(tenantId: string) {
+  return `ccl-brain-memory-${tenantId || "default"}`;
+}
+
+function loadMemory(tenantId: string): BrainMessage[] {
+  // Data was already trimmed to 50 messages on save, so no limit needed here.
+  try {
+    const raw = localStorage.getItem(brainMemoryKey(tenantId));
+    return raw ? (JSON.parse(raw) as BrainMessage[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMemory(tenantId: string, messages: BrainMessage[]) {
+  // Persist the last 50 messages to keep localStorage lean.
+  localStorage.setItem(brainMemoryKey(tenantId), JSON.stringify(messages.slice(-50)));
 }
 
 interface ActionState {
@@ -78,6 +97,7 @@ export class CclBrain extends LitElement {
   override connectedCallback() {
     super.connectedCallback();
     window.addEventListener("ccl:brain-open", this.handleBrainOpen as EventListener);
+    this.messages = loadMemory(this.tenantId);
     void this.refreshContext();
   }
 
@@ -87,7 +107,11 @@ export class CclBrain extends LitElement {
   }
 
   override updated(changed: Map<string, unknown>) {
-    if (changed.has("tenantId") || changed.has("page") || changed.has("focusProjectId")) {
+    if (changed.has("tenantId")) {
+      this.messages = loadMemory(this.tenantId);
+      this.contextError = "";
+      void this.refreshContext();
+    } else if (changed.has("page") || changed.has("focusProjectId")) {
       this.contextError = "";
       void this.refreshContext();
     }
@@ -125,6 +149,8 @@ export class CclBrain extends LitElement {
       workspace: "Workspace",
       billing: "Billing",
       logs: "Logs",
+      "code-editor": "Code Editor",
+      content: "Content Manager",
     };
     return labels[this.page] ?? this.page;
   }
@@ -251,6 +277,7 @@ export class CclBrain extends LitElement {
         ...this.messages,
         { id: crypto.randomUUID(), role: "assistant", text: this.stripActions(content) || "Done." },
       ];
+      saveMemory(this.tenantId, this.messages);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.messages = [...this.messages, { id: crypto.randomUUID(), role: "assistant", text: `Error: ${msg}` }];
@@ -321,6 +348,7 @@ export class CclBrain extends LitElement {
     this.messages = [];
     this.actions = [];
     this.input = "";
+    saveMemory(this.tenantId, []);
   }
 
   private renderMarkdown(text: string) {
@@ -358,6 +386,7 @@ export class CclBrain extends LitElement {
           <div style="display:flex;align-items:center;gap:8px">
             <button class="btn btn-ghost btn-sm" @click=${() => void this.refreshContext()}>Refresh</button>
             <button class="btn btn-ghost btn-sm" @click=${this.clearChat}>New chat</button>
+            ${this.messages.length > 0 ? html`<span class="badge badge-blue" title="Memory: ${this.messages.length} messages saved">Memory ✓</span>` : ""}
             <button class="panel-close" @click=${() => { this.open = false; }}>
               <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
