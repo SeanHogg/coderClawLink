@@ -33,12 +33,29 @@ export class ClawGateway {
     this.connect();
   }
 
+  private readyStateLabel(state: number): string {
+    if (state === WebSocket.CONNECTING) return "CONNECTING";
+    if (state === WebSocket.OPEN) return "OPEN";
+    if (state === WebSocket.CLOSING) return "CLOSING";
+    if (state === WebSocket.CLOSED) return "CLOSED";
+    return `UNKNOWN(${state})`;
+  }
+
   private connect() {
     if (this.destroyed) return;
+    console.debug("[ccl-chat] gateway.connect", {
+      url: this.opts.url,
+      attempt: this.attempt,
+      destroyed: this.destroyed,
+    });
     this.ws = new WebSocket(this.opts.url);
 
     this.ws.addEventListener("open", () => {
       this.attempt = 0;
+      console.debug("[ccl-chat] gateway.open", {
+        url: this.opts.url,
+        readyState: this.readyStateLabel(this.ws?.readyState ?? WebSocket.CLOSED),
+      });
       this.schedulePings();
       this.opts.onEvent({ type: "connected" });
     });
@@ -59,27 +76,46 @@ export class ClawGateway {
     });
 
     this.ws.addEventListener("close", (ev) => {
+      console.warn("[ccl-chat] gateway.close", {
+        code: ev.code,
+        reason: ev.reason,
+        wasClean: ev.wasClean,
+        readyState: this.readyStateLabel(this.ws?.readyState ?? WebSocket.CLOSED),
+      });
       this.clearPings();
       if (this.destroyed) return;
       this.opts.onEvent({ type: "disconnected", code: ev.code, reason: ev.reason });
       this.scheduleReconnect();
     });
 
-    this.ws.addEventListener("error", () => {
-      // error always followed by close
+    this.ws.addEventListener("error", (event) => {
+      console.error("[ccl-chat] gateway.error", {
+        eventType: event.type,
+        readyState: this.readyStateLabel(this.ws?.readyState ?? WebSocket.CLOSED),
+        url: this.opts.url,
+      });
+      // error is often followed by close; keep both logs for triage
     });
   }
 
   /** Send a JSON message to the CoderClaw instance. */
-  send(msg: unknown) {
+  send(msg: unknown): boolean {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      console.debug("[ccl-chat] gateway.send", { msgType: (msg as { type?: string })?.type ?? "unknown" });
       this.ws.send(JSON.stringify(msg));
+      return true;
     }
+    console.warn("[ccl-chat] gateway.send.dropped", {
+      msgType: (msg as { type?: string })?.type ?? "unknown",
+      readyState: this.readyStateLabel(this.ws?.readyState ?? WebSocket.CLOSED),
+    });
+    return false;
   }
 
   /** Tear down the connection permanently. */
   destroy() {
     this.destroyed = true;
+    console.debug("[ccl-chat] gateway.destroy");
     this.clearPings();
     this.ws?.close(1000, "destroyed");
     this.ws = null;
@@ -107,6 +143,10 @@ export class ClawGateway {
 
   private scheduleReconnect() {
     const delay = RECONNECT_DELAYS[Math.min(this.attempt, RECONNECT_DELAYS.length - 1)];
+    console.debug("[ccl-chat] gateway.reconnect.scheduled", {
+      delayMs: delay,
+      nextAttempt: this.attempt + 1,
+    });
     this.attempt++;
     setTimeout(() => this.connect(), delay);
   }
