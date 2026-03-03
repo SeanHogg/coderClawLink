@@ -1,6 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { auth, claws as clawsApi, type UserInfo, type MfaChallenge, type AuthSuccess, type LegalDocument } from "../api.js";
+import { auth, claws as clawsApi, getWebToken, type UserInfo, type MfaChallenge, type AuthSuccess, type LegalDocument } from "../api.js";
 import "./quickstart.js";
 
 @customElement("ccl-auth")
@@ -51,6 +51,7 @@ export class CclAuth extends LitElement {
   }
 
   private async refreshRegisterQuickstartVisibility() {
+    // only show the quickstart when we're on the register form; reset otherwise
     if (this.mode !== "register") {
       this.showRegisterQuickstart = false;
       return;
@@ -59,9 +60,17 @@ export class CclAuth extends LitElement {
 
     this.checkingQuickstartVisibility = true;
     try {
-      const existingClaws = await clawsApi.list();
-      this.showRegisterQuickstart = existingClaws.length === 0;
+      // if the user isn't even logged in yet there can't possibly be any claws
+      // associated with their tenant, so avoid making an authenticated API call
+      // which would return 401 and (previously) trigger a global logout.
+      if (!getWebToken()) {
+        this.showRegisterQuickstart = true;
+      } else {
+        const existingClaws = await clawsApi.list();
+        this.showRegisterQuickstart = existingClaws.length === 0;
+      }
     } catch {
+      // any error during the check is non‑fatal; fall back to showing quickstart
       this.showRegisterQuickstart = true;
     } finally {
       this.checkingQuickstartVisibility = false;

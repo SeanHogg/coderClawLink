@@ -55,7 +55,11 @@ async function request<T>(
 
   const res = await fetch(`${BASE}${path}`, { ...rest, headers });
 
-  if (res.status === 401) {
+  // only dispatch a global unauthorized event when we actually attempted to send a
+  // bearer token.  unauthenticated requests (e.g. login/register or exploratory
+  // calls made before login) will still return 401 from the server but they
+  // shouldn't force the app back to the landing screen.
+  if (res.status === 401 && bearer) {
     clearSession();
     window.dispatchEvent(new CustomEvent("ccl:unauthorized"));
   }
