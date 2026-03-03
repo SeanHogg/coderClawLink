@@ -986,6 +986,32 @@ export const claws = {
     const baseUrl = typeof BASE === "string" ? BASE : "https://api.coderclaw.ai";
     const base = baseUrl.replace(/^http/, "ws");
     const token = getTenantToken() ?? "";
+    let tokenExpIso: string | null = null;
+    let tokenExpired = false;
+    if (token) {
+      try {
+        const parts = token.split(".");
+        if (parts.length >= 2) {
+          const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+          const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+          const payload = JSON.parse(atob(padded)) as { exp?: number };
+          if (typeof payload.exp === "number") {
+            const expMs = payload.exp * 1000;
+            tokenExpIso = new Date(expMs).toISOString();
+            tokenExpired = Date.now() >= expMs;
+          }
+        }
+      } catch {
+        // ignore decode errors for diagnostics
+      }
+    }
+    console.debug("[ccl-chat] api.wsUrl", {
+      clawId: id,
+      base,
+      hasToken: Boolean(token),
+      tokenExpIso,
+      tokenExpired,
+    });
     return `${base}/api/claws/${id}/ws?token=${encodeURIComponent(token)}`;
   },
 

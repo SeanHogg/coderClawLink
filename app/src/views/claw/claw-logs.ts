@@ -27,7 +27,6 @@ export class CclClawLogs extends LitElement {
 
   override connectedCallback() {
     super.connectedCallback();
-    if (this.wsUrl) this.connect();
   }
 
   override disconnectedCallback() {

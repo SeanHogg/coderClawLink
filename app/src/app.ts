@@ -28,9 +28,10 @@ import "./views/agents.js";
 import "./views/chats.js";
 import "./views/code-editor.js";
 import "./views/content.js";
+import "./views/debug.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content";
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "debug";
 type WorkspaceTab = "security" | "settings";
 type WorkspaceSection = "settings" | "billing" | "consumption" | "details" | "security";
 
@@ -453,6 +454,12 @@ export class CclApp extends LitElement {
         view = el;
         break;
       }
+      case "debug": {
+        const el = document.createElement("ccl-debug") as HTMLElement & { tenantId?: string };
+        el.tenantId = tenantId;
+        view = el;
+        break;
+      }
     }
 
     host.replaceChildren(view);
@@ -507,6 +514,7 @@ export class CclApp extends LitElement {
       chevronsRight: `<polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>`,
       "code-editor": `<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>`,
       content: `<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>`,
+      debug: `<path d="M9 3h6l1 2h3a1 1 0 0 1 1 1v3h-2V7h-2.2l-1-2H10.2l-1 2H7v2H5V6a1 1 0 0 1 1-1h3l1-2zm-1 7h8a4 4 0 0 1 4 4v2a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6v-2a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v2a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4v-2a2 2 0 0 0-2-2H8zm2 3h1v2h-1v-2zm3 0h1v2h-1v-2z"/>`,
     };
     return `<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0">${paths[name] ?? ""}</svg>`;
   }
@@ -797,6 +805,7 @@ export class CclApp extends LitElement {
       { id: "workspace", label: "Consumption", icon: "tasks", workspaceTab: "settings", workspaceSection: "consumption" },
       { id: "workspace", label: "Tenant & Workspace", icon: "workspace", workspaceTab: "settings", workspaceSection: "details" },
       { id: "logs", label: "Logs", icon: "logs" },
+      { id: "debug", label: "Debug", icon: "debug" },
     ];
 
     const navBtn = (item: { id: DashTab; label: string; icon: string; workspaceTab?: WorkspaceTab; workspaceSection?: WorkspaceSection }) => html`

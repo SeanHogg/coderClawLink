@@ -5,7 +5,8 @@
  */
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { chats, type ChatSession, type ChatMessage } from "../api.js";
+import { chats, claws, type ChatSession } from "../api.js";
+import "./claw/chat.js";
 
 @customElement("ccl-chats")
 export class CclChatsView extends LitElement {
@@ -17,8 +18,6 @@ export class CclChatsView extends LitElement {
   @state() private loading = true;
   @state() private error = "";
   @state() private selectedSession: ChatSession | null = null;
-  @state() private messages: ChatMessage[] = [];
-  @state() private messagesLoading = false;
 
   override connectedCallback() {
     super.connectedCallback();
@@ -39,15 +38,6 @@ export class CclChatsView extends LitElement {
 
   private async selectSession(s: ChatSession) {
     this.selectedSession = s;
-    this.messages = [];
-    this.messagesLoading = true;
-    try {
-      this.messages = await chats.messages(s.id, 200);
-    } catch (e) {
-      this.error = (e as Error).message ?? "Failed to load messages";
-    } finally {
-      this.messagesLoading = false;
-    }
   }
 
   private formatTime(ts: string | null | undefined) {
@@ -57,7 +47,7 @@ export class CclChatsView extends LitElement {
 
   override render() {
     return html`
-      <div style="padding:16px;display:grid;gap:16px;height:100%;">
+      <div style="padding:16px;display:grid;gap:16px;height:calc(100dvh - 116px);min-height:620px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div>
             <div style="font-size:18px;font-weight:600;color:var(--text-strong)">Chats</div>
@@ -77,9 +67,9 @@ export class CclChatsView extends LitElement {
                   <div class="empty-state-sub">Chat history will appear here once claws start receiving messages</div>
                 </div>`
             : html`
-                <div style="display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:12px;min-height:480px;">
+                <div style="display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:12px;min-height:0;height:100%;overflow:hidden;">
                   <!-- Session list -->
-                  <div class="card" style="overflow:auto;">
+                  <div class="card" style="overflow:auto;min-height:0;">
                     <div class="card-title" style="margin-bottom:8px;">Sessions</div>
                     <div style="display:grid;gap:4px;">
                       ${this.sessions.map(s => html`
@@ -102,29 +92,20 @@ export class CclChatsView extends LitElement {
                   </div>
 
                   <!-- Message thread -->
-                  <div class="card" style="overflow:auto;display:flex;flex-direction:column;">
+                  <div class="card" style="overflow:hidden;display:flex;flex-direction:column;min-height:0;">
                     ${this.selectedSession
                       ? html`
                           <div class="card-title" style="margin-bottom:8px;flex-shrink:0;">
                             <span style="font-family:var(--mono)">${this.selectedSession.sessionKey}</span>
                             <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px">${this.selectedSession.clawName ?? ""} · started ${this.formatTime(this.selectedSession.startedAt)}</span>
                           </div>
-                          ${this.messagesLoading
-                            ? html`<div style="font-size:13px;color:var(--muted)">Loading messages…</div>`
-                            : this.messages.length === 0
-                              ? html`<div style="font-size:13px;color:var(--muted)">No messages recorded for this session.</div>`
-                              : html`
-                                  <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;">
-                                    ${this.messages.map(m => html`
-                                      <div class="msg ${m.role === "user" ? "msg-user" : ""}">
-                                        <div class="msg-bubble ${m.role === "user" ? "msg-bubble-user" : "msg-bubble-assistant"}">
-                                          ${m.content}
-                                        </div>
-                                        <div class="msg-meta">${m.role} · ${new Date(m.createdAt).toLocaleTimeString()}</div>
-                                      </div>
-                                    `)}
-                                  </div>
-                                `}
+                          <div style="flex:1;min-height:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+                            <ccl-claw-chat
+                              .clawId=${String(this.selectedSession.clawId)}
+                              .wsUrl=${claws.wsUrl(String(this.selectedSession.clawId))}
+                              .initialSessionKey=${this.selectedSession.sessionKey}
+                            ></ccl-claw-chat>
+                          </div>
                         `
                       : html`<div style="font-size:13px;color:var(--muted)">Select a session to view its messages.</div>`}
                   </div>

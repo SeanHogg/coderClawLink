@@ -27,6 +27,12 @@ interface BufferedMessage {
   seq: number;
 }
 
+interface BufferedLog {
+  ts: string;
+  level: string;
+  message: string;
+}
+
 export class ClawRelayDO implements DurableObject {
   // Required brand for DurableObjectNamespace<T> generic constraint
   declare readonly "__DURABLE_OBJECT_BRAND": never;
@@ -43,6 +49,9 @@ export class ClawRelayDO implements DurableObject {
   /** Circular buffer of last 100 messages for history replay on reconnect */
   private msgBuffer: BufferedMessage[] = [];
   private readonly MSG_BUFFER_MAX = 100;
+  /** Circular buffer of last 200 log lines for replay in Logs tab */
+  private logBuffer: BufferedLog[] = [];
+  private readonly LOG_BUFFER_MAX = 200;
 
   constructor(private state: DurableObjectState, private env: unknown) {}
 
@@ -156,14 +165,19 @@ export class ClawRelayDO implements DurableObject {
     if (this.msgBuffer.length > 0) {
       ws.send(JSON.stringify({ type: "chat.history", messages: this.msgBuffer }));
     }
+    if (this.logBuffer.length > 0) {
+      for (const entry of this.logBuffer) {
+        ws.send(JSON.stringify({ type: "log", level: entry.level, message: entry.message, ts: entry.ts }));
+      }
+    }
 
     ws.addEventListener("message", (ev) => {
       const data = ev.data as string;
+      // Track session and mirror outgoing user chat across all browser clients
+      this.handleClientMessage(data);
       // Forward client messages to the upstream claw
       if (this.upstreamSocket?.readyState === WebSocket.OPEN) {
         this.upstreamSocket.send(data);
-        // Track the session key so we can associate persisted messages
-        this.handleClientMessage(data);
       } else {
         ws.send(JSON.stringify({ type: "claw_offline" }));
       }
@@ -183,7 +197,7 @@ export class ClawRelayDO implements DurableObject {
   /** Track session key from outgoing client messages. */
   private handleClientMessage(data: string) {
     try {
-      const msg = JSON.parse(data) as { type?: string; session?: string };
+      const msg = JSON.parse(data) as { type?: string; session?: string; message?: string };
       if (msg.type === "session.new") {
         // New session — reset buffer and seq but keep tracking
         this.msgBuffer = [];
@@ -192,31 +206,76 @@ export class ClawRelayDO implements DurableObject {
       if (msg.session) {
         this.currentSessionKey = msg.session;
       }
+
+      if (msg.type === "chat" && typeof msg.message === "string" && msg.message.trim().length > 0) {
+        const session = (msg.session && msg.session.trim().length > 0) ? msg.session.trim() : this.currentSessionKey;
+        // Mirror outgoing user message to all connected browser clients immediately
+        this.broadcast(
+          JSON.stringify({
+            type: "chat.message",
+            role: "user",
+            text: msg.message,
+            session,
+            ephemeral: true,
+          }),
+        );
+
+        // Emit a lightweight log line so Logs tab reflects chat activity
+        this.emitLog("info", `[chat] user: ${msg.message}`);
+
+        // Persist outgoing user message even if upstream doesn't echo it back
+        this.currentSessionKey = session;
+        this.appendAndPersistMessage({ role: "user", content: msg.message });
+      }
     } catch { /* ignore non-JSON */ }
   }
 
   /** Persist complete chat messages from upstream. Deltas are skipped. */
   private handleUpstreamMessage(data: string) {
     try {
-      const msg = JSON.parse(data) as { type?: string; role?: string; text?: string };
+      const msg = JSON.parse(data) as { type?: string; role?: string; text?: string; session?: string };
+      if (typeof msg.session === "string" && msg.session.trim().length > 0) {
+        this.currentSessionKey = msg.session.trim();
+      }
       if (msg.type !== "chat.message" || !msg.role || typeof msg.text !== "string") return;
 
-      this.msgSeq++;
-      const buffered: BufferedMessage = {
-        role:    msg.role,
-        content: msg.text,
-        seq:     this.msgSeq,
-      };
+      // Emit a lightweight log line so Logs tab reflects chat activity
+      this.emitLog("info", `[chat] ${msg.role}: ${msg.text}`);
 
-      // Add to circular buffer
-      this.msgBuffer.push(buffered);
-      if (this.msgBuffer.length > this.MSG_BUFFER_MAX) {
-        this.msgBuffer.shift();
-      }
-
-      // Async persist to Postgres — fire and forget
-      void this.persistMessage(buffered);
+      this.appendAndPersistMessage({ role: msg.role, content: msg.text });
     } catch { /* ignore non-JSON or non-message events */ }
+  }
+
+  /** Add to in-memory history and persist asynchronously. */
+  private appendAndPersistMessage(msg: { role: string; content: string }) {
+    this.msgSeq++;
+    const buffered: BufferedMessage = {
+      role: msg.role,
+      content: msg.content,
+      seq: this.msgSeq,
+    };
+
+    this.msgBuffer.push(buffered);
+    if (this.msgBuffer.length > this.MSG_BUFFER_MAX) {
+      this.msgBuffer.shift();
+    }
+
+    void this.persistMessage(buffered);
+  }
+
+  private emitLog(level: string, message: string) {
+    const entry: BufferedLog = {
+      ts: new Date().toISOString(),
+      level,
+      message,
+    };
+
+    this.logBuffer.push(entry);
+    if (this.logBuffer.length > this.LOG_BUFFER_MAX) {
+      this.logBuffer.shift();
+    }
+
+    this.broadcast(JSON.stringify({ type: "log", level: entry.level, message: entry.message, ts: entry.ts }));
   }
 
   /** POST a single message to the main API for Postgres persistence. */

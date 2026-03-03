@@ -4,6 +4,7 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import "./claw/chat.js";
+import "./claw/instances.js";
 import "./claw/workspace.js";
 import "./claw/claw-logs.js";
 import {
@@ -31,7 +32,7 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   blocked: "Blocked",
 };
 
-type WorkspaceTab = "details" | "board" | "tasks" | "prds" | "brain" | "chat" | "workspace" | "logs";
+type WorkspaceTab = "details" | "board" | "tasks" | "prds" | "brain" | "chat" | "instances" | "workspace" | "logs";
 type BrainRole = "user" | "assistant";
 
 type ProjectBrainAction =
@@ -764,6 +765,7 @@ export class CclProjects extends LitElement {
             ["prds", "PRDs"],
             ["brain", "Brain"],
             ["chat", "Chat"],
+            ["instances", "Instances"],
             ["workspace", "Workspace"],
             ["logs", "Logs"],
           ] as Array<[WorkspaceTab, string]>).map(([tab, label]) => html`
@@ -784,6 +786,8 @@ export class CclProjects extends LitElement {
                     ? this.renderPrdsTab()
                     : this.workspaceTab === "chat"
                       ? this.renderClawTab("chat")
+                      : this.workspaceTab === "instances"
+                        ? this.renderClawTab("instances")
                       : this.workspaceTab === "workspace"
                         ? this.renderClawTab("workspace")
                         : this.workspaceTab === "logs"
@@ -794,7 +798,7 @@ export class CclProjects extends LitElement {
     `;
   }
 
-  private renderClawTab(tab: "chat" | "workspace" | "logs") {
+  private renderClawTab(tab: "chat" | "instances" | "workspace" | "logs") {
     const claw = this.projectClaws.find((item) => String(item.id) === this.activeProjectClawId) ?? this.projectClaws[0] ?? null;
     if (!claw) {
       return html`
@@ -812,7 +816,7 @@ export class CclProjects extends LitElement {
     const wsUrl = clawsApi.wsUrl(claw.id);
 
     return html`
-      <div style="display:grid;gap:12px;min-height:420px">
+      <div style="display:flex;flex-direction:column;gap:12px;height:calc(100dvh - 260px);min-height:460px;max-height:calc(100dvh - 260px)">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:12px;color:var(--muted)">Active claw</span>
           <select
@@ -825,8 +829,9 @@ export class CclProjects extends LitElement {
           </select>
         </div>
 
-        <div class="card" style="padding:0;min-height:360px;overflow:hidden">
+        <div class="card" style="padding:0;flex:1 1 auto;min-height:320px;overflow:hidden;display:flex;flex-direction:column">
           ${tab === "chat" ? html`<ccl-claw-chat .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-chat>` : ""}
+          ${tab === "instances" ? html`<ccl-claw-instances .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-instances>` : ""}
           ${tab === "workspace" ? html`<ccl-claw-workspace .clawId=${claw.id}></ccl-claw-workspace>` : ""}
           ${tab === "logs" ? html`<ccl-claw-logs .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-logs>` : ""}
         </div>
