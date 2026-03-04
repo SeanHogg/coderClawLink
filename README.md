@@ -1,11 +1,115 @@
 ﻿# coderClawLink
 
+> **The orchestration portal for coderClaw.ai — replacing Jira with a centralized, AI-native workflow control plane.**
+
+<p align="center">
+  <a href="https://discord.gg/qkhbAGHRBT"><img src="https://img.shields.io/discord/1456350064065904867?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
+</p>
+
 Cloudflare Workers bridge that connects AI agents to projects and tasks, with auth, RBAC, runtime execution tracking, and a full audit trail.
 
 | Worker | Domain |
 |--------|--------|
 | `app/` | `app.coderclaw.ai` – static SPA frontend |
 | `api/` | `api.coderclaw.ai` – REST API + Postgres |
+
+---
+
+## What is coderClaw.ai?
+
+[coderClaw.ai](https://coderclaw.ai) is a **self-healing AI engineering agent and orchestration platform** that manages tasks, workflows, and collaboration across all AI agents. It provides:
+
+- **Persistent memory** — agents retain project context across sessions, restarts, and handoffs
+- **Context-aware reasoning** — deep AST analysis, semantic code maps, dependency graphs, and git history awareness
+- **Self-repair** — AI systems detect failures, fix themselves, and adapt over time without manual intervention
+- **Human-in-the-loop governance** — every autonomous action surfaces an approval gate; humans stay in control
+- **Multi-channel access** — WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, Microsoft Teams, and more
+
+> See the [coderClaw core agent runtime →](https://github.com/SeanHogg/coderClaw)
+
+---
+
+## coderClawLink in the coderClaw.ai Ecosystem
+
+coderClawLink is the **centralized orchestration portal** within the coderClaw.ai platform. It replaces Jira by giving teams full visibility into AI-driven workflows without changing how they work today.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      coderClaw.ai Platform                  │
+│                                                             │
+│  ┌─────────────────┐   ┌──────────────────────────────┐    │
+│  │  coderClaw      │   │  coderClawLink               │    │
+│  │  (core agent)   │◄──►  (orchestration portal)      │    │
+│  │                 │   │  app.coderclaw.ai             │    │
+│  │  Self-healing   │   │  api.coderclaw.ai             │    │
+│  │  Multi-agent    │   │                              │    │
+│  │  Persistent memory │   │  Projects · Tasks · Agents   │    │
+│  └────────┬────────┘   │  Runtime · Audit · RBAC      │    │
+│           │            └──────────────┬───────────────┘    │
+│           │                           │                     │
+│  ┌────────▼───────────────────────────▼───────────────┐    │
+│  │              coderClawLLM                           │    │
+│  │  Pay-per-use AI agent compute API                   │    │
+│  │  Free model pool · Pro model pool · Usage metrics   │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**coderClawLink provides:**
+- Workflow visibility and auditability for all agent actions
+- Human-in-the-loop control with approval gates
+- Seamless adoption across teams of any size — no workflow disruption
+- RBAC-enforced multi-tenancy for enterprise governance
+- Full execution history and audit log for compliance
+
+---
+
+## Key Platform Capabilities
+
+### 🔄 Self-Healing Agents
+coderClaw.ai agents monitor their own execution state. When a task fails, the system automatically diagnoses the failure, attempts remediation, and escalates to human review only when it cannot self-repair. The execution lifecycle (`PENDING → SUBMITTED → RUNNING → COMPLETED / FAILED`) is tracked in coderClawLink with full state history.
+
+### 🧠 Persistent Memory & Context
+Unlike ephemeral AI tools, every agent maintains a `.coderClaw/` knowledge base per project — storing architectural docs, coding standards, semantic indices, and session handoffs. coderClawLink persists agent registrations, skill catalogs, and execution histories so nothing is lost between sessions.
+
+### 👥 Human-in-the-Loop Governance
+All autonomous operations are subject to role-based approval policies. The MANAGER and OWNER roles control who can register agents, view audit logs, and manage organizational members. Every state change is recorded in the immutable audit trail.
+
+### 🤖 Multi-Agent Orchestration
+Register any number of specialized agents (Code Creator, Code Reviewer, Test Generator, Bug Analyzer, Refactor Agent, Documentation Agent, Architecture Advisor, or custom roles) against coderClawLink. Each agent declares its skills; the runtime routes tasks to the most capable available agent.
+
+### 🔌 CI/CD Integration
+coderClawLink integrates with your existing CI/CD workflows. Agents can be triggered on PR events, push events, or scheduled jobs. Execution state callbacks (`PATCH /api/runtime/executions/:id/state`) allow CI runners and agent runtimes to report progress and attach code-change telemetry.
+
+### 🏠 Private & Self-Hosted Deployments
+The entire platform runs on Cloudflare Workers (zero cold-start, globally distributed) backed by your own Postgres database. For air-gapped or compliance-sensitive environments, a Docker-based self-hosted option is provided via `Dockerfile` and `docker-compose.yml` with profiles for `dev`, `deploy`, and `migrate`.
+
+---
+
+## coderClawLLM — AI Agent Compute API
+
+coderClawLLM is the **pay-per-use API layer** for AI agent compute built into coderClawLink:
+
+| Feature | Detail |
+|---------|--------|
+| Free model pool | Shared, rate-limited pool for development and low-volume workloads |
+| Pro model pool | Dedicated, higher-capacity models for production agent pipelines |
+| OpenAI-compatible API | Drop `https://api.coderclaw.ai/llm/v1` as the `baseURL` in any OpenAI SDK |
+| Tenant-aware billing | Usage tracked per tenant and per user (`GET /llm/v1/usage`) |
+| Automatic failover | Model routing handles provider outages transparently |
+
+Agents authenticate with the same JWT issued by `POST /api/auth/token`, so no separate credential management is needed.
+
+---
+
+## Who Uses coderClaw.ai?
+
+### Startups (5–50 developers)
+Use coderClaw.ai as a **virtual AI workforce**: a small human team coordinates a fleet of AI agents that handle code generation, review, testing, and documentation — with coderClawLink as the task board and audit trail. Subscription tiers start free.
+
+### Enterprises (100–1,000+ developers)
+Run **complex multi-agent pipelines** at scale: parallel execution across hundreds of repositories, strict RBAC for department-level isolation, full audit trails for compliance (SOC 2, HIPAA-adjacent workflows), and private/self-hosted deployment options. coderClawLink replaces Jira as the orchestration layer without disrupting existing developer tooling.
 
 ---
 
