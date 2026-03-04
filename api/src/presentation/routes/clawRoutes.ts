@@ -19,6 +19,9 @@ import {
   chatSessions,
   projects,
   tenants,
+  usageSnapshots,
+  toolAuditEvents,
+  approvals,
 } from '../../infrastructure/database/schema';
 import { generateApiKey, hashSecret, verifySecret } from '../../infrastructure/auth/HashService';
 import type { HonoEnv } from '../../env';
@@ -73,27 +76,74 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
 
     const rows = await db
       .select({
-        id:           coderclawInstances.id,
-        name:         coderclawInstances.name,
-        slug:         coderclawInstances.slug,
-        connectedAt:  coderclawInstances.connectedAt,
-        lastSeenAt:   coderclawInstances.lastSeenAt,
-        capabilities: coderclawInstances.capabilities,
+        id:                   coderclawInstances.id,
+        name:                 coderclawInstances.name,
+        slug:                 coderclawInstances.slug,
+        connectedAt:          coderclawInstances.connectedAt,
+        lastSeenAt:           coderclawInstances.lastSeenAt,
+        capabilities:         coderclawInstances.capabilities,
+        declaredCapabilities: coderclawInstances.declaredCapabilities,
       })
       .from(coderclawInstances)
       .where(eq(coderclawInstances.tenantId, sourceClaw.tenantId));
 
     const fleet = rows.map((row) => ({
-      id:           row.id,
-      name:         row.name,
-      slug:         row.slug,
-      online:       row.connectedAt !== null,
-      connectedAt:  row.connectedAt,
-      lastSeenAt:   row.lastSeenAt,
-      capabilities: row.capabilities ? (JSON.parse(row.capabilities) as string[]) : [],
+      id:                   row.id,
+      name:                 row.name,
+      slug:                 row.slug,
+      online:               row.connectedAt !== null,
+      connectedAt:          row.connectedAt,
+      lastSeenAt:           row.lastSeenAt,
+      capabilities:         row.capabilities ? (JSON.parse(row.capabilities) as string[]) : [],
+      declaredCapabilities: row.declaredCapabilities ? (JSON.parse(row.declaredCapabilities) as string[]) : [],
     }));
 
     return c.json({ fleet });
+  });
+
+  // GET /api/claws/fleet/route?requires=<cap1,cap2>&token=<jwt>
+  // P2-3: Capability routing — returns the best-matching online claw for the
+  // given required capabilities (tenant JWT auth).
+  // NOTE: registered before /:id routes so "/fleet/route" is not captured.
+  router.get('/fleet/route', authMiddleware as never, async (c) => {
+    const requires = (c.req.query('requires') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const tenantId = (c as unknown as { get: (k: string) => unknown }).get('tenantId') as number;
+
+    const rows = await db
+      .select({
+        id:                   coderclawInstances.id,
+        name:                 coderclawInstances.name,
+        connectedAt:          coderclawInstances.connectedAt,
+        capabilities:         coderclawInstances.capabilities,
+        declaredCapabilities: coderclawInstances.declaredCapabilities,
+      })
+      .from(coderclawInstances)
+      .where(eq(coderclawInstances.tenantId, tenantId));
+
+    type ClawRow = { id: number; name: string; connectedAt: Date | null; capabilities: string | null; declaredCapabilities: string | null };
+
+    const score = (row: ClawRow): number => {
+      const caps = new Set([
+        ...(row.capabilities ? (JSON.parse(row.capabilities) as string[]) : []),
+        ...(row.declaredCapabilities ? (JSON.parse(row.declaredCapabilities) as string[]) : []),
+      ]);
+      const online = row.connectedAt !== null ? 1 : 0;
+      const matched = requires.filter((r) => caps.has(r)).length;
+      const total = requires.length || 1;
+      return online * 0.5 + (matched / total) * 0.5;
+    };
+
+    const scored = rows.map((row) => ({ ...row, score: score(row) })).sort((a, b) => b.score - a.score);
+
+    if (scored.length === 0) return c.json({ error: 'No claws available' }, 404);
+
+    const best = scored[0]!;
+    return c.json({
+      clawId: best.id,
+      name:   best.name,
+      score:  Math.round(best.score * 100) / 100,
+      online: best.connectedAt !== null,
+    });
   });
 
   // GET /api/claws – list all claws for the current tenant
@@ -600,6 +650,28 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
   });
 
   // -------------------------------------------------------------------------
+  // PATCH /api/claws/:id/capabilities – update declared capabilities (SPA)
+  // P2-3: Allows portal users to configure desired capabilities per claw.
+  // -------------------------------------------------------------------------
+  router.patch('/:id/capabilities', authMiddleware as never, async (c) => {
+    const tenantId = (c as unknown as { get: (k: string) => unknown }).get('tenantId') as number;
+    const clawId = Number(c.req.param('id'));
+
+    const body = await c.req.json<{ declaredCapabilities: string[] }>();
+    if (!Array.isArray(body.declaredCapabilities)) {
+      return c.json({ error: 'declaredCapabilities must be an array' }, 400);
+    }
+
+    const caps = body.declaredCapabilities.filter((v) => typeof v === 'string');
+    await db
+      .update(coderclawInstances)
+      .set({ declaredCapabilities: JSON.stringify(caps) })
+      .where(and(eq(coderclawInstances.id, clawId), eq(coderclawInstances.tenantId, tenantId)));
+
+    return c.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------------------
   // PATCH /api/claws/:id/heartbeat – claw keepalive, updates lastSeenAt
   // Called periodically by ClawLinkRelayService via HTTP alongside the WS.
   // Authentication: API key via ?key= query param (same as upstream WS).
@@ -716,6 +788,7 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
   // claw via the ClawRelayDO dispatch mechanism.
   // The source claw authenticates with its OWN API key (not the target's key).
   // Both claws must belong to the same tenant.
+  // Accepts optional correlationId for remote task result tracking (P0-1).
   // -------------------------------------------------------------------------
   router.post('/:id/forward', async (c) => {
     const targetId = Number(c.req.param('id'));
@@ -744,6 +817,54 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
 
     if (!targetClaw) return c.json({ error: 'Target claw not found in tenant' }, 404);
 
+    let payload: Record<string, unknown>;
+    try {
+      payload = await c.req.json<Record<string, unknown>>();
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+
+    // Preserve correlationId from the request body for result tracking (P0-1)
+    const correlationId = typeof payload.correlationId === 'string'
+      ? payload.correlationId
+      : undefined;
+
+    // Inject fromClawId so the target knows where to send the remote.result
+    const enrichedPayload = { ...payload, fromClawId: fromId };
+
+    // Forward to target claw via ClawRelayDO /dispatch endpoint
+    const stub = env.CLAW_RELAY.get(env.CLAW_RELAY.idFromName(String(targetId)));
+    const result = await stub.fetch(new Request('https://internal/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(enrichedPayload),
+    }));
+
+    if (!result.ok) {
+      const body = await result.json<{ ok: boolean; delivered: boolean; error?: string }>();
+      const status = result.status === 409 ? 409 : 502;
+      return c.json({ ok: false, delivered: false, correlationId, error: body.error ?? 'dispatch_failed' }, status);
+    }
+
+    return c.json({ ok: true, delivered: true, correlationId });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/claws/:id/relay-result?key=<clawApiKey>
+  // P0-1: Target claw posts a remote.result frame; this endpoint forwards it
+  // to the source claw's relay WebSocket so its pending promise can resolve.
+  // Authentication: the TARGET claw's API key (the one that executed the task).
+  // -------------------------------------------------------------------------
+  router.post('/:id/relay-result', async (c) => {
+    const clawId = Number(c.req.param('id'));
+    const key    = c.req.query('key');
+    const env    = c.env;
+
+    if (!env.CLAW_RELAY) return c.text('CLAW_RELAY binding not configured', 503);
+
+    const claw = await verifyClawApiKey(clawId, key);
+    if (!claw) return c.text('Unauthorized', 401);
+
     let payload: unknown;
     try {
       payload = await c.req.json();
@@ -751,8 +872,8 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
       return c.json({ error: 'invalid_json' }, 400);
     }
 
-    // Forward to target claw via ClawRelayDO /dispatch endpoint
-    const stub = env.CLAW_RELAY.get(env.CLAW_RELAY.idFromName(String(targetId)));
+    // Dispatch the remote.result into the SOURCE claw's relay (identified by clawId param)
+    const stub = env.CLAW_RELAY.get(env.CLAW_RELAY.idFromName(String(clawId)));
     const result = await stub.fetch(new Request('https://internal/dispatch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -760,6 +881,137 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
     }));
 
     return result;
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/claws/:id/usage-snapshot?key=<clawApiKey>
+  // P2-2: Claw posts context window / token usage snapshot for persistence.
+  // -------------------------------------------------------------------------
+  router.post('/:id/usage-snapshot', async (c) => {
+    const clawId = Number(c.req.param('id'));
+    const key    = c.req.query('key');
+
+    const claw = await verifyClawApiKey(clawId, key);
+    if (!claw) return c.text('Unauthorized', 401);
+
+    const body = await c.req.json<{
+      sessionKey?:       string;
+      inputTokens?:      number;
+      outputTokens?:     number;
+      contextTokens?:    number;
+      contextWindowMax?: number;
+      compactionCount?:  number;
+      ts?:               string;
+    }>();
+
+    await db.insert(usageSnapshots).values({
+      tenantId:         claw.tenantId,
+      clawId,
+      sessionKey:       body.sessionKey ?? 'default',
+      inputTokens:      body.inputTokens ?? 0,
+      outputTokens:     body.outputTokens ?? 0,
+      contextTokens:    body.contextTokens ?? 0,
+      contextWindowMax: body.contextWindowMax ?? 0,
+      compactionCount:  body.compactionCount ?? 0,
+      ts:               body.ts ? new Date(body.ts) : new Date(),
+    });
+
+    return c.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/claws/:id/tool-audit?key=<clawApiKey>
+  // P2-4: Claw posts a tool call audit event for persistence.
+  // -------------------------------------------------------------------------
+  router.post('/:id/tool-audit', async (c) => {
+    const clawId = Number(c.req.param('id'));
+    const key    = c.req.query('key');
+
+    const claw = await verifyClawApiKey(clawId, key);
+    if (!claw) return c.text('Unauthorized', 401);
+
+    const body = await c.req.json<{
+      runId?:       string;
+      sessionKey?:  string;
+      toolCallId?:  string;
+      toolName?:    string;
+      args?:        unknown;
+      result?:      string;
+      durationMs?:  number;
+      ts?:          string;
+    }>();
+
+    if (!body.toolName) return c.json({ error: 'toolName is required' }, 400);
+
+    await db.insert(toolAuditEvents).values({
+      tenantId:    claw.tenantId,
+      clawId,
+      runId:       body.runId ?? null,
+      sessionKey:  body.sessionKey ?? null,
+      toolCallId:  body.toolCallId ?? null,
+      toolName:    body.toolName,
+      args:        body.args != null ? JSON.stringify(body.args) : null,
+      result:      body.result ?? null,
+      durationMs:  body.durationMs ?? null,
+      ts:          body.ts ? new Date(body.ts) : new Date(),
+    });
+
+    return c.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/claws/:id/approval-request?key=<clawApiKey>
+  // P3-3: Claw creates a pending approval for a destructive/high-risk action.
+  // -------------------------------------------------------------------------
+  router.post('/:id/approval-request', async (c) => {
+    const clawId = Number(c.req.param('id'));
+    const key    = c.req.query('key');
+    const env    = c.env;
+
+    const claw = await verifyClawApiKey(clawId, key);
+    if (!claw) return c.text('Unauthorized', 401);
+
+    const body = await c.req.json<{
+      actionType?:  string;
+      description?: string;
+      metadata?:    unknown;
+      expiresAt?:   string;
+      requestedBy?: string;
+    }>();
+
+    if (!body.actionType || !body.description) {
+      return c.json({ error: 'actionType and description are required' }, 400);
+    }
+
+    const approvalId = crypto.randomUUID();
+    await db.insert(approvals).values({
+      id:          approvalId,
+      tenantId:    claw.tenantId,
+      clawId,
+      requestedBy: body.requestedBy ?? String(clawId),
+      actionType:  body.actionType,
+      description: body.description,
+      metadata:    body.metadata != null ? JSON.stringify(body.metadata) : null,
+      expiresAt:   body.expiresAt ? new Date(body.expiresAt) : null,
+    });
+
+    // Notify connected browser clients via the relay
+    if (env.CLAW_RELAY) {
+      const stub = env.CLAW_RELAY.get(env.CLAW_RELAY.idFromName(String(clawId)));
+      stub.fetch(new Request('https://internal/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'approval.request',
+          approvalId,
+          actionType:  body.actionType,
+          description: body.description,
+          expiresAt:   body.expiresAt,
+        }),
+      })).catch(() => { /* best-effort */ });
+    }
+
+    return c.json({ ok: true, approvalId }, 201);
   });
 
   return router;

@@ -45,6 +45,9 @@ import { createSkillAssignmentRoutes } from './presentation/routes/skillAssignme
 import { createLlmRoutes }          from './presentation/routes/llmRoutes';
 import { createAdminRoutes }        from './presentation/routes/adminRoutes';
 import { createChatRoutes }         from './presentation/routes/chatRoutes';
+import { createSpecRoutes }         from './presentation/routes/specRoutes';
+import { createWorkflowRoutes }     from './presentation/routes/workflowRoutes';
+import { createApprovalRoutes }     from './presentation/routes/approvalRoutes';
 
 // Middleware
 import { corsMiddleware } from './presentation/middleware/cors';
@@ -112,6 +115,9 @@ function buildApp(env: Env): Hono<HonoEnv> {
   app.route('/api/runtime',  createRuntimeRoutes(runtimeService, db));
   app.route('/api/audit',    createAuditRoutes(auditService));
   app.route('/api/admin',    createAdminRoutes());
+  app.route('/api/specs',    createSpecRoutes(db));
+  app.route('/api/workflows', createWorkflowRoutes(db));
+  app.route('/api/approvals', createApprovalRoutes(db));
 
   app.onError(errorHandler);
   app.notFound((c) => c.json({ error: 'Not found' }, 404));
