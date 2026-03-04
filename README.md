@@ -68,16 +68,19 @@ coderClawLink is the **centralized orchestration portal** within the coderClaw.a
 ## Key Platform Capabilities
 
 ### 🔄 Self-Healing Agents
-coderClaw.ai agents monitor their own execution state. When a task fails, the system automatically diagnoses the failure, attempts remediation, and escalates to human review only when it cannot self-repair. The execution lifecycle (`PENDING → SUBMITTED → RUNNING → COMPLETED / FAILED`) is tracked in coderClawLink with full state history.
+coderClaw.ai agents monitor their own execution state. When a task fails, the system automatically diagnoses the failure, attempts remediation, and escalates to human review only when it cannot self-repair. The execution lifecycle (`PENDING → SUBMITTED → RUNNING → COMPLETED / FAILED`) is tracked in coderClawLink with full state history. Execution state changes stream in real-time via a WebSocket endpoint (`GET /api/runtime/executions/:id/stream`), eliminating polling latency.
 
 ### 🧠 Persistent Memory & Context
-Unlike ephemeral AI tools, every agent maintains a `.coderClaw/` knowledge base per project — storing architectural docs, coding standards, semantic indices, and session handoffs. coderClawLink persists agent registrations, skill catalogs, and execution histories so nothing is lost between sessions.
+Unlike ephemeral AI tools, every agent maintains a `.coderClaw/` knowledge base per project — storing architectural docs, coding standards, semantic indices, and session handoffs. coderClawLink persists agent registrations, skill catalogs, and execution histories so nothing is lost between sessions. Context window usage and token spend are tracked per session via `usage.snapshot` relay frames and stored in the `usage_snapshots` table.
 
 ### 👥 Human-in-the-Loop Governance
-All autonomous operations are subject to role-based approval policies. The MANAGER and OWNER roles control who can register agents, view audit logs, and manage organizational members. Every state change is recorded in the immutable audit trail.
+All autonomous operations are subject to role-based approval policies. The MANAGER and OWNER roles control who can register agents, view audit logs, and manage organizational members. Every state change is recorded in the immutable audit trail. For destructive or high-risk actions, agents can request human approval via `POST /api/approvals`; the portal notifies reviewers in real-time over the WebSocket relay and awaits an `approved` or `rejected` decision before the agent proceeds.
 
 ### 🤖 Multi-Agent Orchestration
-Register any number of specialized agents (Code Creator, Code Reviewer, Test Generator, Bug Analyzer, Refactor Agent, Documentation Agent, Architecture Advisor, or custom roles) against coderClawLink. Each agent declares its skills; the runtime routes tasks to the most capable available agent.
+Register any number of specialized agents (Code Creator, Code Reviewer, Test Generator, Bug Analyzer, Refactor Agent, Documentation Agent, Architecture Advisor, or custom roles) against coderClawLink. Each agent declares its skills; the runtime routes tasks to the most capable available agent. Claw-to-claw task delegation is fully bidirectional: the `POST /api/claws/:targetId/forward` endpoint now returns a `correlationId`; the target claw sends a `remote.result` frame when its task completes, which the relay forwards back to the originating claw so dependent workflow steps receive their expected `output`.
+
+### 📋 Spec-Driven Workflow Portal
+The `/spec` TUI command produces structured planning output (PRD, architecture spec, task list) that coderClaw pushes to `POST /api/specs`. Specs are queryable by goal, project, and status (`draft → reviewed → approved → in_progress → done`). Each spec links to one or more `workflows`, which track the full execution DAG with per-task states visible in the portal.
 
 ### 🔌 CI/CD Integration
 coderClawLink integrates with your existing CI/CD workflows. Agents can be triggered on PR events, push events, or scheduled jobs. Execution state callbacks (`PATCH /api/runtime/executions/:id/state`) allow CI runners and agent runtimes to report progress and attach code-change telemetry.
@@ -140,13 +143,16 @@ coderClawLink/
 │   │   ├── infrastructure/           # Layer 3 – concrete adapters
 │   │   │   ├── auth/                 #   JwtService (Web Crypto)  HashService
 │   │   │   ├── database/             #   Drizzle schema + Hyperdrive connection
+│   │   │   ├── relay/                #   ClawRelayDO (WebSocket relay Durable Object)
 │   │   │   └── repositories/         #   Postgres implementations of all domain ports
 │   │   ├── presentation/             # Layer 4 – HTTP (Hono routes + middleware)
 │   │   │   ├── middleware/           #   cors  errorHandler  authMiddleware
 │   │   │   └── routes/               #   auth  projects  tasks  tenants
 │   │   │                             #   agents  skills  runtime  audit
+│   │   │                             #   specs  workflows  approvals
 │   │   ├── env.ts                    # Worker Env + HonoEnv types
 │   │   └── index.ts                  # Composition root + Worker export
+│   ├── migrations/                   # SQL migration files
 │   ├── wrangler.toml
 │   ├── drizzle.config.ts
 │   ├── package.json
@@ -284,10 +290,23 @@ PENDING/SUBMITTED/RUNNING → CANCELLED
 |--------|------|-------------|
 | `POST` | `/api/runtime/executions` | Submit task for execution |
 | `GET` | `/api/runtime/executions` | List executions for tenant |
-| `GET` | `/api/runtime/executions/:id` | Get execution state |
+| `GET` | `/api/runtime/executions/:id` | Get execution state (REST polling) |
+| `GET` | `/api/runtime/executions/:id/stream` | **WebSocket** – stream `ExecutionEvent` frames until terminal state |
 | `POST` | `/api/runtime/executions/:id/cancel` | Cancel execution |
 | `PATCH` | `/api/runtime/executions/:id/state` | Agent callback: update state (`completed` supports optional `codeChanges`) |
 | `GET` | `/api/runtime/tasks/:taskId/executions` | Execution history for task |
+
+#### WebSocket Execution Stream (`GET /api/runtime/executions/:id/stream`)
+
+Upgrade the connection to receive real-time frames:
+
+```json
+{ "type": "status_change", "status": "running" | "completed" | "failed" }
+{ "type": "done", "execution": { ...full execution object... } }
+{ "type": "error", "message": "execution_not_found" }
+```
+
+The connection closes automatically when the execution reaches a terminal state.
 
 ### Audit (MANAGER+ only)
 
@@ -295,6 +314,131 @@ PENDING/SUBMITTED/RUNNING → CANCELLED
 |--------|------|-------------|
 | `GET` | `/api/audit/events` | Tenant-wide event log |
 | `GET` | `/api/audit/users/:userId/activity` | User activity log |
+
+### Specs (Planning Storage)
+
+Specs are structured planning documents produced by the coderClaw `/spec` command.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/specs` | JWT or claw key | Create/upsert a spec |
+| `GET` | `/api/specs` | JWT | List specs for tenant (`?projectId=` filter) |
+| `GET` | `/api/specs/:id` | JWT | Get spec detail |
+| `PATCH` | `/api/specs/:id` | JWT | Update status/content |
+| `DELETE` | `/api/specs/:id` | JWT | Delete spec |
+| `GET` | `/api/specs/:id/workflows` | JWT | List workflows linked to spec |
+| `POST` | `/api/specs/:id/workflows` | JWT | Link existing workflow to spec |
+
+**Claw-key auth**: add `?clawId=<id>&key=<apiKey>` query params.
+
+### Workflows (Execution Portal)
+
+Workflows are structured execution records for orchestrated multi-step plans.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/workflows` | JWT or claw key | Register a workflow |
+| `GET` | `/api/workflows` | JWT | List workflows (`?status=&workflowType=&clawId=`) |
+| `GET` | `/api/workflows/:id` | JWT | Get workflow + tasks |
+| `PATCH` | `/api/workflows/:id` | JWT | Update status/description |
+| `GET` | `/api/workflows/:id/tasks` | JWT | List tasks for workflow |
+| `POST` | `/api/workflows/:id/tasks` | JWT | Add task to workflow |
+| `PATCH` | `/api/workflows/:id/tasks/:tid` | JWT | Update individual task state |
+
+#### Relay frame for live updates
+
+```json
+{ "type": "workflow.update", "workflowId": "…", "status": "…", "taskId": "…" }
+```
+
+### Approvals (Human-in-the-Loop)
+
+Approval gates for destructive / high-risk agent actions.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/approvals` | JWT or claw key | Create pending approval |
+| `GET` | `/api/approvals` | JWT | List approvals (`?status=&clawId=`) |
+| `GET` | `/api/approvals/:id` | JWT | Get approval detail |
+| `PATCH` | `/api/approvals/:id` | JWT, MANAGER+ | Accept or reject (`status: "approved" \| "rejected"`) |
+
+#### Relay frames
+
+```json
+{ "type": "approval.request", "approvalId": "…", "actionType": "…", "description": "…" }
+{ "type": "approval.decision", "approvalId": "…", "status": "approved" | "rejected", "reviewNote": "…" }
+```
+
+### Fleet Capability Management (P2-3)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/claws/fleet/route?requires=<cap1,cap2>` | JWT | Best-matching claw for required capabilities |
+| `PATCH` | `/api/claws/:id/capabilities` | JWT | Update declared capabilities for a claw |
+
+### Claw Telemetry (claw API key auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/claws/:id/relay-result?key=` | P0-1: Route `remote.result` to source claw relay |
+| `POST` | `/api/claws/:id/usage-snapshot?key=` | P2-2: Persist context window / token usage snapshot |
+| `POST` | `/api/claws/:id/tool-audit?key=` | P2-4: Persist tool call audit event |
+| `POST` | `/api/claws/:id/approval-request?key=` | P3-3: Create pending approval from claw |
+
+#### `remote.result` relay frame (P0-1)
+
+When a target claw completes a remote task it sends this frame upstream:
+
+```json
+{
+  "type": "remote.result",
+  "taskCorrelationId": "<uuid>",
+  "fromClawId": "<clawId>",
+  "result": "<output string>",
+  "status": "completed" | "failed",
+  "error": "<optional error message>"
+}
+```
+
+`POST /api/claws/:targetId/forward` now includes `correlationId` in the request body and response:
+
+```jsonc
+// Request body (addition)
+{ "correlationId": "<uuid>", "type": "remote.task", "task": "…" }
+// Response
+{ "ok": true, "delivered": true, "correlationId": "<uuid>" }
+```
+
+#### `usage.snapshot` relay frame (P2-2)
+
+```json
+{
+  "type": "usage.snapshot",
+  "sessionKey": "…",
+  "inputTokens": 12000,
+  "outputTokens": 3400,
+  "contextTokens": 87000,
+  "contextWindowMax": 200000,
+  "compactionCount": 2,
+  "ts": "2026-03-04T…"
+}
+```
+
+#### `tool.audit` relay frame (P2-4)
+
+```json
+{
+  "type": "tool.audit",
+  "runId": "…",
+  "sessionKey": "…",
+  "toolCallId": "…",
+  "toolName": "bash",
+  "args": { "command": "npm test" },
+  "result": "…",
+  "durationMs": 1234,
+  "ts": "…"
+}
+```
 
 ---
 
