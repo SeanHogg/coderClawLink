@@ -1,6 +1,7 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { executions, tasks as tasksApi, type Execution, type Task } from "../api.js";
+import "./claw/execution-timeline.js";
 
 @customElement("ccl-logs")
 export class CclLogs extends LitElement {
@@ -56,6 +57,7 @@ export class CclLogs extends LitElement {
   }
 
   @state() private expanded: string | null = null;
+  @state() private expandedTab: "raw" | "timeline" = "timeline";
 
   override render() {
     const items = this.filtered();
@@ -99,9 +101,25 @@ export class CclLogs extends LitElement {
                       <polyline points="${this.expanded === e.id ? "18 15 12 9 6 15" : "6 9 12 15 18 9"}"/>
                     </svg>
                   </div>
-                  ${this.expanded === e.id && e.result ? html`
-                    <div class="log-wrap" style="margin-top:12px;max-height:200px;overflow-y:auto;font-size:11px">
-                      ${e.result}
+                  ${this.expanded === e.id ? html`
+                    <div style="margin-top:12px" @click=${(ev: Event) => ev.stopPropagation()}>
+                      <!-- Tab bar -->
+                      <div style="display:flex;gap:4px;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:8px">
+                        ${(["timeline", "raw"] as const).map(tab => html`
+                          <button
+                            class="btn btn-ghost btn-sm"
+                            style="font-size:11px;padding:2px 10px;${this.expandedTab === tab ? "background:var(--surface-2,rgba(255,255,255,0.08));color:var(--text-strong)" : ""}"
+                            @click=${() => { this.expandedTab = tab; }}
+                          >${tab === "timeline" ? "⏱ Timeline" : "📄 Raw output"}</button>
+                        `)}
+                      </div>
+
+                      ${this.expandedTab === "timeline"
+                        ? html`<ccl-execution-timeline execution-id=${e.id}></ccl-execution-timeline>`
+                        : e.result
+                          ? html`<div class="log-wrap" style="max-height:200px;overflow-y:auto;font-size:11px">${e.result}</div>`
+                          : html`<div style="color:var(--muted);font-size:12px">No output recorded.</div>`
+                      }
                     </div>` : ""}
                 </div>
               `)}
@@ -111,3 +129,4 @@ export class CclLogs extends LitElement {
 }
 
 declare global { interface HTMLElementTagNameMap { "ccl-logs": CclLogs; } }
+

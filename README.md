@@ -83,6 +83,7 @@ coderClawLink is the **centralized orchestration portal** within the coderClaw.a
 - Seamless adoption across teams of any size — no workflow disruption
 - RBAC-enforced multi-tenancy for enterprise governance
 - Full execution history and audit log for compliance
+- **Visual execution timeline** — see exactly what every claw and sub-agent did, step by step
 - Skills marketplace for sharing and discovering agent capabilities
 - Persistent chat history across all claw sessions
 - Browser-based code editor for direct file inspection
@@ -93,6 +94,9 @@ coderClawLink is the **centralized orchestration portal** within the coderClaw.a
 
 ### 🔄 Self-Healing Agents
 coderClaw.ai agents monitor their own execution state. When a task fails, the system automatically diagnoses the failure, attempts remediation, and escalates to human review only when it cannot self-repair. The execution lifecycle (`PENDING → SUBMITTED → RUNNING → COMPLETED / FAILED`) is tracked in coderClawLink with full state history. Execution state changes stream in real-time via a WebSocket endpoint (`GET /api/runtime/executions/:id/stream`), eliminating polling latency.
+
+### 🔍 Visual Execution Debugging
+Instead of raw terminal output, coderClawLink provides a structured **execution timeline** for every task run. The claw runtime posts structured events (`agent_start`, `tool_call`, `tool_result`, `subagent_start`, etc.) to `POST /api/runtime/executions/:id/events`. The portal renders these as a colour-coded vertical timeline — showing which agent acted, which tools were called, how long each step took, and how sub-agents were delegated to. Full JSON payloads are expandable inline for deep inspection without leaving the UI.
 
 ### 🧠 Persistent Memory & Context
 Unlike ephemeral AI tools, every agent maintains a `.coderClaw/` knowledge base per project — storing architectural docs, coding standards, semantic indices, and session handoffs. coderClawLink persists agent registrations, skill catalogs, and execution histories so nothing is lost between sessions. Context window usage and token spend are tracked per session via `usage.snapshot` relay frames and stored in the `usage_snapshots` table.
