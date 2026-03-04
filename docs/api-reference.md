@@ -14,6 +14,8 @@
 - [Claws (AI Agent Instances)](#claws-ai-agent-instances)
 - [Agents & Skills](#agents--skills)
 - [Runtime — Execution Lifecycle](#runtime--execution-lifecycle)
+  - [WebSocket execution stream](#websocket-execution-stream)
+  - [Execution timeline events](#execution-timeline-events)
 - [Specs (Planning)](#specs-planning)
 - [Workflows](#workflows)
 - [Approvals (Human-in-the-Loop)](#approvals-human-in-the-loop)
@@ -201,6 +203,8 @@ PENDING / SUBMITTED / RUNNING → CANCELLED
 | `POST` | `/api/runtime/executions/:id/cancel` | Cancel execution |
 | `PATCH` | `/api/runtime/executions/:id/state` | Agent callback: update state (`completed` supports optional `codeChanges`) |
 | `GET` | `/api/runtime/tasks/:taskId/executions` | Execution history for a task |
+| `POST` | `/api/runtime/executions/:id/events` | Agent callback: record a structured timeline event |
+| `GET` | `/api/runtime/executions/:id/events` | Fetch timeline events for a single execution |
 
 ### WebSocket execution stream
 
@@ -214,6 +218,77 @@ Frame types received:
 ```
 
 The connection closes automatically when the execution reaches a terminal state.
+
+### Execution timeline events
+
+The `execution_log_events` table and its API endpoints enable **visual debugging** in the portal. Instead of raw terminal output, the portal renders a vertical chronological timeline showing exactly what the claw and its sub-agents did.
+
+**Post a timeline event (agent callback)**
+
+```http
+POST /api/runtime/executions/:id/events
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "eventType": "tool_call",
+  "agentRole": "orchestrator",
+  "label": "read_file",
+  "detail": "{\"path\": \"/src/index.ts\"}",
+  "durationMs": 42,
+  "ts": "2026-03-04T14:00:00.000Z"
+}
+```
+
+**`eventType` values:**
+
+| Value | Meaning |
+|-------|---------|
+| `agent_start` | A new agent (or the orchestrator) begins working |
+| `agent_end` | The agent finished its contribution |
+| `tool_call` | A tool invocation started |
+| `tool_result` | Result returned from a tool call |
+| `subagent_start` | Delegation to a sub-agent began |
+| `subagent_end` | Sub-agent delegation completed |
+| `message` | Narrative/log message from the agent |
+| `checkpoint` | Agent saved a checkpoint / intermediate state |
+| `error` | An error occurred |
+
+**Optional fields:**
+- `agentRole` — which agent role emitted this event (e.g. `"orchestrator"`, `"reviewer"`)
+- `label` — short human-readable step name (e.g. tool name)
+- `detail` — full JSON payload (args, result, message content, etc.)
+- `parentEventId` — links a child event back to its parent (used for sub-agent trees)
+- `durationMs` — how long this step took
+- `ts` — wall-clock time on the claw (defaults to server `now()` if omitted)
+- `clawId` — which claw instance emitted this event
+
+**Response 201:**
+```json
+{
+  "id": 1,
+  "executionId": 42,
+  "tenantId": 1,
+  "clawId": 3,
+  "eventType": "tool_call",
+  "agentRole": "orchestrator",
+  "label": "read_file",
+  "detail": "{\"path\":\"/src/index.ts\"}",
+  "parentEventId": null,
+  "durationMs": 42,
+  "ts": "2026-03-04T14:00:00.000Z",
+  "createdAt": "2026-03-04T14:00:00.001Z"
+}
+```
+
+**Fetch events for an execution**
+
+```http
+GET /api/runtime/executions/:id/events?limit=500
+Authorization: Bearer <jwt>
+```
+
+Returns an array of `ExecutionLogEvent` objects sorted by `ts` ascending. The portal's `<ccl-execution-timeline>` component fetches this endpoint automatically when an execution is expanded.
 
 ---
 

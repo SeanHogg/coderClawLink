@@ -113,7 +113,7 @@ Hono routes + middleware. Depends on application services.
 | `tenantRoutes.ts` | `/api/tenants` | Tenant + member + subscription management |
 | `clawRoutes.ts` | `/api/claws` | Claw CRUD, directories, file browser, relay forward |
 | `agentRoutes.ts` | `/api/agents` | Agent + skill CRUD |
-| `runtimeRoutes.ts` | `/api/runtime` | Execution lifecycle + WebSocket stream |
+| `runtimeRoutes.ts` | `/api/runtime` | Execution lifecycle + WebSocket stream + timeline events |
 | `specRoutes.ts` | `/api/specs` | Planning document CRUD |
 | `workflowRoutes.ts` | `/api/workflows` | Workflow DAG CRUD |
 | `approvalRoutes.ts` | `/api/approvals` | Human-in-the-loop gates |
@@ -159,7 +159,7 @@ The SPA is built with **Lit 3** (web components) and **Vite**, served by a minim
 | `agents.ts` | `/agents` | Agent + skill management |
 | `workspace.ts` | `/workspace` | Multi-claw workspace |
 | `brain.ts` | `/brain` | AI project assistant (conversational UI) |
-| `logs.ts` | `/logs` | Execution logs |
+| `logs.ts` | `/logs` | Execution logs with visual timeline + raw output toggle |
 | `code-editor.ts` | `/code-editor` | Browser-based file browser / editor |
 | `skills.ts` | `/skills` | Marketplace skill browser |
 | `admin.ts` | `/admin` | Superadmin panel |
@@ -185,6 +185,7 @@ The SPA is built with **Lit 3** (web components) and **Vite**, served by a minim
 | `instances.ts` | Multiple claw instances in tenant |
 | `workspace.ts` | Claw workspace overview |
 | `projects.ts` | Projects linked to claw |
+| `execution-timeline.ts` | Visual execution timeline — chronological event graph with agent steps, tool calls, and sub-agent delegation |
 
 ---
 
@@ -237,6 +238,7 @@ All tables use Postgres via Cloudflare Hyperdrive. Migrations are in `api/migrat
 | `claw_skill_assignments` | Skills assigned to a specific Claw |
 | `tenant_skill_assignments` | Skills assigned to a tenant (all Claws) |
 | `executions` | Task execution lifecycle records |
+| `execution_log_events` | Structured per-execution timeline events (agent steps, tool calls, sub-agent delegation) |
 | `specs` | Planning documents (PRD + arch + tasks) |
 | `workflows` | Multi-step execution DAGs |
 | `workflow_tasks` | Individual steps within a workflow |
@@ -393,6 +395,14 @@ coderClaw runtime
        ─[relay: forward to claw DO]──► ClawRelayDO ──► claw WebSocket
 
 coderClaw runtime processes task
+  ─[POST /api/runtime/executions/:id/events {eventType:"agent_start", agentRole:"orchestrator"}]──► API Worker
+       INSERT execution_log_events
+
+  ─[POST /api/runtime/executions/:id/events {eventType:"tool_call", label:"read_file", detail:"..."}]──► API Worker
+       INSERT execution_log_events
+
+  (repeat for each step / sub-agent / tool result)
+
   ─[PATCH /api/runtime/executions/:id/state {status:"completed"}]──► API Worker
        RuntimeService.updateState()
        UPDATE executions (status=COMPLETED)
@@ -400,6 +410,11 @@ coderClaw runtime processes task
 
 Browser portal receives status_change via ClawGateway WebSocket
   → Updates execution status in the UI
+  → User opens Logs view, expands execution
+  → GET /api/runtime/executions/:id/events
+  → <ccl-execution-timeline> renders vertical timeline with colour-coded event types,
+     agent role badges, per-step durations, expandable JSON payloads,
+     and a mini progress bar showing event density over the run's duration
 ```
 
 ### Human-in-the-loop approval

@@ -688,6 +688,47 @@ export const toolAuditEvents = pgTable('tool_audit_events', {
 });
 
 // ---------------------------------------------------------------------------
+// Execution log events — structured, per-execution timeline events.
+// Each row captures one discrete step (agent start, tool call, sub-agent
+// delegation, checkpoint, error, etc.) so the portal can render a visual
+// debugging timeline instead of just raw terminal output.
+// ---------------------------------------------------------------------------
+
+export const executionLogEventTypeEnum = pgEnum('execution_log_event_type', [
+  'agent_start',
+  'agent_end',
+  'tool_call',
+  'tool_result',
+  'subagent_start',
+  'subagent_end',
+  'message',
+  'checkpoint',
+  'error',
+]);
+
+export const executionLogEvents = pgTable('execution_log_events', {
+  id:            serial('id').primaryKey(),
+  executionId:   integer('execution_id').notNull().references(() => executions.id, { onDelete: 'cascade' }),
+  tenantId:      integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:        integer('claw_id').references(() => coderclawInstances.id, { onDelete: 'set null' }),
+  /** Which event type this row represents. */
+  eventType:     executionLogEventTypeEnum('event_type').notNull(),
+  /** The agent role/name that emitted this event (e.g. "orchestrator", "reviewer"). */
+  agentRole:     varchar('agent_role', { length: 255 }),
+  /** Short human-readable label (e.g. tool name, step title). */
+  label:         varchar('label', { length: 512 }),
+  /** Full JSON payload — args, result, message content, etc. */
+  detail:        text('detail'),
+  /** Optional link back to a parent event (used for sub-agent trees). */
+  parentEventId: integer('parent_event_id'),
+  /** How long this step took in milliseconds. */
+  durationMs:    integer('duration_ms'),
+  /** When this event occurred (wall-clock on the claw). */
+  ts:            timestamp('ts').notNull().defaultNow(),
+  createdAt:     timestamp('created_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
 // Approvals — human-in-the-loop gate for destructive / high-risk agent actions
 // ---------------------------------------------------------------------------
 

@@ -238,6 +238,7 @@ See [Partnership Opportunities](#10-partnership-opportunities).
 | "Self-hosting a Cloudflare Workers app with Drizzle ORM" | Dev.to | SEO, reach Cloudflare community |
 | Product Hunt launch post | Product Hunt | Launch, reviews |
 | "The case for human-in-the-loop AI governance" | LinkedIn | Enterprise buyers |
+| "Visual debugging for AI agents: introducing the execution timeline" | Blog + Twitter/X | Developer education, feature launch |
 
 ### Phase 2 — Authority (Month 3–6)
 
@@ -248,6 +249,7 @@ See [Partnership Opportunities](#10-partnership-opportunities).
 | Video: "Register your first claw in 5 minutes" | YouTube | Activation |
 | Weekly changelog posts | Twitter/X + Discord | Retention, engagement |
 | "How [Company] reduced code review time 60% with coderClaw" | Blog | Social proof |
+| Video: "Debugging your first multi-agent task with the execution timeline" | YouTube | Feature education |
 
 ### Phase 3 — Scale (Month 7+)
 

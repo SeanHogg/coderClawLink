@@ -5,6 +5,7 @@ import {
   type Task, type TaskStatus, type TaskPriority, type Project, type Claw, type Execution,
 } from "../api.js";
 import { renderTaskKanban } from "../components/task-kanban.js";
+import "./claw/execution-timeline.js";
 
 type ViewMode = "kanban" | "list" | "gantt";
 
@@ -52,6 +53,8 @@ export class CclTasks extends LitElement {
   @state() private drawerExecutions: Execution[] = [];
   @state() private drawerTab: "detail" | "executions" = "detail";
   @state() private running = false;
+  @state() private selectedExecutionId: string | null = null;
+  @state() private executionSubTab: "timeline" | "raw" = "timeline";
 
   // Drag
   @state() private dragTaskId = "";
@@ -650,7 +653,7 @@ export class CclTasks extends LitElement {
     `;
   }
 
-  private renderDrawerExecutions(t: Task) {
+  private renderDrawerExecutions(_t: Task) {
     if (this.drawerExecutions.length === 0) {
       return html`<div class="empty-state"><div class="empty-state-title">No executions yet</div></div>`;
     }
@@ -659,16 +662,41 @@ export class CclTasks extends LitElement {
       running: "badge-blue", pending: "badge-gray", cancelled: "badge-gray",
     };
     return html`
-      <div style="display:grid;gap:10px">
+      <div style="display:grid;gap:8px">
         ${this.drawerExecutions.map(ex => html`
-          <div class="card">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div class="card" style="cursor:pointer" @click=${() => {
+            this.selectedExecutionId = this.selectedExecutionId === ex.id ? null : ex.id;
+            this.executionSubTab = "timeline";
+          }}>
+            <div style="display:flex;align-items:center;gap:10px">
               <span class="badge ${statusColor[ex.status] ?? "badge-gray"}">${ex.status}</span>
+              <span style="font-size:11px;color:var(--muted);flex:1">#${ex.id}</span>
               <span style="font-size:11px;color:var(--muted)">${this.formatDate(ex.createdAt)}</span>
+              <svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:var(--muted);fill:none;stroke-width:2">
+                <polyline points="${this.selectedExecutionId === ex.id ? "18 15 12 9 6 15" : "6 9 12 15 18 9"}"/>
+              </svg>
             </div>
-            ${ex.result ? html`
-              <div class="log-wrap" style="max-height:120px;overflow-y:auto;font-size:11px">${ex.result}</div>
-            ` : ""}
+
+            ${this.selectedExecutionId === ex.id ? html`
+              <div style="margin-top:10px" @click=${(e: Event) => e.stopPropagation()}>
+                <!-- Sub-tab bar -->
+                <div style="display:flex;gap:4px;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">
+                  ${(["timeline", "raw"] as const).map(tab => html`
+                    <button
+                      class="btn btn-ghost btn-sm"
+                      style="font-size:11px;padding:2px 10px;${this.executionSubTab === tab ? "background:var(--surface-2,rgba(255,255,255,0.08));color:var(--text-strong)" : ""}"
+                      @click=${() => { this.executionSubTab = tab; }}
+                    >${tab === "timeline" ? "⏱ Timeline" : "📄 Raw output"}</button>
+                  `)}
+                </div>
+
+                ${this.executionSubTab === "timeline"
+                  ? html`<ccl-execution-timeline execution-id=${ex.id}></ccl-execution-timeline>`
+                  : ex.result
+                    ? html`<div class="log-wrap" style="max-height:150px;overflow-y:auto;font-size:11px">${ex.result}</div>`
+                    : html`<div style="color:var(--muted);font-size:12px">No output recorded.</div>`
+                }
+              </div>` : ""}
           </div>
         `)}
       </div>

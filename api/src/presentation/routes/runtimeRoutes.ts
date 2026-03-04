@@ -1,23 +1,27 @@
 import { Hono } from 'hono';
 import { and, eq, isNotNull } from 'drizzle-orm';
 import { RuntimeService } from '../../application/runtime/RuntimeService';
-import { ExecutionStatus } from '../../domain/shared/types';
+import { ExecutionStatus, asExecutionId, asTenantId, asClawId } from '../../domain/shared/types';
 import type { HonoEnv } from '../../env';
 import { authMiddleware } from '../middleware/authMiddleware';
 import type { Db } from '../../infrastructure/database/connection';
 import { coderclawInstances, executions, projectInsightEvents, projects, tasks } from '../../infrastructure/database/schema';
 import type { ClawRelayDO } from '../../infrastructure/relay/ClawRelayDO';
+import { ExecutionLogEventRepository } from '../../infrastructure/repositories/ExecutionLogEventRepository';
+import { ExecutionLogEvent, ExecutionLogEventType } from '../../domain/execution/ExecutionLogEvent';
 
 /**
  * Runtime routes – task execution lifecycle.
  *
- * POST   /api/runtime/executions             – submit a task for execution
- * GET    /api/runtime/executions             – list executions (tenant-wide or filtered by sessionId)
+ * POST   /api/runtime/executions                    – submit a task for execution
+ * GET    /api/runtime/executions                    – list executions (tenant-wide or filtered by sessionId)
  * GET    /api/runtime/sessions/:sessionId/executions – full execution timeline for a session
- * GET    /api/runtime/executions/:id         – get execution state
- * POST   /api/runtime/executions/:id/cancel  – cancel an execution
- * PATCH  /api/runtime/executions/:id/state   – agent callback: update state
- * GET    /api/runtime/tasks/:taskId/executions – history for a task
+ * GET    /api/runtime/executions/:id                – get execution state
+ * POST   /api/runtime/executions/:id/cancel         – cancel an execution
+ * PATCH  /api/runtime/executions/:id/state          – agent callback: update state
+ * GET    /api/runtime/tasks/:taskId/executions      – history for a task
+ * POST   /api/runtime/executions/:id/events         – agent callback: record a timeline event
+ * GET    /api/runtime/executions/:id/events         – fetch timeline events for an execution
  */
 type RuntimeHonoEnv = HonoEnv & {
   Bindings: HonoEnv['Bindings'] & {
@@ -380,6 +384,58 @@ export function createRuntimeRoutes(runtimeService: RuntimeService, db: Db): Hon
       execution: execution.toPlain(),
       dispatched: results,
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Execution log events — visual timeline debugging
+  // ---------------------------------------------------------------------------
+
+  // Agent callback: record a structured timeline event for an execution.
+  router.post('/executions/:id/events', async (c) => {
+    const executionId = Number(c.req.param('id'));
+    const body = await c.req.json<{
+      eventType:     ExecutionLogEventType;
+      agentRole?:    string;
+      label?:        string;
+      detail?:       string;
+      parentEventId?: number;
+      durationMs?:   number;
+      ts?:           string;
+      clawId?:       number;
+    }>();
+
+    const VALID_TYPES: ExecutionLogEventType[] = [
+      'agent_start', 'agent_end', 'tool_call', 'tool_result',
+      'subagent_start', 'subagent_end', 'message', 'checkpoint', 'error',
+    ];
+    if (!VALID_TYPES.includes(body.eventType)) {
+      return c.json({ error: `Invalid eventType. Must be one of: ${VALID_TYPES.join(', ')}` }, 400);
+    }
+
+    const repo = new ExecutionLogEventRepository(db);
+    const event = ExecutionLogEvent.create({
+      executionId:   asExecutionId(executionId),
+      tenantId:      asTenantId(c.get('tenantId')),
+      clawId:        body.clawId != null ? asClawId(body.clawId) : null,
+      eventType:     body.eventType,
+      agentRole:     body.agentRole ?? null,
+      label:         body.label ?? null,
+      detail:        body.detail ?? null,
+      parentEventId: body.parentEventId ?? null,
+      durationMs:    body.durationMs ?? null,
+      ts:            body.ts ? new Date(body.ts) : new Date(),
+    });
+    const saved = await repo.save(event);
+    return c.json(saved.toPlain(), 201);
+  });
+
+  // Fetch all timeline events for a single execution.
+  router.get('/executions/:id/events', async (c) => {
+    const executionId = Number(c.req.param('id'));
+    const limit = Math.min(Number(c.req.query('limit') ?? '500'), 1000);
+    const repo = new ExecutionLogEventRepository(db);
+    const events = await repo.findByExecution(asExecutionId(executionId), limit);
+    return c.json(events.map(e => e.toPlain()));
   });
 
   return router;

@@ -483,6 +483,32 @@ export interface Execution {
   createdAt: string;
 }
 
+export type ExecutionLogEventType =
+  | "agent_start"
+  | "agent_end"
+  | "tool_call"
+  | "tool_result"
+  | "subagent_start"
+  | "subagent_end"
+  | "message"
+  | "checkpoint"
+  | "error";
+
+export interface ExecutionLogEvent {
+  id: number;
+  executionId: number;
+  tenantId: number;
+  clawId?: number;
+  eventType: ExecutionLogEventType;
+  agentRole?: string;
+  label?: string;
+  detail?: string;
+  parentEventId?: number;
+  durationMs?: number;
+  ts: string;
+  createdAt: string;
+}
+
 export interface Skill {
   id: string;
   name: string;
@@ -1093,6 +1119,9 @@ export const executions = {
     if (params?.taskId) q.set("taskId", params.taskId);
     if (params?.clawId) q.set("clawId", params.clawId);
     return request(`/api/runtime/executions${q.size ? `?${q}` : ""}`);
+  },
+  async events(executionId: string | number): Promise<ExecutionLogEvent[]> {
+    return request(`/api/runtime/executions/${executionId}/events`);
   },
 };
 
