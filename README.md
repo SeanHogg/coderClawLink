@@ -1,6 +1,6 @@
-# coderClawLink
+# coderClawLink — AI Agent Orchestration Portal
 
-> **The AI-native orchestration portal for coderClaw.ai — replacing Jira with a centralized, self-healing workflow control plane.**
+> **Replace Jira with an AI-native workflow control plane.** coderClawLink is the orchestration portal and REST API backend for [coderClaw.ai](https://coderclaw.ai) — connecting self-healing AI agents to projects, tasks, and human reviewers with built-in RBAC, real-time WebSocket execution streaming, chat persistence, a skills marketplace, and a full compliance-grade audit trail.
 
 <p align="center">
   <a href="https://discord.gg/qkhbAGHRBT"><img src="https://img.shields.io/discord/1456350064065904867?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
@@ -9,12 +9,30 @@
   <a href="https://app.coderclaw.ai"><img src="https://img.shields.io/badge/Portal-app.coderclaw.ai-blue?style=for-the-badge" alt="Portal"></a>
 </p>
 
-coderClawLink is the **orchestration portal and backend API** that connects AI agents (Claws) to projects, tasks, and human reviewers — with built-in auth, RBAC, real-time execution tracking, chat persistence, a skills marketplace, and a full audit trail.
+coderClawLink is the **orchestration portal and backend API** that connects AI agents (Claws) to projects, tasks, and human reviewers — with built-in auth, RBAC, real-time execution tracking, chat persistence, a skills marketplace, and a full audit trail. It runs entirely on **Cloudflare Workers** — zero cold start, globally distributed — backed by your own Postgres database.
 
 | Worker | URL | Purpose |
 |--------|-----|---------|
 | `app/` | `app.coderclaw.ai` | Lit 3 SPA — dashboard, brain assistant, code editor, marketplace |
 | `api/` | `api.coderclaw.ai` | Hono REST API + Durable Objects + Postgres |
+
+---
+
+## Table of Contents
+
+- [What is coderClaw.ai?](#what-is-coderclawai)
+- [coderClawLink in the Ecosystem](#coderclawlink-in-the-coderclawai-ecosystem)
+- [Key Platform Capabilities](#key-platform-capabilities)
+- [coderClawLLM — AI Compute API](#coderclawllm--ai-agent-compute-api)
+- [Pricing](#pricing)
+- [Who Uses coderClaw.ai?](#who-uses-coderclawai)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Setup](#setup)
+- [Environment Variables](#environment-variables)
+- [Contributing](#contributing)
+- [API Reference](#api-reference)
+- [RBAC](#rbac)
 
 ---
 
@@ -130,7 +148,42 @@ Agents authenticate with the same JWT issued by `POST /api/auth/token`, so no se
 
 ---
 
-## Who Uses coderClaw.ai?
+## Pricing
+
+coderClaw.ai uses a **freemium + usage-based** model. The orchestration portal (coderClawLink) is **MIT licensed and free to self-host**. Managed cloud tiers bundle hosting, the LLM compute proxy, and support.
+
+| | **Free** | **Pro** | **Enterprise** |
+|---|---|---|---|
+| **Price** | $0 forever | $29 / seat / month | Custom |
+| **Claws (AI agents)** | 1 | Unlimited | Unlimited |
+| **Projects** | 3 | Unlimited | Unlimited |
+| **Tasks** | 50 | Unlimited | Unlimited |
+| **Team members** | 1 | Up to 25 | Unlimited |
+| **coderClawLLM compute** | Free model pool (rate-limited) | Pro model pool (priority) | Dedicated capacity |
+| **LLM requests / month** | 1,000 | 50,000 | Unlimited / SLA |
+| **Chat history** | 7 days | 90 days | Unlimited |
+| **Audit log retention** | 30 days | 1 year | Unlimited |
+| **Approval gates** | ✅ | ✅ | ✅ |
+| **Specs & Workflows** | ✅ | ✅ | ✅ |
+| **Marketplace skills** | ✅ install | ✅ publish + install | ✅ private registry |
+| **RBAC** | Basic (owner + viewer) | Full (4 roles) | Full + SSO/SAML |
+| **MFA (TOTP)** | ✅ | ✅ | ✅ + hardware key |
+| **GDPR / CCPA tooling** | ✅ | ✅ | ✅ + DPA |
+| **Self-hosted** | ✅ MIT | ✅ MIT | ✅ air-gap support |
+| **SLA** | Community | Business hours | 99.9% uptime SLA |
+| **Support** | Discord | Email + Discord | Dedicated CSM |
+
+### Upgrade / Downgrade
+
+```http
+POST /api/tenants/:id/subscription/pro    # upgrade to Pro (billing details required)
+POST /api/tenants/:id/subscription/free   # downgrade to Free
+GET  /api/tenants/:id/subscription        # current plan + usage
+```
+
+> **Self-hosted users**: all tiers are available under the MIT license at no cost. Pricing applies to the managed `api.coderclaw.ai` / `app.coderclaw.ai` cloud service. See [docs/pricing.md](./docs/pricing.md) for the full billing FAQ.
+
+---
 
 ### Startups (5–50 developers)
 Use coderClaw.ai as a **virtual AI workforce**: a small human team coordinates a fleet of AI agents that handle code generation, review, testing, and documentation — with coderClawLink as the task board and audit trail. Subscription tiers start free.
