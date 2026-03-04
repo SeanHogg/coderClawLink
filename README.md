@@ -3,7 +3,6 @@
 > **The orchestration portal for coderClaw.ai — replacing Jira with a centralized, AI-native workflow control plane.**
 
 <p align="center">
-  <a href="https://github.com/SeanHogg/coderClawLink/actions"><img src="https://img.shields.io/github/actions/workflow/status/SeanHogg/coderClawLink/deploy.yml?branch=main&style=for-the-badge&label=build" alt="Build status"></a>
   <a href="https://discord.gg/qkhbAGHRBT"><img src="https://img.shields.io/discord/1456350064065904867?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
@@ -45,7 +44,7 @@ coderClawLink is the **centralized orchestration portal** within the coderClaw.a
 │  │                 │   │  app.coderclaw.ai             │    │
 │  │  Self-healing   │   │  api.coderclaw.ai             │    │
 │  │  Multi-agent    │   │                              │    │
-│  │  Persistent mem │   │  Projects · Tasks · Agents   │    │
+│  │  Persistent memory │   │  Projects · Tasks · Agents   │    │
 │  └────────┬────────┘   │  Runtime · Audit · RBAC      │    │
 │           │            └──────────────┬───────────────┘    │
 │           │                           │                     │
