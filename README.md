@@ -106,6 +106,15 @@ Register any number of specialized agents (Code Creator, Code Reviewer, Test Gen
 ### 📋 Spec-Driven Workflow Portal
 The `/spec` TUI command produces structured planning output (PRD, architecture spec, task list) that coderClaw pushes to `POST /api/specs`. Specs are queryable by goal, project, and status (`draft → reviewed → approved → in_progress → done`). Each spec links to one or more `workflows`, which track the full execution DAG with per-task states visible in the portal.
 
+### ⏱ Visual Execution Timeline & Debugger
+Instead of reading raw log output, the portal provides **three visual debug views** for every claw run:
+
+- **Timeline** — horizontal swimlane chart showing each tool call and workflow task on a shared time axis (bar colour = status, hover = args preview + duration)
+- **List** — flat chronological log of every recorded event with timestamps and durations
+- **Graph** — dependency graph of workflow tasks rendered as nodes with directed edges showing `dependsOn` relationships between sub-agents
+
+The timeline is accessible at the **Logs → Visual Timeline** tab (tenant-wide), inside each **Project workspace → Timeline** tab, and in the **Task drawer → Timeline** tab. Data is sourced from tool audit events (`POST /api/claws/:id/tool-audit`) and workflow task states. See [docs/visual-debugging.md](./docs/visual-debugging.md) for full details.
+
 ### 🛒 Skills Marketplace
 The built-in marketplace (`/marketplace/*`) lets teams publish, discover, and install reusable agent skills. Skills can be assigned at the tenant level (available to all claws) or scoped to individual claws. Full-text search, categories, versioning, and like/download counters are included. Marketplace auth is separate from the orchestration API — email + password → JWT with `tid: 0`.
 

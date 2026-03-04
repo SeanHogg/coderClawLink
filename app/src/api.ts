@@ -483,6 +483,50 @@ export interface Execution {
   createdAt: string;
 }
 
+export interface ToolAuditEvent {
+  id: number;
+  runId?: string | null;
+  sessionKey?: string | null;
+  toolCallId?: string | null;
+  toolName: string;
+  args?: string | null;
+  result?: string | null;
+  durationMs?: number | null;
+  ts: string;
+}
+
+export type WorkflowStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type WorkflowType   = "feature" | "bugfix" | "refactor" | "planning" | "adversarial" | "custom";
+
+export interface Workflow {
+  id: string;
+  clawId: number;
+  specId?: string | null;
+  workflowType: WorkflowType;
+  status: WorkflowStatus;
+  description?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+  updatedAt: string;
+  tasks?: WorkflowTask[];
+}
+
+export interface WorkflowTask {
+  id: string;
+  workflowId: string;
+  agentRole: string;
+  description: string;
+  status: WorkflowStatus;
+  input?: string | null;
+  output?: string | null;
+  error?: string | null;
+  dependsOn?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Skill {
   id: string;
   name: string;
@@ -1026,6 +1070,15 @@ export const claws = {
     );
     return res.messages;
   },
+
+  async toolAuditEvents(id: string, params?: { runId?: string; sessionKey?: string; limit?: number }): Promise<ToolAuditEvent[]> {
+    const q = new URLSearchParams();
+    if (params?.runId)      q.set("runId",      params.runId);
+    if (params?.sessionKey) q.set("sessionKey", params.sessionKey);
+    if (params?.limit)      q.set("limit",      String(params.limit));
+    const res = await request<{ events: ToolAuditEvent[] }>(`/api/claws/${id}/tool-audit${q.size ? `?${q}` : ""}`);
+    return res.events;
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1093,6 +1146,25 @@ export const executions = {
     if (params?.taskId) q.set("taskId", params.taskId);
     if (params?.clawId) q.set("clawId", params.clawId);
     return request(`/api/runtime/executions${q.size ? `?${q}` : ""}`);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Workflows (multi-step / orchestrated agent plans)
+// ---------------------------------------------------------------------------
+
+export const workflows = {
+  async list(params?: { status?: WorkflowStatus; workflowType?: WorkflowType; clawId?: string }): Promise<Workflow[]> {
+    const q = new URLSearchParams();
+    if (params?.status)       q.set("status",       params.status);
+    if (params?.workflowType) q.set("workflowType", params.workflowType);
+    if (params?.clawId)       q.set("clawId",       params.clawId);
+    const res = await request<{ workflows: Workflow[] }>(`/api/workflows${q.size ? `?${q}` : ""}`);
+    return res.workflows;
+  },
+
+  async get(id: string): Promise<Workflow> {
+    return request<Workflow>(`/api/workflows/${id}`);
   },
 };
 

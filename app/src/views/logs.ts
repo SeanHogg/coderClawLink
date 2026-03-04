@@ -1,6 +1,7 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { executions, tasks as tasksApi, type Execution, type Task } from "../api.js";
+import { executions, tasks as tasksApi, claws as clawsApi, type Execution, type Task, type Claw } from "../api.js";
+import "./execution-timeline.js";
 
 @customElement("ccl-logs")
 export class CclLogs extends LitElement {
@@ -10,20 +11,29 @@ export class CclLogs extends LitElement {
 
   @state() private items: Execution[] = [];
   @state() private tasks: Task[] = [];
+  @state() private clawList: Claw[] = [];
   @state() private loading = true;
   @state() private error = "";
   @state() private filterTask = "";
   @state() private filterStatus = "";
+  @state() private tab: "list" | "timeline" = "list";
+
+  // Timeline filter
+  @state() private timelineClawId = "";
 
   override connectedCallback() { super.connectedCallback(); this.load(); }
 
   private async load() {
     this.loading = true;
     try {
-      [this.items, this.tasks] = await Promise.all([
+      [this.items, this.tasks, this.clawList] = await Promise.all([
         executions.list(),
         tasksApi.list().catch(() => [] as Task[]),
+        clawsApi.list().catch(() => [] as Claw[]),
       ]);
+      if (!this.timelineClawId && this.clawList.length) {
+        this.timelineClawId = this.clawList[0].id;
+      }
     } catch (e) { this.error = (e as Error).message; }
     finally { this.loading = false; }
   }
@@ -58,18 +68,36 @@ export class CclLogs extends LitElement {
   @state() private expanded: string | null = null;
 
   override render() {
-    const items = this.filtered();
     return html`
       <div class="page-header">
         <div>
           <div class="page-title">Execution Logs</div>
-          <div class="page-sub">${items.length} execution${items.length !== 1 ? "s" : ""}</div>
+          <div class="page-sub">Raw execution log list and visual timeline debug view</div>
         </div>
         <button class="btn btn-secondary" @click=${this.load}>Refresh</button>
       </div>
 
       ${this.error ? html`<div class="error-banner">${this.error}</div>` : ""}
 
+      <!-- Tab bar -->
+      <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px">
+        ${(["list", "timeline"] as const).map(t => html`
+          <button
+            class="btn btn-ghost"
+            style="border-radius:0;border-bottom:2px solid ${this.tab === t ? "var(--accent)" : "transparent"};padding:8px 18px;font-size:13px"
+            @click=${() => { this.tab = t; }}>
+            ${{ list: "☰ Log List", timeline: "⏱ Visual Timeline" }[t]}
+          </button>
+        `)}
+      </div>
+
+      ${this.tab === "list" ? this.renderList() : this.renderTimeline()}
+    `;
+  }
+
+  private renderList() {
+    const items = this.filtered();
+    return html`
       <div class="filters" style="margin-bottom:16px">
         <select class="select" style="max-width:220px;height:32px;padding:4px 10px"
           @change=${(e: Event) => { this.filterTask = (e.target as HTMLSelectElement).value; }}>
@@ -108,6 +136,29 @@ export class CclLogs extends LitElement {
             </div>`}
     `;
   }
+
+  private renderTimeline() {
+    return html`
+      <div class="card" style="margin-bottom:12px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+        <div class="field" style="margin:0;min-width:220px;flex:1;max-width:360px">
+          <label class="label">Claw</label>
+          <select class="select" .value=${this.timelineClawId}
+            @change=${(e: Event) => { this.timelineClawId = (e.target as HTMLSelectElement).value; }}>
+            <option value="">— select a claw —</option>
+            ${this.clawList.map(c => html`<option value=${c.id}>${c.name}</option>`)}
+          </select>
+        </div>
+        <div style="font-size:12px;color:var(--muted)">
+          Shows tool calls and workflow tasks recorded by the selected claw.
+        </div>
+      </div>
+
+      ${this.timelineClawId
+        ? html`<ccl-execution-timeline clawId=${this.timelineClawId}></ccl-execution-timeline>`
+        : html`<div class="empty-state"><div class="empty-state-icon">⏱</div><div class="empty-state-title">Select a claw to view its timeline</div></div>`}
+    `;
+  }
 }
 
 declare global { interface HTMLElementTagNameMap { "ccl-logs": CclLogs; } }
+
