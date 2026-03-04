@@ -556,7 +556,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
    Table
    ============================================================ */
 
-.table-wrap { border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; }
+.table-wrap { border:1px solid var(--border); border-radius:var(--radius-lg); overflow-x:auto; overflow-y:hidden; }
 .table { width:100%; border-collapse:collapse; }
 .table th { font-size:11px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; color:var(--muted); text-align:left; padding:10px 16px; background:var(--bg-elevated); border-bottom:1px solid var(--border); }
 .table td { padding:12px 16px; font-size:13px; color:var(--text); border-bottom:1px solid var(--border); }
@@ -903,16 +903,45 @@ button, input, textarea, select { font: inherit; color: inherit; }
   }
   .nav {
     border-right:none; border-bottom:1px solid var(--border);
-    padding:8px 12px; display:flex; gap:4px; overflow-x:auto;
+    padding:6px 10px; display:flex; gap:4px; overflow-x:auto; align-items:center;
+    scrollbar-width:none;
   }
+  .nav::-webkit-scrollbar { display:none; }
+  /* Flatten nav-main so its children flow directly into the horizontal nav strip */
+  .nav-main { display:contents; }
+  /* Hide the sidebar collapse button on mobile */
+  .nav-footer { display:none; }
   .nav-section { display:flex; gap:4px; margin-bottom:0; }
   .nav-section-label { display:none; }
+  /* Icon-only nav items on mobile */
+  .nav-item { padding:8px; justify-content:center; }
+  .nav-item-label { display:none; }
+  .nav-item-badge { display:none; }
+  /* Tables: enable horizontal scrolling so content is visible */
+  .content { overflow-x:auto; padding:16px; }
+  .table-wrap { overflow-x:auto; }
+  .table { min-width:480px; }
+  .data-table { min-width:520px; }
+  /* Error log header: collapse to a simpler layout */
+  .error-entry-header { grid-template-columns:60px 1fr auto auto; }
+  .error-path { display:none; }
   .panel-drawer { width:100%; }
   .brain-drawer { width: 100%; }
   .brain-fab { left: 12px; right: auto; bottom: calc(var(--footer-height) + 10px); }
   .grid-2, .grid-3 { grid-template-columns:1fr; }
   .kanban { flex-direction:column; }
   .kanban-col { flex:none; width:100%; }
+  /* Page header: wrap on small viewports */
+  .page-header { flex-wrap:wrap; }
+}
+
+/* Extra-small screens: trim topbar to avoid overflow */
+@media (max-width:600px) {
+  .brand-name { display:none; }
+  .brand-badge { display:none; }
+  .topbar { padding:0 10px; gap:8px; }
+  .topbar-right { gap:4px; }
+  .tenant-chip { max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 }
 
 /* ============================================================
