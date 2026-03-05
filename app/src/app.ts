@@ -59,6 +59,8 @@ export class CclApp extends LitElement {
   @state() private acceptingTerms = false;
   @state() private legalModalType: "terms" | "privacy" | null = null;
   @state() private showScrollTop = false;
+  @state() private nlEmail = "";
+  @state() private nlStatus: "idle" | "sending" | "ok" | "error" = "idle";
   private scrollHandler = () => { this.showScrollTop = window.scrollY > 400; };
 
   override connectedCallback() {
@@ -874,6 +876,34 @@ export class CclApp extends LitElement {
           </div>
         </section>
 
+        <!-- Newsletter -->
+        <section class="landing-section">
+          <div class="landing-section-inner">
+            <div class="newsletter-card">
+              <h2 class="newsletter-title"><span style="color:var(--accent)">⟩</span> Stay in the Loop</h2>
+              <p class="newsletter-desc">Get updates on new features, integrations, and lobster wisdom. No spam, unsubscribe anytime.</p>
+              <form class="newsletter-form" @submit=${this.handleNewsletterSubmit}>
+                <input
+                  type="email"
+                  class="newsletter-input"
+                  placeholder="your@email.com"
+                  required
+                  .value=${this.nlEmail}
+                  @input=${(e: InputEvent) => { this.nlEmail = (e.target as HTMLInputElement).value; }}
+                  ?disabled=${this.nlStatus === "ok" || this.nlStatus === "sending"}
+                  aria-label="Email address"
+                />
+                <button type="submit" class="newsletter-btn" ?disabled=${this.nlStatus === "ok" || this.nlStatus === "sending"}>
+                  ${this.nlStatus === "sending" ? "Subscribing…" : this.nlStatus === "ok" ? "Subscribed" : "Subscribe"}
+                  ${this.nlStatus !== "ok" ? html`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>` : html`<span>✓</span>`}
+                </button>
+              </form>
+              ${this.nlStatus === "ok" ? html`<p class="newsletter-status ok">Subscribed ✓</p>` : ""}
+              ${this.nlStatus === "error" ? html`<p class="newsletter-status error">Unable to subscribe right now. Please try again.</p>` : ""}
+            </div>
+          </div>
+        </section>
+
         <!-- Final CTA -->
         <section class="landing-cta-section">
           <div class="landing-section-inner" style="text-align:center">
@@ -902,6 +932,24 @@ export class CclApp extends LitElement {
 
       </div>
     `;
+  }
+
+  private async handleNewsletterSubmit(e: Event) {
+    e.preventDefault();
+    const email = this.nlEmail.trim();
+    if (!email) return;
+    this.nlStatus = "sending";
+    try {
+      const res = await fetch("https://api.coderclaw.ai/api/auth/newsletter/subscribers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, action: "subscribe", source: "coderclawlink" }),
+      });
+      if (!res.ok) throw new Error("Subscription failed");
+      this.nlStatus = "ok";
+    } catch {
+      this.nlStatus = "error";
+    }
   }
 
   private renderAuth() {

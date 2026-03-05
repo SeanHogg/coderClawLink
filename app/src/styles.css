@@ -981,6 +981,92 @@ button, input, textarea, select { font: inherit; color: inherit; }
   transition: background 0.2s ease;
 }
 
+/* Newsletter */
+.newsletter-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3rem 2.5rem;
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto;
+  position: relative;
+  overflow: hidden;
+}
+.newsletter-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(77,158,255,.06) 0%, transparent 60%);
+  pointer-events: none;
+}
+.newsletter-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-strong);
+  margin: 0 0 .5rem;
+}
+.newsletter-desc {
+  color: var(--muted);
+  font-size: .95rem;
+  line-height: 1.6;
+  margin: 0 0 1.5rem;
+}
+.newsletter-form {
+  display: flex;
+  gap: .5rem;
+  max-width: 440px;
+  margin: 0 auto;
+}
+.newsletter-input {
+  flex: 1;
+  padding: .75rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: .95rem;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+.newsletter-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(77,158,255,.15);
+}
+.newsletter-input::placeholder { color: var(--muted); opacity: .6; }
+.newsletter-input:disabled { opacity: .5; cursor: not-allowed; }
+.newsletter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .75rem 1.5rem;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: .95rem;
+  cursor: pointer;
+  transition: background .2s, transform .1s;
+  white-space: nowrap;
+}
+.newsletter-btn:hover:not(:disabled) { background: #3a8bee; }
+.newsletter-btn:active:not(:disabled) { transform: scale(.97); }
+.newsletter-btn:disabled { opacity: .55; cursor: not-allowed; }
+.newsletter-status {
+  margin: .75rem 0 0;
+  font-size: .875rem;
+  font-weight: 500;
+}
+.newsletter-status.ok { color: var(--green, #22c55e); }
+.newsletter-status.error { color: var(--red, #ef4444); }
+@media (max-width: 480px) {
+  .newsletter-card { padding: 2rem 1.25rem; }
+  .newsletter-form { flex-direction: column; }
+  .newsletter-btn { justify-content: center; }
+}
+
 /* Scroll-to-top */
 .scroll-to-top {
   position: fixed;
