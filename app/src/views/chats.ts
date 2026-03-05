@@ -47,7 +47,7 @@ export class CclChatsView extends LitElement {
 
   override render() {
     return html`
-      <div style="padding:16px;display:grid;gap:16px;height:calc(100dvh - 116px);min-height:620px;">
+      <div style="padding:16px;display:grid;gap:16px;min-height:0;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div>
             <div style="font-size:18px;font-weight:600;color:var(--text-strong)">Chats</div>
@@ -67,7 +67,7 @@ export class CclChatsView extends LitElement {
                   <div class="empty-state-sub">Chat history will appear here once claws start receiving messages</div>
                 </div>`
             : html`
-                <div style="display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:12px;min-height:0;height:100%;overflow:hidden;">
+                <div style="display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:12px;height:clamp(420px,calc(100dvh - 250px),760px);overflow:hidden;">
                   <!-- Session list -->
                   <div class="card" style="overflow:auto;min-height:0;">
                     <div class="card-title" style="margin-bottom:8px;">Sessions</div>

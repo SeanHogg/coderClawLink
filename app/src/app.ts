@@ -103,6 +103,10 @@ export class CclApp extends LitElement {
   };
 
   private handleTermsRequired = async () => {
+    if (!getWebToken()) {
+      this.termsGateRequired = false;
+      return;
+    }
     this.termsGateRequired = true;
     await this.loadLegalDocs();
   };
@@ -129,14 +133,21 @@ export class CclApp extends LitElement {
       this.legalTerms = status.terms;
       this.termsGateRequired = status.needsAcceptance;
       return !status.needsAcceptance;
-    } catch {
-      this.termsGateRequired = true;
-      return false;
+    } catch (error) {
+      if (error instanceof Error && "status" in error) {
+        const status = Number((error as { status?: unknown }).status);
+        if (status === 401 || status === 403) {
+          this.termsGateRequired = false;
+          return true;
+        }
+      }
+      this.termsGateRequired = false;
+      return true;
     }
   }
 
   private async acceptCurrentTerms() {
-    if (!this.legalTerms) return;
+    if (!this.legalTerms || !getWebToken()) return;
     this.acceptingTerms = true;
     try {
       const accepted = await auth.acceptTerms(this.legalTerms.version);
@@ -180,6 +191,7 @@ export class CclApp extends LitElement {
   private async bootstrap() {
     const webToken = getWebToken();
     if (!webToken) { this.appState = "landing"; return; }
+    this.user = getUser();
 
     const termsOk = await this.ensureTermsAccepted();
     if (!termsOk) {
@@ -189,7 +201,6 @@ export class CclApp extends LitElement {
 
     const tenantToken = getTenantToken();
     const tenantId = getTenantId();
-    this.user = getUser();
 
     if (tenantToken && tenantId) {
       // Restore last tenant
@@ -524,7 +535,7 @@ export class CclApp extends LitElement {
   // ---------------------------------------------------------------------------
 
   override render() {
-    if (this.termsGateRequired) {
+    if (this.termsGateRequired && !!getWebToken() && !!this.user) {
       return html`
         ${this.renderTermsGate()}
         ${this.renderGlobalFooter()}

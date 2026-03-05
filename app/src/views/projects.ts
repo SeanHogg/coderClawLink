@@ -816,7 +816,7 @@ export class CclProjects extends LitElement {
     const wsUrl = clawsApi.wsUrl(claw.id);
 
     return html`
-      <div style="display:flex;flex-direction:column;gap:12px;height:calc(100dvh - 260px);min-height:460px;max-height:calc(100dvh - 260px)">
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:12px;color:var(--muted)">Active claw</span>
           <select
@@ -829,7 +829,7 @@ export class CclProjects extends LitElement {
           </select>
         </div>
 
-        <div class="card" style="padding:0;flex:1 1 auto;min-height:320px;overflow:hidden;display:flex;flex-direction:column">
+        <div class="card" style="padding:0;height:clamp(360px,calc(100dvh - 320px),720px);overflow:hidden;display:flex;flex-direction:column">
           ${tab === "chat" ? html`<ccl-claw-chat .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-chat>` : ""}
           ${tab === "instances" ? html`<ccl-claw-instances .clawId=${claw.id} .wsUrl=${wsUrl}></ccl-claw-instances>` : ""}
           ${tab === "workspace" ? html`<ccl-claw-workspace .clawId=${claw.id}></ccl-claw-workspace>` : ""}
