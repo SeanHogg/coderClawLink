@@ -349,6 +349,13 @@ coderClawLink/
 │   ├── wrangler.toml
 │   └── package.json
 │
+├── Foundation/                       # .coderClaw init templates
+│   ├── HeartBeat.md                  #   Agent keepalive status template
+│   ├── Identity.md                   #   Agent identity + config template
+│   ├── Memory.md                     #   Persistent working-memory template
+│   ├── Soul.md                       #   Core values + behaviour principles template
+│   ├── Tools.md                      #   Available tools + skills template
+│   └── User.md                       #   User preferences + context template
 ├── Dockerfile                        # Multi-stage: base › dev / deploy / migrate
 ├── docker-compose.yml                # Profiles: dev  deploy  migrate
 ├── pnpm-workspace.yaml

@@ -212,6 +212,22 @@ coderclaw config set portal.clawId <claw-id>
 coderclaw config set portal.apiKey <claw-api-key>
 ```
 
+Then run `coderclaw onboard` in your project root. This initialises the `.coderClaw/` directory and copies the Foundation templates into `.coderClaw/Foundation/`:
+
+```
+<project-root>/
+└── .coderClaw/
+    └── Foundation/
+        ├── HeartBeat.md   # Agent keepalive status
+        ├── Identity.md    # Agent identity & configuration
+        ├── Memory.md      # Persistent working memory
+        ├── Soul.md        # Core values & behavioural principles
+        ├── Tools.md       # Available tools & installed skills
+        └── User.md        # User preferences & project context
+```
+
+The source templates live in the [`Foundation/`](../Foundation/) directory at the repository root.
+
 ---
 
 ## 9. Deploy to Production

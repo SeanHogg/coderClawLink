@@ -289,7 +289,7 @@ export class CclProjects extends LitElement {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: "To onboard this project, I need the project root path where `.coderClaw` should live. Reply with the path and I will save it to project details.",
+          text: "To onboard this project, I need the project root path where `.coderClaw` should live. Reply with the path and I will save it to project details. The runtime will then initialise `.coderClaw/Foundation/` with the standard Foundation templates.",
         },
       ];
     }

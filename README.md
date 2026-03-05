@@ -97,6 +97,8 @@ coderClaw.ai agents monitor their own execution state. When a task fails, the sy
 ### 🧠 Persistent Memory & Context
 Unlike ephemeral AI tools, every agent maintains a `.coderClaw/` knowledge base per project — storing architectural docs, coding standards, semantic indices, and session handoffs. coderClawLink persists agent registrations, skill catalogs, and execution histories so nothing is lost between sessions. Context window usage and token spend are tracked per session via `usage.snapshot` relay frames and stored in the `usage_snapshots` table.
 
+The [`Foundation/`](./Foundation/) directory contains the template files (`HeartBeat.md`, `Identity.md`, `Memory.md`, `Soul.md`, `Tools.md`, `User.md`) that seed the `.coderClaw/` directory during project onboarding.
+
 ### 👥 Human-in-the-Loop Governance
 All autonomous operations are subject to role-based approval policies. The MANAGER and OWNER roles control who can register agents, view audit logs, and manage organizational members. Every state change is recorded in the immutable audit trail. For destructive or high-risk actions, agents can request human approval via `POST /api/approvals`; the portal notifies reviewers in real-time over the WebSocket relay and awaits an `approved` or `rejected` decision before the agent proceeds.
 
@@ -245,6 +247,7 @@ coderClawLink/
 │   ├── package.json
 │   └── tsconfig.json
 │
+├── Foundation/                       # .coderClaw init templates (HeartBeat · Identity · Memory · Soul · Tools · User)
 ├── Dockerfile                        # Multi-stage: base › dev / deploy / migrate
 ├── docker-compose.yml                # Profiles: dev  deploy  migrate
 └── package.json                      # npm workspace root
