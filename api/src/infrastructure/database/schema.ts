@@ -102,6 +102,12 @@ export const auditEventTypeEnum = pgEnum('audit_event_type', [
 export const clawStatusEnum = pgEnum('claw_status', ['active', 'inactive', 'suspended']);
 export const clawDirectoryStatusEnum = pgEnum('claw_directory_status', ['pending', 'synced', 'error']);
 
+export const specStatusEnum = pgEnum('spec_status', ['draft', 'reviewed', 'approved', 'in_progress', 'done']);
+export const workflowTypeEnum = pgEnum('workflow_type', ['feature', 'bugfix', 'refactor', 'planning', 'adversarial', 'custom']);
+export const workflowStatusEnum = pgEnum('workflow_status', ['pending', 'running', 'completed', 'failed', 'cancelled']);
+export const workflowTaskStatusEnum = pgEnum('workflow_task_status', ['pending', 'running', 'completed', 'failed', 'cancelled']);
+export const approvalStatusEnum = pgEnum('approval_status', ['pending', 'approved', 'rejected', 'expired']);
+
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Tables
@@ -431,7 +437,8 @@ export const coderclawInstances = pgTable('coderclaw_instances', {
   registeredBy: varchar('registered_by', { length: 36 }).references(() => users.id),
   lastSeenAt:   timestamp('last_seen_at'),
   connectedAt:  timestamp('connected_at'),   // set when claw's upstream WS connects; null = offline
-  capabilities: text('capabilities'),        // JSON array of capability strings, e.g. '["chat","tasks","relay"]'
+  capabilities:         text('capabilities'),         // JSON array reported via heartbeat, e.g. '["chat","tasks","relay"]'
+  declaredCapabilities: text('declared_capabilities'), // JSON array configured by user in the portal
   createdAt:    timestamp('created_at').notNull().defaultNow(),
 });
 
@@ -590,4 +597,112 @@ export const chatMessages = pgTable('chat_messages', {
   metadata:  text('metadata'),
   seq:       integer('seq').notNull().default(0),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Specs — structured planning documents produced by the /spec TUI command
+// ---------------------------------------------------------------------------
+
+export const specs = pgTable('specs', {
+  id:          uuid('id').primaryKey(),
+  tenantId:    integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  projectId:   integer('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  clawId:      integer('claw_id').references(() => coderclawInstances.id, { onDelete: 'set null' }),
+  goal:        text('goal').notNull(),
+  status:      specStatusEnum('status').notNull().default('draft'),
+  prd:         text('prd'),
+  archSpec:    text('arch_spec'),
+  taskList:    text('task_list'),      // JSON array stored as text (jsonb not available in all envs)
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+  updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Workflows — structured execution records for orchestrated multi-step plans
+// ---------------------------------------------------------------------------
+
+export const workflows = pgTable('workflows', {
+  id:           uuid('id').primaryKey(),
+  tenantId:     integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:       integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
+  specId:       uuid('spec_id').references(() => specs.id, { onDelete: 'set null' }),
+  workflowType: workflowTypeEnum('workflow_type').notNull().default('custom'),
+  status:       workflowStatusEnum('status').notNull().default('pending'),
+  description:  text('description'),
+  createdAt:    timestamp('created_at').notNull().defaultNow(),
+  completedAt:  timestamp('completed_at'),
+  updatedAt:    timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const workflowTasks = pgTable('workflow_tasks', {
+  id:          uuid('id').primaryKey(),
+  workflowId:  uuid('workflow_id').notNull().references(() => workflows.id, { onDelete: 'cascade' }),
+  agentRole:   varchar('agent_role', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+  status:      workflowTaskStatusEnum('status').notNull().default('pending'),
+  input:       text('input'),
+  output:      text('output'),
+  error:       text('error'),
+  dependsOn:   text('depends_on'),   // JSON array of task UUIDs stored as text
+  startedAt:   timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+  updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Usage snapshots — context window and token telemetry from the claw agent
+// ---------------------------------------------------------------------------
+
+export const usageSnapshots = pgTable('usage_snapshots', {
+  id:               serial('id').primaryKey(),
+  tenantId:         integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:           integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
+  sessionKey:       varchar('session_key', { length: 255 }).notNull(),
+  inputTokens:      integer('input_tokens').notNull().default(0),
+  outputTokens:     integer('output_tokens').notNull().default(0),
+  contextTokens:    integer('context_tokens').notNull().default(0),
+  contextWindowMax: integer('context_window_max').notNull().default(0),
+  compactionCount:  integer('compaction_count').notNull().default(0),
+  ts:               timestamp('ts').notNull().defaultNow(),
+  createdAt:        timestamp('created_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Tool audit events — immutable, append-only log of tool calls made by agents
+// ---------------------------------------------------------------------------
+
+export const toolAuditEvents = pgTable('tool_audit_events', {
+  id:          serial('id').primaryKey(),
+  tenantId:    integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:      integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
+  runId:       varchar('run_id', { length: 255 }),
+  sessionKey:  varchar('session_key', { length: 255 }),
+  toolCallId:  varchar('tool_call_id', { length: 255 }),
+  toolName:    varchar('tool_name', { length: 255 }).notNull(),
+  args:        text('args'),     // JSON object stored as text
+  result:      text('result'),
+  durationMs:  integer('duration_ms'),
+  ts:          timestamp('ts').notNull().defaultNow(),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Approvals — human-in-the-loop gate for destructive / high-risk agent actions
+// ---------------------------------------------------------------------------
+
+export const approvals = pgTable('approvals', {
+  id:          uuid('id').primaryKey(),
+  tenantId:    integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  clawId:      integer('claw_id').references(() => coderclawInstances.id, { onDelete: 'set null' }),
+  requestedBy: varchar('requested_by', { length: 36 }),   // claw ID or user ID as string
+  actionType:  varchar('action_type', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+  metadata:    text('metadata'),
+  status:      approvalStatusEnum('status').notNull().default('pending'),
+  reviewedBy:  varchar('reviewed_by', { length: 36 }),
+  reviewNote:  text('review_note'),
+  expiresAt:   timestamp('expires_at'),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+  updatedAt:   timestamp('updated_at').notNull().defaultNow(),
 });

@@ -220,6 +220,53 @@ export function createRuntimeRoutes(runtimeService: RuntimeService, db: Db): Hon
     return c.json(execution.toPlain());
   });
 
+  // P0-2: WebSocket streaming endpoint for a single execution.
+  // GET /api/runtime/executions/:id/stream?token=<jwt>
+  // Upgrades to a WebSocket and streams ExecutionEvent frames until the execution
+  // reaches a terminal state (completed / failed / cancelled).
+  // Falls back to a 426 if the client does not send an Upgrade header, so the
+  // existing polling endpoint above remains the canonical REST fallback.
+  router.get('/executions/:id/stream', async (c) => {
+    const upgrade = c.req.header('Upgrade');
+    if (upgrade !== 'websocket') {
+      return c.text('This endpoint requires a WebSocket upgrade.', 426);
+    }
+
+    const id = Number(c.req.param('id'));
+    const { 0: client, 1: server } = new WebSocketPair();
+    server.accept();
+
+    const POLL_INTERVAL_MS = 1_000;
+    const TERMINAL: ExecutionStatus[] = [ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED];
+
+    const poll = async () => {
+      try {
+        const execution = await runtimeService.getExecution(id);
+        const plain = execution.toPlain();
+
+        server.send(JSON.stringify({ type: 'status_change', status: plain.status }));
+
+        if (TERMINAL.includes(plain.status as ExecutionStatus)) {
+          server.send(JSON.stringify({ type: 'done', execution: plain }));
+          server.close(1000, 'execution_terminal');
+          return;
+        }
+      } catch {
+        server.send(JSON.stringify({ type: 'error', message: 'execution_not_found' }));
+        server.close(1011, 'server_error');
+        return;
+      }
+
+      setTimeout(() => { void poll(); }, POLL_INTERVAL_MS);
+    };
+
+    server.addEventListener('close', () => { /* nothing to clean up */ });
+
+    void poll();
+
+    return new Response(null, { status: 101, webSocket: client });
+  });
+
   // Cancel an execution
   router.post('/executions/:id/cancel', async (c) => {
     const id = Number(c.req.param('id'));

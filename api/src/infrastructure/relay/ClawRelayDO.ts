@@ -18,6 +18,15 @@
  *   - Each complete message is asynchronously persisted to Postgres via the
  *     main API endpoint (fire-and-forget, best-effort)
  *   - New browser clients receive the in-memory history replay immediately
+ *
+ * Remote task result streaming (P0-1):
+ *   - When a target claw completes a remote.task it sends a remote.result frame
+ *   - The DO forwards this to all connected clients AND to the originating claw
+ *     via /api/claws/:sourceClawId/relay-result (fire-and-forget)
+ *
+ * Observability frames (P2-2, P2-4):
+ *   - usage.snapshot frames are forwarded to the API for persistence
+ *   - tool.audit frames are forwarded to the API for persistence
  */
 
 interface BufferedMessage {
@@ -233,10 +242,98 @@ export class ClawRelayDO implements DurableObject {
   /** Persist complete chat messages from upstream. Deltas are skipped. */
   private handleUpstreamMessage(data: string) {
     try {
-      const msg = JSON.parse(data) as { type?: string; role?: string; text?: string; session?: string };
+      const msg = JSON.parse(data) as {
+        type?: string;
+        role?: string;
+        text?: string;
+        session?: string;
+        // remote.result fields
+        taskCorrelationId?: string;
+        fromClawId?: string | number;
+        result?: string;
+        status?: string;
+        error?: string;
+        // usage.snapshot fields
+        sessionKey?: string;
+        inputTokens?: number;
+        outputTokens?: number;
+        contextTokens?: number;
+        contextWindowMax?: number;
+        compactionCount?: number;
+        ts?: string;
+        // tool.audit fields
+        runId?: string;
+        toolCallId?: string;
+        toolName?: string;
+        args?: unknown;
+        durationMs?: number;
+        // workflow.update fields
+        workflowId?: string;
+        taskId?: string;
+        // approval.request fields
+        actionType?: string;
+        description?: string;
+        metadata?: unknown;
+        expiresAt?: string;
+        requestedBy?: string;
+      };
       if (typeof msg.session === "string" && msg.session.trim().length > 0) {
         this.currentSessionKey = msg.session.trim();
       }
+
+      // --- P0-1: remote.result — forward result back to source claw ---
+      if (msg.type === "remote.result") {
+        void this.persistRemoteResult(msg as {
+          taskCorrelationId?: string;
+          fromClawId?: string | number;
+          result?: string;
+          status?: string;
+          error?: string;
+        });
+        return;
+      }
+
+      // --- P2-2: usage.snapshot — persist token telemetry ---
+      if (msg.type === "usage.snapshot") {
+        void this.persistUsageSnapshot(msg as {
+          sessionKey?: string;
+          inputTokens?: number;
+          outputTokens?: number;
+          contextTokens?: number;
+          contextWindowMax?: number;
+          compactionCount?: number;
+          ts?: string;
+        });
+        return;
+      }
+
+      // --- P2-4: tool.audit — persist tool call record ---
+      if (msg.type === "tool.audit") {
+        void this.persistToolAuditEvent(msg as {
+          runId?: string;
+          sessionKey?: string;
+          toolCallId?: string;
+          toolName?: string;
+          args?: unknown;
+          result?: string;
+          durationMs?: number;
+          ts?: string;
+        });
+        return;
+      }
+
+      // --- P3-3: approval.request — persist approval and notify clients ---
+      if (msg.type === "approval.request") {
+        void this.persistApprovalRequest(msg as {
+          actionType?: string;
+          description?: string;
+          metadata?: unknown;
+          expiresAt?: string;
+          requestedBy?: string;
+        });
+        return;
+      }
+
       if (msg.type !== "chat.message" || !msg.role || typeof msg.text !== "string") return;
 
       // Emit a lightweight log line so Logs tab reflects chat activity
@@ -299,6 +396,131 @@ export class ClawRelayDO implements DurableObject {
         },
       );
     } catch { /* best-effort; do not crash the relay */ }
+  }
+
+  // ---------------------------------------------------------------------------
+  // P0-1: remote.result persistence — forward result back to source claw relay
+  // ---------------------------------------------------------------------------
+
+  private async persistRemoteResult(msg: {
+    taskCorrelationId?: string;
+    fromClawId?: string | number;
+    result?: string;
+    status?: string;
+    error?: string;
+  }) {
+    if (!this.clawId || !this.clawApiKey) return;
+    const env = this.env as Partial<{ SELF_URL: string }>;
+    const baseUrl = env.SELF_URL ?? "https://api.coderclaw.ai";
+
+    const fromId = msg.fromClawId ? String(msg.fromClawId) : null;
+    if (!fromId) return;
+
+    // Forward the remote.result frame to the source claw's relay so its
+    // ClawLinkRelayService can resolve the pending dispatchToRemoteClaw() call.
+    try {
+      await fetch(
+        `${baseUrl}/api/claws/${fromId}/relay-result?key=${encodeURIComponent(this.clawApiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "remote.result",
+            taskCorrelationId: msg.taskCorrelationId,
+            fromClawId: this.clawId,
+            result: msg.result,
+            status: msg.status,
+            error: msg.error,
+          }),
+        },
+      );
+    } catch { /* best-effort */ }
+  }
+
+  // ---------------------------------------------------------------------------
+  // P2-2: usage.snapshot persistence
+  // ---------------------------------------------------------------------------
+
+  private async persistUsageSnapshot(msg: {
+    sessionKey?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    contextTokens?: number;
+    contextWindowMax?: number;
+    compactionCount?: number;
+    ts?: string;
+  }) {
+    if (!this.clawId || !this.clawApiKey) return;
+    const env = this.env as Partial<{ SELF_URL: string }>;
+    const baseUrl = env.SELF_URL ?? "https://api.coderclaw.ai";
+
+    try {
+      await fetch(
+        `${baseUrl}/api/claws/${this.clawId}/usage-snapshot?key=${encodeURIComponent(this.clawApiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(msg),
+        },
+      );
+    } catch { /* best-effort */ }
+  }
+
+  // ---------------------------------------------------------------------------
+  // P2-4: tool.audit event persistence
+  // ---------------------------------------------------------------------------
+
+  private async persistToolAuditEvent(msg: {
+    runId?: string;
+    sessionKey?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: unknown;
+    result?: string;
+    durationMs?: number;
+    ts?: string;
+  }) {
+    if (!this.clawId || !this.clawApiKey) return;
+    const env = this.env as Partial<{ SELF_URL: string }>;
+    const baseUrl = env.SELF_URL ?? "https://api.coderclaw.ai";
+
+    try {
+      await fetch(
+        `${baseUrl}/api/claws/${this.clawId}/tool-audit?key=${encodeURIComponent(this.clawApiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(msg),
+        },
+      );
+    } catch { /* best-effort */ }
+  }
+
+  // ---------------------------------------------------------------------------
+  // P3-3: approval.request persistence
+  // ---------------------------------------------------------------------------
+
+  private async persistApprovalRequest(msg: {
+    actionType?: string;
+    description?: string;
+    metadata?: unknown;
+    expiresAt?: string;
+    requestedBy?: string;
+  }) {
+    if (!this.clawId || !this.clawApiKey) return;
+    const env = this.env as Partial<{ SELF_URL: string }>;
+    const baseUrl = env.SELF_URL ?? "https://api.coderclaw.ai";
+
+    try {
+      await fetch(
+        `${baseUrl}/api/claws/${this.clawId}/approval-request?key=${encodeURIComponent(this.clawApiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(msg),
+        },
+      );
+    } catch { /* best-effort */ }
   }
 
   // ---------------------------------------------------------------------------

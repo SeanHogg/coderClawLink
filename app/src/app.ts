@@ -29,9 +29,10 @@ import "./views/chats.js";
 import "./views/code-editor.js";
 import "./views/content.js";
 import "./views/debug.js";
+import "./views/pricing.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "debug";
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "pricing" | "debug";
 type WorkspaceTab = "security" | "settings";
 type WorkspaceSection = "settings" | "billing" | "consumption" | "details" | "security";
 
@@ -72,6 +73,7 @@ export class CclApp extends LitElement {
     window.addEventListener("ccl:dashboard-prompt", this.handleDashboardPrompt as EventListener);
     window.addEventListener("ccl:open-admin-security", this.handleOpenAdminSecurity as EventListener);
     window.addEventListener("ccl:terms-required", this.handleTermsRequired as EventListener);
+    window.addEventListener("ccl:navigate-auth", this.handleNavigateAuth);
   }
 
   override disconnectedCallback() {
@@ -85,6 +87,7 @@ export class CclApp extends LitElement {
     window.removeEventListener("ccl:dashboard-prompt", this.handleDashboardPrompt as EventListener);
     window.removeEventListener("ccl:open-admin-security", this.handleOpenAdminSecurity as EventListener);
     window.removeEventListener("ccl:terms-required", this.handleTermsRequired as EventListener);
+    window.removeEventListener("ccl:navigate-auth", this.handleNavigateAuth);
   }
 
   override updated(changed: PropertyValues) {
@@ -315,6 +318,10 @@ export class CclApp extends LitElement {
     this.appState = "admin";
   };
 
+  private handleNavigateAuth = () => {
+    this.appState = "auth";
+  };
+
   private async startDashboardScaffold(promptRaw: string) {
     const prompt = promptRaw.trim();
     if (!prompt) return;
@@ -471,6 +478,12 @@ export class CclApp extends LitElement {
         view = el;
         break;
       }
+      case "pricing": {
+        const el = document.createElement("ccl-pricing") as HTMLElement & { tenantId?: string; currentPlan?: string };
+        el.tenantId = tenantId;
+        view = el;
+        break;
+      }
     }
 
     host.replaceChildren(view);
@@ -525,6 +538,7 @@ export class CclApp extends LitElement {
       chevronsRight: `<polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>`,
       "code-editor": `<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>`,
       content: `<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>`,
+      pricing: `<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/>`,
       debug: `<path d="M9 3h6l1 2h3a1 1 0 0 1 1 1v3h-2V7h-2.2l-1-2H10.2l-1 2H7v2H5V6a1 1 0 0 1 1-1h3l1-2zm-1 7h8a4 4 0 0 1 4 4v2a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6v-2a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v2a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4v-2a2 2 0 0 0-2-2H8zm2 3h1v2h-1v-2zm3 0h1v2h-1v-2z"/>`,
     };
     return `<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0">${paths[name] ?? ""}</svg>`;
@@ -644,8 +658,10 @@ export class CclApp extends LitElement {
               CoderClawLink
             </a>
             <div class="landing-nav-right">
+              <a href="https://github.com/SeanHogg/coderClawLink" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">GitHub</a>
+              <a href="https://discord.gg/qkhbAGHRBT" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Discord</a>
               <button class="btn btn-ghost btn-sm" @click=${() => { this.appState = "auth"; }}>Sign in</button>
-              <button class="btn btn-primary btn-sm" @click=${() => { this.appState = "auth"; }}>Get Started</button>
+              <button class="btn btn-primary btn-sm" @click=${() => { this.appState = "auth"; }}>Get Started Free</button>
               <button class="btn btn-ghost btn-icon" @click=${() => this.toggleTheme()} title="Toggle theme">
                 <span .innerHTML=${this.svgIcon(this.theme === "dark" ? "sun" : "moon")}></span>
               </button>
@@ -656,14 +672,18 @@ export class CclApp extends LitElement {
         <!-- Hero -->
         <section class="landing-hero">
           <div class="landing-hero-inner">
-            <span class="landing-badge">Now in Beta</span>
-            <h1 class="landing-title">Your AI Coding Mesh,<br> Unified</h1>
-            <p class="landing-sub">Register your CoderClaw instances, assign skills from the marketplace, and orchestrate intelligent workflows across your entire development environment.</p>
+            <span class="landing-badge">Open Source · MIT License · Free to self-host</span>
+            <h1 class="landing-title">Replace Jira with an<br>AI-Native Workflow Mesh</h1>
+            <p class="landing-sub">
+              CoderClawLink connects your self-healing AI agents (Claws) to projects, tasks, and human reviewers —
+              with real-time execution streaming, a skills marketplace, RBAC, and a full compliance-grade audit trail.
+              Runs on Cloudflare Workers. Zero cold start. Your data, your infra.
+            </p>
             <div class="landing-ctas">
-              <button class="btn btn-primary btn-lg" @click=${() => { this.appState = "auth"; }}>Get Started Free</button>
-              <button class="btn btn-ghost btn-lg" @click=${() => { this.appState = "auth"; }}>Sign In →</button>
+              <button class="btn btn-primary btn-lg" @click=${() => { this.appState = "auth"; }}>Start for free →</button>
+              <a href="https://github.com/SeanHogg/coderClawLink" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">View on GitHub</a>
             </div>
-            <p class="landing-note">No credit card required. Free to get started.</p>
+            <p class="landing-note">No credit card required · 14-day Pro trial on signup · MIT licensed</p>
           </div>
           <div class="landing-mesh" aria-hidden="true">
             <div class="mesh-center">
@@ -678,72 +698,186 @@ export class CclApp extends LitElement {
           </div>
         </section>
 
+        <!-- Quick Start -->
         <section class="landing-section" style="padding-top:0;">
           <div class="landing-section-inner">
             <ccl-quickstart></ccl-quickstart>
           </div>
         </section>
 
-        <!-- Features -->
+        <!-- Platform stats -->
+        <section class="landing-section landing-section-alt">
+          <div class="landing-section-inner">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:24px;text-align:center">
+              ${[
+                ["∞", "Claws on Pro"],
+                ["10+", "Agent roles"],
+                ["30+", "API endpoints"],
+                ["MIT", "Open source"],
+                ["0ms", "Cold start (CF Workers)"],
+                ["GDPR", "Privacy tooling"],
+              ].map(([stat, label]) => html`
+                <div style="padding:20px 12px">
+                  <div style="font-size:clamp(28px,5vw,40px);font-weight:800;color:var(--accent,#6366f1);margin-bottom:6px">${stat}</div>
+                  <div style="font-size:13px;color:var(--muted)">${label}</div>
+                </div>
+              `)}
+            </div>
+          </div>
+        </section>
+
+        <!-- Features grid -->
         <section class="landing-section">
           <div class="landing-section-inner">
-            <h2 class="landing-section-title">Everything you need to orchestrate your mesh</h2>
-            <p class="landing-section-sub">CoderClawLink connects your CoderClaw agents into a unified, skill-aware coding mesh.</p>
+            <h2 class="landing-section-title">Everything your AI engineering team needs</h2>
+            <p class="landing-section-sub">CoderClawLink replaces your project management tool, LLM proxy, skills registry, and audit log in a single Cloudflare Worker.</p>
             <div class="landing-grid-4">
               <div class="landing-feature-card">
                 <div class="landing-feature-icon">🤖</div>
-                <h3>CoderClaw Mesh</h3>
-                <p>Register any number of CoderClaw instances to your workspace. Each claw gets a unique API key and joins your intelligent mesh automatically.</p>
+                <h3>Multi-Agent Orchestration</h3>
+                <p>Register unlimited AI agents. Each declares skills; the runtime routes tasks to the most capable claw. Claw-to-claw delegation with correlation IDs for dependent workflows.</p>
+              </div>
+              <div class="landing-feature-card">
+                <div class="landing-feature-icon">🔄</div>
+                <h3>Self-Healing Execution</h3>
+                <p>Execution lifecycle tracked as a formal state machine (PENDING→RUNNING→COMPLETED). Real-time WebSocket streaming eliminates polling. Failed tasks auto-escalate to human review.</p>
+              </div>
+              <div class="landing-feature-card">
+                <div class="landing-feature-icon">👥</div>
+                <h3>Human-in-the-Loop</h3>
+                <p>Agents request approval before destructive actions. Approval gates are notified in real time via WebSocket relay. Humans stay in control — no surprise side-effects.</p>
               </div>
               <div class="landing-feature-card">
                 <div class="landing-feature-icon">🧩</div>
                 <h3>Skills Marketplace</h3>
-                <p>Browse and assign capabilities from the marketplace. Target your entire workspace or individual claws for precision orchestration.</p>
+                <p>Browse, publish, and install reusable agent skills. Assign at tenant level (all claws) or scoped to individual claws. Full-text search, categories, versioning, likes, downloads.</p>
+              </div>
+              <div class="landing-feature-card">
+                <div class="landing-feature-icon">💬</div>
+                <h3>Persistent Chat History</h3>
+                <p>Every claw session conversation is persisted and queryable through the portal. Browse full interaction history, filter by claw and session, view message sequences.</p>
+              </div>
+              <div class="landing-feature-card">
+                <div class="landing-feature-icon">🧠</div>
+                <h3>Brain AI Assistant</h3>
+                <p>Ask the in-portal AI assistant to create projects, break down tasks, or query claw status. Conversation history persists per tenant so context carries across sessions.</p>
               </div>
               <div class="landing-feature-card">
                 <div class="landing-feature-icon">📋</div>
-                <h3>Projects &amp; Tasks</h3>
-                <p>Organize work into projects with kanban-style task management. Track progress across your entire coding mesh in real time.</p>
+                <h3>Spec-Driven Planning</h3>
+                <p>The /spec command in coderClaw pushes structured PRDs + architecture specs to the portal. Each spec links to a workflow DAG; per-task states are visible in real time.</p>
               </div>
               <div class="landing-feature-card">
-                <div class="landing-feature-icon">🏢</div>
-                <h3>Multi-Tenant Workspaces</h3>
-                <p>Create isolated workspaces for different teams or repos. Invite collaborators, manage roles, and keep everything neatly separated.</p>
+                <div class="landing-feature-icon">🔐</div>
+                <h3>RBAC + Compliance</h3>
+                <p>Four-role RBAC (VIEWER→OWNER), TOTP MFA with encrypted secrets + recovery codes, immutable audit trail, GDPR/CCPA privacy request handling, versioned legal documents.</p>
+              </div>
+              <div class="landing-feature-card">
+                <div class="landing-feature-icon">💻</div>
+                <h3>Browser Code Editor</h3>
+                <p>Browse and view claw file-system directories directly in the portal. 30+ supported file types. No local IDE required for code review or inspection.</p>
+              </div>
+              <div class="landing-feature-card">
+                <div class="landing-feature-icon">⚡</div>
+                <h3>coderClawLLM Proxy</h3>
+                <p>OpenAI-compatible LLM proxy with free and pro model pools, automatic failover, and tenant-aware billing. Drop api.coderclaw.ai/llm/v1 into any OpenAI SDK.</p>
+              </div>
+              <div class="landing-feature-card">
+                <div class="landing-feature-icon">🏠</div>
+                <h3>Self-Hosted &amp; Private</h3>
+                <p>Runs on Cloudflare Workers (zero cold start, globally distributed) or Docker. MIT licensed. Your Postgres database, your data. Air-gapped deployments supported on Enterprise.</p>
+              </div>
+              <div class="landing-feature-card">
+                <div class="landing-feature-icon">🔌</div>
+                <h3>CI/CD Integration</h3>
+                <p>Execution callbacks let CI runners report progress and attach code-change telemetry. Trigger agents on PR events, push events, or scheduled jobs via the REST API.</p>
               </div>
             </div>
           </div>
         </section>
 
-        <!-- Steps -->
+        <!-- vs Jira comparison -->
         <section class="landing-section landing-section-alt">
+          <div class="landing-section-inner">
+            <h2 class="landing-section-title">CoderClawLink vs traditional project management</h2>
+            <p class="landing-section-sub">Built for AI-native teams from the ground up — not a plugin bolted onto a ticket tracker.</p>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:560px">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border,#e5e7eb)">Feature</th>
+                    <th style="text-align:center;padding:10px 14px;color:var(--accent,#6366f1);font-weight:700;border-bottom:2px solid var(--accent,#6366f1)">CoderClawLink</th>
+                    <th style="text-align:center;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border,#e5e7eb)">Jira</th>
+                    <th style="text-align:center;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border,#e5e7eb)">Linear</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${[
+                    ["AI agent registration & routing",  "✅", "❌", "❌"],
+                    ["Real-time WebSocket execution stream", "✅", "❌", "❌"],
+                    ["Human-in-the-loop approval gates", "✅", "❌", "❌"],
+                    ["Spec-driven workflow DAG",         "✅", "❌", "❌"],
+                    ["Built-in LLM proxy (OpenAI-compat)", "✅", "❌", "❌"],
+                    ["Skills marketplace",               "✅", "❌", "❌"],
+                    ["Immutable compliance audit trail", "✅", "⚠️ add-on", "❌"],
+                    ["TOTP MFA + GDPR tooling",          "✅", "✅", "⚠️"],
+                    ["Self-hosted (open source)",        "✅ MIT", "❌ Cloud", "❌ Cloud"],
+                    ["Price",                            "Free / $29 / seat", "$8.15 / user", "$8 / user"],
+                  ].map(([f, ccl, jira, linear], i) => html`
+                    <tr style="background:${i % 2 === 0 ? "transparent" : "var(--surface-2,#f9fafb)"}">
+                      <td style="padding:9px 14px;border-bottom:1px solid var(--border,#f3f4f6)">${f}</td>
+                      <td style="text-align:center;padding:9px 14px;border-bottom:1px solid var(--border,#f3f4f6);font-weight:600;color:var(--accent,#6366f1)">${ccl}</td>
+                      <td style="text-align:center;padding:9px 14px;border-bottom:1px solid var(--border,#f3f4f6);color:var(--muted)">${jira}</td>
+                      <td style="text-align:center;padding:9px 14px;border-bottom:1px solid var(--border,#f3f4f6);color:var(--muted)">${linear}</td>
+                    </tr>
+                  `)}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Steps -->
+        <section class="landing-section">
           <div class="landing-section-inner">
             <h2 class="landing-section-title">Up and running in three steps</h2>
             <div class="landing-grid-3">
               <div class="landing-step-card">
                 <div class="landing-step-num">01</div>
                 <h3>Create your account</h3>
-                <p>Sign up with your email. Create a workspace for your team or project in seconds.</p>
+                <p>Sign up with your email. Create a workspace for your team or project in seconds. 14-day Pro trial, no credit card required.</p>
               </div>
               <div class="landing-step-card">
                 <div class="landing-step-num">02</div>
                 <h3>Register your claws</h3>
-                <p>Add each CoderClaw instance to your mesh. Paste the generated API key into your claw config and it connects automatically.</p>
+                <p>Add each CoderClaw instance to your mesh. Paste the generated API key into your claw config — it connects automatically over WebSocket.</p>
               </div>
               <div class="landing-step-card">
                 <div class="landing-step-num">03</div>
                 <h3>Assign skills &amp; orchestrate</h3>
-                <p>Browse the skills marketplace, assign capabilities to your workspace or individual claws, and start building.</p>
+                <p>Browse the skills marketplace, assign capabilities to your workspace or individual claws, and let agents handle the rest.</p>
               </div>
             </div>
           </div>
         </section>
 
-        <!-- CTA -->
+        <!-- Pricing section -->
+        <section class="landing-section landing-section-alt" id="pricing">
+          <div class="landing-section-inner">
+            <ccl-pricing></ccl-pricing>
+          </div>
+        </section>
+
+        <!-- Final CTA -->
         <section class="landing-cta-section">
           <div class="landing-section-inner" style="text-align:center">
-            <h2 style="font-size:clamp(24px,4vw,36px);font-weight:700;margin:0 0 12px">Ready to build your mesh?</h2>
-            <p style="color:var(--muted);margin:0 0 28px">Create your free account and register your first CoderClaw in minutes.</p>
-            <button class="btn btn-primary btn-lg" @click=${() => { this.appState = "auth"; }}>Start for free →</button>
+            <h2 style="font-size:clamp(24px,4vw,36px);font-weight:700;margin:0 0 12px">Ready to build your AI engineering mesh?</h2>
+            <p style="color:var(--muted);margin:0 0 28px">Join teams using CoderClawLink to orchestrate self-healing AI workflows. Free to start, MIT licensed, self-hostable.</p>
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+              <button class="btn btn-primary btn-lg" @click=${() => { this.appState = "auth"; }}>Start for free →</button>
+              <a href="https://discord.gg/qkhbAGHRBT" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">Join Discord</a>
+              <a href="https://github.com/SeanHogg/coderClawLink" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">View source</a>
+            </div>
           </div>
         </section>
 
@@ -806,6 +940,7 @@ export class CclApp extends LitElement {
     const buildItems: Array<{ id: DashTab; label: string; icon: string }> = [
       { id: "code-editor", label: "Code Editor",      icon: "code-editor" },
       { id: "content",     label: "Content Manager", icon: "content"     },
+      { id: "pricing",     label: "Pricing",          icon: "pricing"     },
     ];
     const systemItems: Array<
       { id: DashTab; label: string; icon: string; workspaceTab?: WorkspaceTab; workspaceSection?: WorkspaceSection }
