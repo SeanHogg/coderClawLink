@@ -1,14 +1,15 @@
-import { LitElement, html } from "lit";
+import { LitElement, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { unsafeHTML } from "lit/directives/unsafe-html.js";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
+import { renderMarkdown } from "./shared/markdown.js";
 import {
+  brain,
   llm,
   projects as projectsApi,
   tasks as tasksApi,
   claws as clawsApi,
   marketplace,
+  type BrainChat,
+  type BrainMessage as ServerBrainMessage,
   type Project,
   type Task,
   type Claw,
@@ -38,29 +39,16 @@ type BrainAction =
       dueDate?: string;
     };
 
+/** Local display message — may be a server-persisted message or a transient one */
 interface BrainMessage {
-  id: string;
+  id: string | number;
   role: BrainRole;
   text: string;
 }
 
-function brainMemoryKey(tenantId: string) {
-  return `ccl-brain-memory-${tenantId || "default"}`;
-}
-
-function loadMemory(tenantId: string): BrainMessage[] {
-  // Data was already trimmed to 50 messages on save, so no limit needed here.
-  try {
-    const raw = localStorage.getItem(brainMemoryKey(tenantId));
-    return raw ? (JSON.parse(raw) as BrainMessage[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveMemory(tenantId: string, messages: BrainMessage[]) {
-  // Persist the last 50 messages to keep localStorage lean.
-  localStorage.setItem(brainMemoryKey(tenantId), JSON.stringify(messages.slice(-50)));
+/** Key used to remember which brain chat was last active per tenant */
+function brainActiveChatKey(tenantId: string) {
+  return `ccl-brain-active-chat-${tenantId || "default"}`;
 }
 
 interface ActionState {
@@ -92,23 +80,54 @@ export class CclBrain extends LitElement {
   @state() private skills: Skill[] = [];
   @state() private pendingAutoPrompt = "";
 
+  // Chat switching
+  @state() private chatList: BrainChat[] = [];
+  @state() private activeChat: BrainChat | null = null;
+  @state() private showChatPicker = false;
+
+  // Chat management (parity with brainstorm)
+  @state() private allProjects: Project[] = [];
+  @state() private chatFilterProjectId: string | null = null;
+  @state() private renamingChatId: number | null = null;
+  @state() private renameValue = "";
+  @state() private confirmDeleteId: number | null = null;
+  @state() private chatSearchQuery = "";
+
+  // File attachments
+  @state() private pendingAttachments: Array<{ key: string; name: string; type: string }> = [];
+  @state() private uploading = false;
+
   private msgEnd: HTMLElement | null = null;
 
   override connectedCallback() {
     super.connectedCallback();
     window.addEventListener("ccl:brain-open", this.handleBrainOpen as EventListener);
-    this.messages = loadMemory(this.tenantId);
+    window.addEventListener("ccl:chats-changed", this.onChatsChanged);
+    void this.loadBrainChats();
+    void this.loadAllProjects();
     void this.refreshContext();
   }
 
   override disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener("ccl:brain-open", this.handleBrainOpen as EventListener);
+    window.removeEventListener("ccl:chats-changed", this.onChatsChanged);
+    // Auto-summarize if the chat has enough messages
+    void this.autoSummarizeIfNeeded();
   }
+
+  /** Fire-and-forget summarization when chat has >= 6 messages */
+  private async autoSummarizeIfNeeded() {
+    if (this.activeChat && this.messages.length >= 6) {
+      try { await brain.summarize(this.activeChat.id); } catch { /* swallow */ }
+    }
+  }
+
+  private onChatsChanged = () => { void this.loadBrainChats(); };
 
   override updated(changed: Map<string, unknown>) {
     if (changed.has("tenantId")) {
-      this.messages = loadMemory(this.tenantId);
+      void this.loadBrainChats();
       this.contextError = "";
       void this.refreshContext();
     } else if (changed.has("page") || changed.has("focusProjectId")) {
@@ -194,6 +213,148 @@ export class CclBrain extends LitElement {
     }
   }
 
+  // -----------------------------------------------------------------------
+  // Server-persisted chat management
+  // -----------------------------------------------------------------------
+  private async loadBrainChats() {
+    try {
+      this.chatList = await brain.listChats({ limit: 30 });
+      // Restore last active chat
+      const savedId = localStorage.getItem(brainActiveChatKey(this.tenantId));
+      const saved = savedId ? this.chatList.find(c => c.id === Number(savedId)) : null;
+      if (saved) {
+        await this.switchChat(saved);
+      } else if (this.chatList.length > 0) {
+        await this.switchChat(this.chatList[0]);
+      } else {
+        this.activeChat = null;
+        this.messages = [];
+      }
+    } catch {
+      // Fall back to empty state — server may be unreachable
+      this.chatList = [];
+      this.activeChat = null;
+      this.messages = [];
+    }
+  }
+
+  private async switchChat(chat: BrainChat) {
+    // Auto-summarize the previous chat if it had enough messages
+    void this.autoSummarizeIfNeeded();
+    this.activeChat = chat;
+    this.actions = [];
+    this.showChatPicker = false;
+    localStorage.setItem(brainActiveChatKey(this.tenantId), String(chat.id));
+    try {
+      const serverMsgs = await brain.getMessages(chat.id);
+      this.messages = serverMsgs.map(m => ({
+        id: m.id,
+        role: m.role as BrainRole,
+        text: m.content,
+      }));
+    } catch {
+      this.messages = [];
+    }
+  }
+
+  private async newServerChat() {
+    try {
+      const chat = await brain.createChat({
+        title: "New chat",
+        projectId: this.chatFilterProjectId != null ? Number(this.chatFilterProjectId) : null,
+      });
+      this.chatList = [chat, ...this.chatList];
+      await this.switchChat(chat);
+      window.dispatchEvent(new Event("ccl:chats-changed"));
+    } catch { /* swallow */ }
+  }
+
+  private async loadAllProjects() {
+    try {
+      this.allProjects = await projectsApi.list();
+    } catch { /* ignore */ }
+  }
+
+  private async loadFilteredChats() {
+    try {
+      this.chatList = await brain.listChats(
+        this.chatFilterProjectId != null ? { projectId: this.chatFilterProjectId } : { limit: 30 },
+      );
+    } catch { /* swallow */ }
+  }
+
+  private async deleteBrainChat(id: number) {
+    try {
+      await brain.deleteChat(id);
+      this.chatList = this.chatList.filter(c => c.id !== id);
+      if (this.activeChat?.id === id) {
+        this.activeChat = null;
+        this.messages = [];
+        this.actions = [];
+      }
+      window.dispatchEvent(new Event("ccl:chats-changed"));
+    } catch { /* swallow */ }
+  }
+
+  private startChatRename(chat: BrainChat) {
+    this.renamingChatId = chat.id;
+    this.renameValue = chat.title;
+  }
+
+  private async commitChatRename(chatId: number) {
+    const title = this.renameValue.trim();
+    if (!title) { this.renamingChatId = null; return; }
+    try {
+      const updated = await brain.updateChat(chatId, { title });
+      this.chatList = this.chatList.map(c => c.id === chatId ? { ...c, title: updated.title } : c);
+      if (this.activeChat?.id === chatId) this.activeChat = { ...this.activeChat!, title: updated.title };
+    } catch { /* swallow */ }
+    this.renamingChatId = null;
+  }
+
+  private async moveChatToProject(chatId: number, projectId: string | null) {
+    try {
+      const updated = await brain.updateChat(chatId, { projectId: projectId != null ? Number(projectId) : null });
+      this.chatList = this.chatList.map(c => c.id === chatId ? { ...c, projectId: updated.projectId } : c);
+      if (this.activeChat?.id === chatId) this.activeChat = { ...this.activeChat!, projectId: updated.projectId };
+    } catch { /* swallow */ }
+  }
+
+  private async summarizeBrainChat(chatId: number) {
+    try {
+      await brain.summarize(chatId);
+    } catch { /* swallow */ }
+  }
+
+  private chatProjectName(id: number | null): string {
+    if (id == null) return "";
+    return this.allProjects.find(p => String(p.id) === String(id))?.name ?? `#${id}`;
+  }
+
+  private get filteredChatList(): BrainChat[] {
+    if (!this.chatSearchQuery.trim()) return this.chatList;
+    const q = this.chatSearchQuery.toLowerCase();
+    return this.chatList.filter(c => c.title.toLowerCase().includes(q));
+  }
+
+  private async handleFileSelect(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    this.uploading = true;
+    try {
+      const result = await brain.upload(file);
+      this.pendingAttachments = [...this.pendingAttachments, { key: result.key, name: result.name, type: result.type }];
+    } catch { /* swallow */ }
+    finally {
+      this.uploading = false;
+      (e.target as HTMLInputElement).value = "";
+    }
+  }
+
+  private removePendingAttachment(key: string) {
+    this.pendingAttachments = this.pendingAttachments.filter(a => a.key !== key);
+  }
+
   private quickPrompt(kind: "describe" | "prd" | "tasks") {
     if (kind === "describe") {
       this.input = `Describe the current ${this.pageLabel().toLowerCase()} context and highlight key priorities.`;
@@ -250,40 +411,93 @@ export class CclBrain extends LitElement {
       "Be concise and concrete.",
     ].join("\n");
 
-    return [
-      { role: "system" as const, content: systemPrompt },
-      { role: "system" as const, content: `Page context JSON:\n${JSON.stringify(this.buildContextPayload())}` },
-      ...conversation,
+    const msgs: { role: "system" | "user" | "assistant"; content: string }[] = [
+      { role: "system", content: systemPrompt },
+      { role: "system", content: `Page context JSON:\n${JSON.stringify(this.context)}` },
     ];
+    return { msgs, conversation };
   }
 
   private async send() {
     const text = this.input.trim();
     if (!text || this.sending) return;
 
-    const userMsg: BrainMessage = { id: crypto.randomUUID(), role: "user", text };
+    // Auto-create a server chat if none exists
+    if (!this.activeChat) {
+      await this.newServerChat();
+      if (!this.activeChat) return;
+    }
+
+    // Build user message with optional attachment references
+    const attachments = [...this.pendingAttachments];
+    this.pendingAttachments = [];
+    let content = text;
+    if (attachments.length > 0) {
+      const refs = attachments.map(a => `[Attached: ${a.name}](${brain.uploadUrl(a.key)})`).join("\n");
+      content = `${text}\n\n${refs}`;
+    }
+
+    const userMsg: BrainMessage = { id: crypto.randomUUID(), role: "user", text: content };
     this.messages = [...this.messages, userMsg];
     this.input = "";
     this.sending = true;
 
     try {
-      const response = await llm.chat(this.toChatMessages(), { temperature: 0.25, maxTokens: 1400 });
-      const content = response.choices?.[0]?.message?.content?.trim() ?? "I could not generate a response.";
-      const foundActions = this.parseActions(content);
+      // Persist user message to server
+      const metadata = attachments.length > 0 ? JSON.stringify({ attachments }) : undefined;
+      brain.sendMessages(this.activeChat!.id, [{ role: "user", content, metadata }]).catch(() => { /* persistence best-effort */ });
+
+      // Build LLM messages with optional project memory
+      const { msgs, conversation } = this.toChatMessages();
+      if (this.activeChat?.projectId) {
+        try {
+          const mem = await brain.getProjectMemory(this.activeChat.projectId);
+          if (mem?.consolidatedSummary) {
+            msgs.push({ role: "system", content: `Project memory context:\n${mem.consolidatedSummary}` });
+          }
+        } catch { /* non-critical */ }
+      }
+      msgs.push(...conversation);
+
+      const response = await llm.chat(msgs, { temperature: 0.25, maxTokens: 1400 });
+      const reply = response.choices?.[0]?.message?.content?.trim() ?? "I could not generate a response.";
+      const foundActions = this.parseActions(reply);
       if (foundActions.length) {
         this.actions = foundActions.map((action) => ({ action, status: "idle" }));
       }
+      const assistantText = this.stripActions(reply) || "Done.";
       this.messages = [
         ...this.messages,
-        { id: crypto.randomUUID(), role: "assistant", text: this.stripActions(content) || "Done." },
+        { id: crypto.randomUUID(), role: "assistant", text: assistantText },
       ];
-      saveMemory(this.tenantId, this.messages);
+      // Persist assistant message to server
+      brain.sendMessages(this.activeChat!.id, [{ role: "assistant", content: assistantText }]).catch(() => { /* persistence best-effort */ });
+
+      // Auto-title the chat if it's still "New chat"
+      if (this.activeChat!.title === "New chat" && this.messages.length <= 3) {
+        void this.autoTitleChat(text);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.messages = [...this.messages, { id: crypto.randomUUID(), role: "assistant", text: `Error: ${msg}` }];
     } finally {
       this.sending = false;
     }
+  }
+
+  private async autoTitleChat(firstMessage: string) {
+    try {
+      const response = await llm.chat([
+        { role: "system", content: "Generate a short (4-7 word) title for a chat that starts with the following message. Return only the title, nothing else." },
+        { role: "user", content: firstMessage },
+      ], { temperature: 0.5, maxTokens: 30 });
+      const title = response.choices?.[0]?.message?.content?.trim();
+      if (title && this.activeChat) {
+        const updated = await brain.updateChat(this.activeChat.id, { title });
+        this.chatList = this.chatList.map(c => c.id === this.activeChat!.id ? { ...c, title: updated.title } : c);
+        this.activeChat = { ...this.activeChat, title: updated.title };
+      }
+    } catch { /* swallow — nice-to-have */ }
   }
 
   private async applyAction(index: number) {
@@ -348,14 +562,7 @@ export class CclBrain extends LitElement {
     this.messages = [];
     this.actions = [];
     this.input = "";
-    saveMemory(this.tenantId, []);
-  }
-
-  private renderMarkdown(text: string) {
-    const raw = marked.parse(text, { gfm: true, breaks: true });
-    const htmlString = typeof raw === "string" ? raw : "";
-    const clean = DOMPurify.sanitize(htmlString);
-    return html`<div class="md-content">${unsafeHTML(clean)}</div>`;
+    void this.newServerChat();
   }
 
   private onKeydown(e: KeyboardEvent) {
@@ -379,19 +586,115 @@ export class CclBrain extends LitElement {
 
       <aside class="brain-drawer ${this.open ? "open" : ""}">
         <div class="brain-header">
-          <div>
-            <div class="brain-title">Brain</div>
+          <div style="flex:1;min-width:0;">
+            <div class="brain-title" style="display:flex;align-items:center;gap:6px;">
+              Brain
+            </div>
             <div class="brain-sub">${this.pageLabel()} · ${this.loadingContext ? "refreshing context…" : this.contextSummary || "no context"}</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <button class="btn btn-ghost btn-sm" @click=${() => void this.refreshContext()}>Refresh</button>
             <button class="btn btn-ghost btn-sm" @click=${this.clearChat}>New chat</button>
-            ${this.messages.length > 0 ? html`<span class="badge badge-blue" title="Memory: ${this.messages.length} messages saved">Memory ✓</span>` : ""}
             <button class="panel-close" @click=${() => { this.open = false; }}>
               <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
         </div>
+
+        <!-- Active chat bar — always visible, toggles the chat management panel -->
+        <div
+          style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;cursor:pointer;background:${this.showChatPicker ? "var(--accent-bg,rgba(99,102,241,0.08))" : "transparent"};"
+          @click=${() => { this.showChatPicker = !this.showChatPicker; }}
+        >
+          <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;flex-shrink:0;transition:transform 0.15s;${this.showChatPicker ? "transform:rotate(90deg);" : ""}"><polyline points="9 18 15 12 9 6"/></svg>
+          <span style="font-size:13px;font-weight:500;color:var(--text-strong);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            ${this.activeChat ? this.activeChat.title : "No active chat"}
+          </span>
+          ${this.activeChat?.projectId ? html`<span class="badge badge-blue" style="font-size:10px;">${this.chatProjectName(this.activeChat.projectId)}</span>` : ""}
+          <span style="font-size:11px;color:var(--muted);">${this.chatList.length} chat${this.chatList.length !== 1 ? "s" : ""}</span>
+        </div>
+
+        <!-- Chat picker panel -->
+        ${this.showChatPicker ? html`
+          <div style="border-bottom:1px solid var(--border);background:var(--bg-muted,#191919);max-height:340px;display:flex;flex-direction:column;">
+            <!-- Filter -->
+            <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:6px;">
+              <select
+                style="width:100%;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;"
+                @change=${(e: Event) => {
+                  const val = (e.target as HTMLSelectElement).value;
+                  this.chatFilterProjectId = val === "" ? null : val;
+                  void this.loadFilteredChats();
+                }}
+              >
+                <option value="">All projects</option>
+                <option value="none">No project</option>
+                ${this.allProjects.map(p => html`
+                  <option value=${p.id} ?selected=${this.chatFilterProjectId === String(p.id)}>${p.name}</option>
+                `)}
+              </select>
+              <input
+                type="text"
+                placeholder="Search chats\u2026"
+                .value=${this.chatSearchQuery}
+                @input=${(e: Event) => { this.chatSearchQuery = (e.target as HTMLInputElement).value; }}
+                style="width:100%;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;"
+              />
+            </div>
+            <!-- Chat list -->
+            <div style="flex:1;overflow:auto;padding:6px;">
+              ${this.filteredChatList.length === 0 ? html`
+                <div style="padding:12px;font-size:12px;color:var(--muted);text-align:center;">${this.chatSearchQuery ? "No matching chats." : "No chats yet."}</div>
+              ` : ""}
+              ${this.filteredChatList.map(c => html`
+                <div
+                  style="padding:6px 8px;border-radius:6px;margin-bottom:2px;cursor:pointer;border:1px solid ${this.activeChat?.id === c.id ? "var(--accent)" : "transparent"};background:${this.activeChat?.id === c.id ? "var(--accent-bg,rgba(99,102,241,0.08))" : "transparent"};"
+                  @click=${() => void this.switchChat(c)}
+                >
+                  ${this.renamingChatId === c.id
+                    ? html`
+                      <input
+                        type="text"
+                        .value=${this.renameValue}
+                        @input=${(e: Event) => { this.renameValue = (e.target as HTMLInputElement).value; }}
+                        @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") void this.commitChatRename(c.id); if (e.key === "Escape") this.renamingChatId = null; }}
+                        @blur=${() => void this.commitChatRename(c.id)}
+                        @click=${(e: Event) => e.stopPropagation()}
+                        style="width:100%;padding:2px 6px;border:1px solid var(--accent);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px;"
+                      />
+                    `
+                    : html`
+                      <div style="font-size:12px;font-weight:500;color:var(--text-strong);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.title}</div>
+                      <div style="display:flex;align-items:center;gap:4px;margin-top:1px;">
+                        ${c.projectId ? html`<span class="badge badge-blue" style="font-size:9px;">${this.chatProjectName(c.projectId)}</span>` : ""}
+                        <span style="font-size:10px;color:var(--muted);margin-left:auto;">${new Date(c.updatedAt).toLocaleDateString()}</span>
+                      </div>
+                    `}
+                  ${this.activeChat?.id === c.id ? html`
+                    <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;" @click=${(e: Event) => e.stopPropagation()}>
+                      <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 5px;" @click=${() => this.startChatRename(c)}>Rename</button>
+                      <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 5px;" @click=${() => void this.summarizeBrainChat(c.id)} title="Summarize">Summarize</button>
+                      <select
+                        style="padding:1px 4px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:10px;"
+                        @click=${(e: Event) => e.stopPropagation()}
+                        @change=${(e: Event) => {
+                          const val = (e.target as HTMLSelectElement).value;
+                          void this.moveChatToProject(c.id, val === "" ? null : val);
+                        }}
+                      >
+                        <option value="" ?selected=${!c.projectId}>No project</option>
+                        ${this.allProjects.map(p => html`
+                          <option value=${p.id} ?selected=${c.projectId === Number(p.id)}>${p.name}</option>
+                        `)}
+                      </select>
+                      <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 5px;color:var(--danger,#f44);" @click=${() => { this.confirmDeleteId = c.id; }}>Delete</button>
+                    </div>
+                  ` : nothing}
+                </div>
+              `)}
+            </div>
+          </div>
+        ` : nothing}
 
         ${this.contextError ? html`<div class="error-banner" style="margin:12px 16px 0 16px">${this.contextError}</div>` : ""}
 
@@ -410,7 +713,7 @@ export class CclBrain extends LitElement {
             </div>
           ` : this.messages.map((m) => html`
             <div class="msg ${m.role === "user" ? "msg-user" : ""}">
-              <div class="msg-bubble ${m.role === "user" ? "msg-bubble-user" : "msg-bubble-assistant"}">${this.renderMarkdown(m.text)}</div>
+              <div class="msg-bubble ${m.role === "user" ? "msg-bubble-user" : "msg-bubble-assistant"}">${renderMarkdown(m.text)}</div>
               <div class="msg-meta">${m.role}</div>
             </div>
           `)}
@@ -420,27 +723,21 @@ export class CclBrain extends LitElement {
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
                 <div class="card-title" style="margin:0">Proposed actions</div>
                 <div style="flex:1"></div>
-                <button class="btn btn-secondary btn-sm" @click=${() => void this.applyAll()}>Apply all</button>
               </div>
-
-              <div style="display:grid;gap:8px">
-                ${this.actions.map((a, i) => html`
-                  <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:10px;display:grid;gap:8px">
-                    <div style="font-size:12px;color:var(--text)">
-                      ${a.action.type === "create_project"
-                        ? `Create project: ${a.action.name}`
-                        : `Create task: ${a.action.title}`}
-                    </div>
-                    <div style="display:flex;gap:8px;align-items:center">
-                      <button class="btn btn-ghost btn-sm" ?disabled=${a.status === "running" || a.status === "done"} @click=${() => void this.applyAction(i)}>
-                        ${a.status === "running" ? "Applying…" : a.status === "done" ? "Applied" : "Apply"}
-                      </button>
-                      <span class="badge ${a.status === "done" ? "badge-green" : a.status === "error" ? "badge-red" : a.status === "running" ? "badge-yellow" : "badge-gray"}">${a.status}</span>
-                      ${a.result ? html`<span style="font-size:11px;color:var(--muted)">${a.result}</span>` : ""}
-                    </div>
+              ${this.actions.map((a, i) => html`
+                <div class="flex-row" style="padding:8px 0;border-top:1px solid var(--border)">
+                  <div style="flex:1">
+                    <div style="font-weight:500;font-size:13px;">${a.action.type}: ${(a.action as any).name ?? (a.action as any).title}</div>
                   </div>
-                `)}
-              </div>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <button class="btn btn-ghost btn-sm" ?disabled=${a.status === "running" || a.status === "done"} @click=${() => void this.applyAction(i)}>
+                      ${a.status === "running" ? "Applying…" : a.status === "done" ? "Applied" : "Apply"}
+                    </button>
+                    <span class="badge ${a.status === "done" ? "badge-green" : a.status === "error" ? "badge-red" : a.status === "running" ? "badge-yellow" : "badge-gray"}">${a.status}</span>
+                    ${a.result ? html`<span style="font-size:11px;color:var(--muted)">${a.result}</span>` : ""}
+                  </div>
+                </div>
+              `)}
             </div>
           ` : ""}
 
@@ -448,19 +745,49 @@ export class CclBrain extends LitElement {
         </div>
 
         <div class="chat-input-row" style="padding:12px 16px;flex-shrink:0">
-          <textarea
-            class="chat-textarea"
-            rows="2"
-            placeholder="Ask Brain about this page…"
-            .value=${this.input}
-            @input=${(e: InputEvent) => { this.input = (e.target as HTMLTextAreaElement).value; }}
-            @keydown=${this.onKeydown}
-          ></textarea>
-          <button class="btn btn-primary" ?disabled=${this.sending || !this.input.trim()} @click=${() => void this.send()}>
-            ${this.sending ? "Thinking…" : "Send"}
-          </button>
+          ${this.pendingAttachments.length > 0 ? html`
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
+              ${this.pendingAttachments.map(a => html`
+                <span style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:4px;background:var(--accent-bg,rgba(99,102,241,0.1));font-size:10px;color:var(--text);">
+                  📎 ${a.name}
+                  <button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:12px;padding:0;" @click=${() => this.removePendingAttachment(a.key)}>&times;</button>
+                </span>
+              `)}
+            </div>
+          ` : nothing}
+          <div style="display:flex;gap:6px;align-items:flex-end;">
+            <label style="cursor:pointer;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:6px;border:1px solid var(--border);background:var(--bg);flex-shrink:0;${this.uploading ? "opacity:0.5;pointer-events:none;" : ""}">
+              <span style="font-size:14px;">📎</span>
+              <input type="file" style="display:none;" @change=${this.handleFileSelect} accept="image/*,.pdf,.txt,.md,.csv,.json" />
+            </label>
+            <textarea
+              class="chat-textarea"
+              rows="2"
+              placeholder="Ask Brain about this page…"
+              .value=${this.input}
+              @input=${(e: InputEvent) => { this.input = (e.target as HTMLTextAreaElement).value; }}
+              @keydown=${this.onKeydown}
+            ></textarea>
+            <button class="btn btn-primary" ?disabled=${this.sending || !this.input.trim()} @click=${() => void this.send()}>
+              ${this.sending ? "Thinking…" : "Send"}
+            </button>
+          </div>
         </div>
       </aside>
+
+      <!-- Delete confirmation modal -->
+      ${this.confirmDeleteId != null ? html`
+        <div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;" @click=${() => { this.confirmDeleteId = null; }}>
+          <div style="background:var(--bg,#1a1a1a);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:380px;width:90%;" @click=${(e: Event) => e.stopPropagation()}>
+            <div style="font-size:16px;font-weight:600;color:var(--text-strong);margin-bottom:8px;">Delete chat?</div>
+            <div style="font-size:14px;color:var(--muted);margin-bottom:20px;">This will permanently archive this chat. You won't be able to access it again.</div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="btn btn-ghost" @click=${() => { this.confirmDeleteId = null; }}>Cancel</button>
+              <button class="btn" style="background:var(--danger,#ef4444);color:#fff;" @click=${async () => { const id = this.confirmDeleteId!; this.confirmDeleteId = null; await this.deleteBrainChat(id); }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      ` : nothing}
     `;
   }
 }

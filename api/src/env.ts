@@ -14,6 +14,8 @@ export interface Env {
   OPENROUTER_API_KEY: string;
   /** OpenRouter API key for coderClawLLMPro proxy.  Set via `wrangler secret put OPENROUTER_API_KEY_PRO`. */
   OPENROUTER_API_KEY_PRO: string;
+  /** R2 bucket for file uploads. */
+  UPLOADS?: R2Bucket;
 }
 
 /** Variables injected into Hono context by the auth middleware. */

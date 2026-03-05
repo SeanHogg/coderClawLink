@@ -55,14 +55,14 @@ export function createChatRoutes(db: Db): Hono<HonoEnv> {
     const claw = await verifyClawApiKey(clawId, key);
     if (!claw) return c.text('Unauthorized', 401);
 
-    let body: { sessionKey: string; messages: Array<{ role: string; content: string; metadata?: string; seq: number }> };
+    let body: { sessionKey: string; projectId?: number; messages: Array<{ role: string; content: string; metadata?: string; seq: number }> };
     try {
       body = await c.req.json();
     } catch {
       return c.json({ error: 'invalid_json' }, 400);
     }
 
-    const { sessionKey, messages } = body;
+    const { sessionKey, projectId, messages } = body;
     if (!sessionKey) return c.json({ error: 'sessionKey is required' }, 400);
     if (!Array.isArray(messages) || messages.length === 0) {
       return c.json({ ok: true, inserted: 0 });
@@ -88,6 +88,7 @@ export function createChatRoutes(db: Db): Hono<HonoEnv> {
           tenantId: claw.tenantId,
           clawId,
           sessionKey,
+          projectId: projectId ?? null,
         })
         .returning({ id: chatSessions.id });
       session = inserted;
@@ -142,6 +143,7 @@ export function createChatRoutes(db: Db): Hono<HonoEnv> {
         clawId:     chatSessions.clawId,
         clawName:   coderclawInstances.name,
         sessionKey: chatSessions.sessionKey,
+        projectId:  chatSessions.projectId,
         startedAt:  chatSessions.startedAt,
         endedAt:    chatSessions.endedAt,
         msgCount:   chatSessions.msgCount,

@@ -8,6 +8,7 @@ export class CclWorkspacePicker extends LitElement {
 
   @property({ type: Array }) tenants: TenantSummary[] = [];
   @property({ type: Object }) user: UserInfo | null = null;
+  @property({ type: String }) defaultTenantId: string | null = null;
 
   @state() private showCreate = false;
   @state() private newName = "";
@@ -16,6 +17,16 @@ export class CclWorkspacePicker extends LitElement {
 
   private selectTenant(t: TenantSummary) {
     this.dispatchEvent(new CustomEvent("select-tenant", { detail: t, bubbles: true, composed: true }));
+  }
+
+  private setDefault(t: TenantSummary, e: Event) {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent("set-default-tenant", { detail: t, bubbles: true, composed: true }));
+  }
+
+  private clearDefault(e: Event) {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent("clear-default-tenant", { bubbles: true, composed: true }));
   }
 
   private async createTenant(e: Event) {
@@ -62,18 +73,38 @@ export class CclWorkspacePicker extends LitElement {
               ? html`<div style="text-align:center;color:var(--muted);padding:32px 0;font-size:14px">
                   No workspaces yet — create your first one below.
                 </div>`
-              : this.tenants.map(t => html`
+              : this.tenants.map(t => {
+                const isDefault = String(t.id) === this.defaultTenantId;
+                return html`
                 <div class="workspace-card" @click=${() => this.selectTenant(t)}>
                   <div class="workspace-avatar">${t.name.charAt(0).toUpperCase()}</div>
-                  <div>
-                    <div class="workspace-name">${t.name}</div>
+                  <div style="flex:1;min-width:0">
+                    <div class="workspace-name" style="display:flex;align-items:center;gap:6px">
+                      ${t.name}
+                      ${isDefault ? html`<span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--accent,#6c5ce7);background:color-mix(in srgb,var(--accent,#6c5ce7) 12%,transparent);padding:1px 6px;border-radius:4px">Default</span>` : ""}
+                    </div>
                     <div class="workspace-role">${t.role} · ${t.status}</div>
                   </div>
-                  <div class="workspace-arrow">
-                    <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2"><polyline points="9 18 15 12 9 6"/></svg>
+                  <div style="display:flex;align-items:center;gap:4px">
+                    ${isDefault
+                      ? html`<button
+                          class="btn btn-ghost btn-sm"
+                          style="font-size:11px;padding:2px 8px"
+                          title="Remove as default workspace"
+                          @click=${(e: Event) => this.clearDefault(e)}
+                        >Clear default</button>`
+                      : html`<button
+                          class="btn btn-ghost btn-sm"
+                          style="font-size:11px;padding:2px 8px"
+                          title="Set as default workspace"
+                          @click=${(e: Event) => this.setDefault(t, e)}
+                        >Set default</button>`}
+                    <div class="workspace-arrow">
+                      <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </div>
                   </div>
                 </div>
-              `)}
+              `; })}
           </div>
 
           <!-- Create new workspace -->

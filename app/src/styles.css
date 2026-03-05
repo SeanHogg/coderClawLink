@@ -677,6 +677,56 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--text);
 }
 
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+  color: var(--text-strong);
+}
+
+.md-content p,
+.md-content li,
+.md-content td,
+.md-content th,
+.md-content blockquote,
+.md-content strong,
+.md-content em,
+.md-content span {
+  color: inherit;
+}
+
+/* Ensure markdown inside user bubbles inherits white text */
+.msg-bubble-user .md-content,
+.msg-bubble-user .md-content h1,
+.msg-bubble-user .md-content h2,
+.msg-bubble-user .md-content h3,
+.msg-bubble-user .md-content h4,
+.msg-bubble-user .md-content h5,
+.msg-bubble-user .md-content h6,
+.msg-bubble-user .md-content p,
+.msg-bubble-user .md-content li,
+.msg-bubble-user .md-content strong,
+.msg-bubble-user .md-content em {
+  color: inherit;
+}
+
+/* Brainstorm user bubble: ensure MD inherits the white text */
+.md-bubble .md-content,
+.md-bubble .md-content h1,
+.md-bubble .md-content h2,
+.md-bubble .md-content h3,
+.md-bubble .md-content h4,
+.md-bubble .md-content h5,
+.md-bubble .md-content h6,
+.md-bubble .md-content p,
+.md-bubble .md-content li,
+.md-bubble .md-content strong,
+.md-bubble .md-content em {
+  color: inherit;
+}
+
 .md-content > :first-child { margin-top: 0; }
 .md-content > :last-child { margin-bottom: 0; }
 
@@ -692,6 +742,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .md-content h5,
 .md-content h6 {
   margin: 0 0 10px 0;
+  font-weight: 600;
 }
 
 .md-content ul,
@@ -906,30 +957,76 @@ button, input, textarea, select { font: inherit; color: inherit; }
    Responsive
    ============================================================ */
 
+/* Hamburger button: hidden on desktop, shown on mobile */
+.mobile-hamburger { display:none; }
+.landing-hamburger { display:none; }
+.landing-mobile-actions { display:none; }
+.landing-mobile-cta { display:none; }
+
 @media (max-width:900px) {
+  /* Show hamburger button */
+  .mobile-hamburger { display:inline-flex; }
+
+  /* Shell: single-column, nav out of flow */
   .shell {
     grid-template-columns:1fr;
-    grid-template-rows:var(--shell-topbar-height) auto 1fr;
-    grid-template-areas:"topbar" "nav" "content";
+    grid-template-rows:var(--shell-topbar-height) 1fr;
+    grid-template-areas:"topbar" "content";
   }
+  .shell.nav-collapsed { grid-template-columns:1fr; }
+
+  /* Mobile nav overlay backdrop */
+  .mobile-nav-overlay {
+    position:fixed; inset:0; z-index:199;
+    background:rgba(0,0,0,0.5); backdrop-filter:blur(2px);
+    animation:fade-in 0.18s ease;
+  }
+
+  /* Nav becomes a slide-out drawer */
   .nav {
-    border-right:none; border-bottom:1px solid var(--border);
-    padding:6px 10px; display:flex; gap:4px; overflow-x:auto; align-items:center;
-    scrollbar-width:none;
+    position:fixed;
+    left:0;
+    top:var(--shell-topbar-height);
+    bottom:var(--footer-height);
+    width:280px;
+    max-width:80vw;
+    z-index:200;
+    transform:translateX(-100%);
+    transition:transform 0.22s cubic-bezier(0.4,0,0.2,1);
+    border-right:1px solid var(--border);
+    border-bottom:none;
+    overflow-y:auto;
+    overflow-x:hidden;
+    display:flex;
+    flex-direction:column;
+    padding:16px 12px;
+    background:var(--panel, var(--bg));
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    box-shadow:var(--shadow-lg);
   }
-  .nav::-webkit-scrollbar { display:none; }
-  /* Flatten nav-main so its children flow directly into the horizontal nav strip */
-  .nav-main { display:contents; }
-  /* Hide the sidebar collapse button on mobile */
+  .nav.mobile-open { transform:translateX(0); }
+  /* On mobile, ignore collapsed state — always show labels */
+  .nav.collapsed { padding:16px 12px; }
+  .nav.collapsed .nav-section-label { opacity:1; pointer-events:auto; height:auto; margin-bottom:6px; padding:0 10px; }
+  .nav.collapsed .nav-section { margin-bottom:16px; }
+  .nav.collapsed .nav-item { padding:8px 10px; justify-content:flex-start; gap:10px; }
+  .nav.collapsed .nav-item-label { display:inline; }
+  .nav.collapsed .nav-item-badge { display:inline-flex; }
+
+  /* Keep nav-main scrollable, show section labels */
+  .nav-main { display:flex; flex-direction:column; flex:1; overflow-y:auto; }
   .nav-footer { display:none; }
-  .nav-section { display:flex; gap:4px; margin-bottom:0; }
-  .nav-section-label { display:none; }
-  /* Icon-only nav items on mobile */
-  .nav-item { padding:8px; justify-content:center; }
-  .nav-item-label { display:none; }
-  .nav-item-badge { display:none; }
-  /* Tables: enable horizontal scrolling so content is visible */
-  .content { overflow-x:auto; padding:16px; }
+  .nav-section { margin-bottom:16px; }
+  .nav-section-label { display:block; }
+  .nav-item { padding:8px 10px; justify-content:flex-start; }
+  .nav-item-label { display:inline; }
+  .nav-item-badge { display:inline-flex; }
+
+  /* Content takes full width */
+  .content { grid-area:content; overflow-x:auto; padding:16px; }
+
+  /* Tables: enable horizontal scrolling */
   .table-wrap { overflow-x:auto; }
   .table { min-width:480px; }
   .data-table { min-width:520px; }
@@ -1312,6 +1409,30 @@ button, input, textarea, select { font: inherit; color: inherit; }
   .landing-mesh { display: none; }
   .landing-grid-4 { grid-template-columns: repeat(2, 1fr); }
   .landing-grid-3 { grid-template-columns: 1fr; }
+
+  /* Landing mobile header actions */
+  .landing-mobile-actions { display:flex; align-items:center; gap:8px; }
+  .landing-mobile-cta { display:inline-flex; }
+  .landing-hamburger { display:inline-flex; }
+  .landing-nav-right {
+    display:none;
+    position:absolute;
+    top:60px;
+    left:0;
+    right:0;
+    flex-direction:column;
+    align-items:stretch;
+    gap:4px;
+    padding:12px 16px;
+    background:var(--chrome);
+    backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border);
+    box-shadow:var(--shadow-md);
+    z-index:101;
+  }
+  .landing-nav-right.open { display:flex; }
+  .landing-nav-right .btn { justify-content:flex-start; width:100%; text-align:left; }
 }
 @media (max-width: 540px) {
   .landing-grid-4 { grid-template-columns: 1fr; }
@@ -1799,7 +1920,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 12px 24px 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg-accent);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
+.admin-tabs::-webkit-scrollbar { display: none; }
 .admin-tab {
   padding: 8px 16px;
   border: none;
@@ -1811,6 +1936,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border-bottom: 2px solid transparent;
   transition: color .15s, border-color .15s;
   border-radius: 4px 4px 0 0;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .admin-tab:hover { color: var(--text); }
 .admin-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -2108,4 +2235,465 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .data-table tfoot td {
   border-top: 2px solid var(--border-strong);
   padding-top: 10px;
+}
+
+/* ============================================================
+   Admin Portal — Mobile Responsive
+   ============================================================ */
+
+@media (max-width:900px) {
+  /* Header: stack badge/title and back button */
+  .admin-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+  .admin-header-left { flex-wrap: wrap; gap: 8px; }
+  .admin-title { font-size: 16px; }
+
+  /* Tabs: horizontal scroll, no wrap */
+  .admin-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 8px 12px 0;
+    gap: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+  .admin-tabs::-webkit-scrollbar { display: none; }
+  .admin-tab {
+    padding: 6px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Content: reduce padding */
+  .admin-content { padding: 14px; }
+
+  /* Health grid: 2-col on tablet, 1-col on phone */
+  .health-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+  .health-value { font-size: 22px; }
+
+  /* Billing CRM grid */
+  .billing-crm-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Error entries: simplify grid */
+  .error-entry-header {
+    grid-template-columns: 50px 1fr auto;
+    gap: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .error-path { display: none; }
+  .error-chevron { display: none; }
+
+  /* Tables: ensure horizontal scroll */
+  .data-table { min-width: 520px; }
+
+  /* Model pool tabs: wrap */
+  .model-pool-tabs { flex-wrap: wrap; }
+
+  /* Usage chart bars */
+  .usage-bar-label { font-size: 8px; }
+}
+
+@media (max-width:600px) {
+  .admin-header { padding: 10px 12px; }
+  .admin-tabs { padding: 6px 8px 0; }
+  .admin-tab { padding: 5px 10px; font-size: 12px; }
+  .admin-content { padding: 10px; }
+
+  .health-grid { grid-template-columns: 1fr 1fr; }
+  .billing-crm-grid { grid-template-columns: 1fr; }
+
+  /* Error entry: stack method + message */
+  .error-entry-header {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .error-method { display: inline; }
+  .error-msg { white-space: normal; }
+  .error-time { display: block; }
+}
+
+/* =========================================
+   Brain Storm – layout classes
+   ========================================= */
+.bs-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: clamp(500px, calc(100dvh - 190px), 900px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-bg, var(--bg));
+}
+
+.bs-sidebar {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar-bg, var(--bg-muted, #191919));
+}
+
+.bs-sidebar-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bs-chat-list {
+  flex: 1;
+  overflow: auto;
+  padding: 6px;
+}
+
+.bs-chat-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  margin-bottom: 2px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+}
+.bs-chat-item.active {
+  border-color: var(--accent);
+  background: var(--accent-bg, rgba(99,102,241,0.08));
+}
+
+.bs-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.bs-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.bs-chat-header {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bs-back-btn {
+  display: none;  /* hidden on desktop */
+}
+
+.bs-messages {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bs-msg {
+  display: flex;
+  gap: 10px;
+}
+.bs-msg.bs-msg-user {
+  flex-direction: row-reverse;
+}
+
+.bs-avatar {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.bs-bubble {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.bs-bubble-user {
+  background: var(--accent, #6366f1);
+  color: #fff;
+}
+.bs-bubble-ai {
+  background: var(--panel-strong, #1a1d25);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+/* Ensure markdown inside brainstorm user bubbles inherits white text */
+.bs-bubble-user .md-content,
+.bs-bubble-user .md-content h1,
+.bs-bubble-user .md-content h2,
+.bs-bubble-user .md-content h3,
+.bs-bubble-user .md-content p,
+.bs-bubble-user .md-content li,
+.bs-bubble-user .md-content strong,
+.bs-bubble-user .md-content em,
+.bs-bubble-user .md-content code {
+  color: inherit;
+}
+
+/* Ensure markdown inside AI bubbles uses --text */
+.bs-bubble-ai .md-content,
+.bs-bubble-ai .md-content h1,
+.bs-bubble-ai .md-content h2,
+.bs-bubble-ai .md-content h3,
+.bs-bubble-ai .md-content h4,
+.bs-bubble-ai .md-content h5,
+.bs-bubble-ai .md-content h6 {
+  color: var(--text);
+}
+.bs-bubble-ai .md-content p,
+.bs-bubble-ai .md-content li,
+.bs-bubble-ai .md-content td,
+.bs-bubble-ai .md-content th,
+.bs-bubble-ai .md-content blockquote,
+.bs-bubble-ai .md-content strong,
+.bs-bubble-ai .md-content em,
+.bs-bubble-ai .md-content span {
+  color: var(--text);
+}
+.bs-bubble-ai .md-content code {
+  color: var(--text);
+}
+.bs-bubble-ai .md-content a {
+  color: var(--accent, #4d9eff);
+}
+
+/* --- Message actions (copy, feedback, sources) --- */
+.bs-msg-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.bs-msg-wrapper.bs-msg-wrapper-user {
+  align-items: flex-end;
+}
+.bs-msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 38px;
+}
+.bs-msg-action {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.bs-msg-action:hover {
+  background: var(--panel-hover, #262a35);
+  color: var(--text);
+  border-color: var(--border);
+}
+.bs-msg-action.active {
+  color: var(--accent);
+}
+.bs-msg-action svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* --- Project actions in sidebar & chat header --- */
+.bs-project-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.bs-project-select {
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+  max-width: 140px;
+}
+.bs-prd-btn {
+  font-size: 11px !important;
+  padding: 2px 6px !important;
+  white-space: nowrap;
+}
+.bs-create-project-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel, #1a1d25);
+}
+
+/* --- Sources side panel --- */
+.bs-sources-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  display: flex;
+  justify-content: flex-end;
+}
+.bs-sources-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.3);
+}
+.bs-sources-panel {
+  position: relative;
+  width: 360px;
+  max-width: 90vw;
+  height: 100%;
+  background: var(--bg, #0f0f0f);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg, -4px 0 24px rgba(0,0,0,0.3));
+  animation: bs-slide-in 0.2s ease-out;
+}
+@keyframes bs-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.bs-sources-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-strong);
+}
+.bs-sources-body {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 16px;
+}
+.bs-source-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.bs-source-item:last-child {
+  border-bottom: none;
+}
+.bs-source-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  background: var(--panel-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.bs-source-info {
+  min-width: 0;
+}
+.bs-source-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent, #4d9eff);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.bs-source-title:hover {
+  text-decoration: underline;
+}
+.bs-source-url {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bs-input-area {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- Brain Storm mobile (≤ 900px) ---- */
+@media (max-width: 900px) {
+  .bs-shell {
+    grid-template-columns: 1fr;
+    height: calc(100dvh - 140px);
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  /* By default show sidebar, hide main */
+  .bs-sidebar {
+    display: flex;
+  }
+  .bs-main {
+    display: none;
+  }
+
+  /* When a chat is selected, flip panels */
+  .bs-shell.bs-show-chat .bs-sidebar {
+    display: none;
+  }
+  .bs-shell.bs-show-chat .bs-main {
+    display: flex;
+  }
+
+  /* Show back button */
+  .bs-back-btn {
+    display: inline-flex;
+  }
+
+  /* Wider bubbles on mobile */
+  .bs-bubble {
+    max-width: 88%;
+  }
+
+  .bs-messages {
+    padding: 12px;
+  }
+
+  .bs-chat-header {
+    padding: 8px 12px;
+  }
+
+  .bs-input-area {
+    padding: 8px 12px;
+  }
 }

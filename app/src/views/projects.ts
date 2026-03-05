@@ -505,10 +505,25 @@ export class CclProjects extends LitElement {
   }
 
   private parseBrainActions(text: string): ProjectBrainAction[] {
-    const match = text.match(/<ccl-actions>([\s\S]*?)<\/ccl-actions>/i);
-    if (!match) return [];
+    // Try <ccl-actions> wrapper first
+    let jsonStr: string | undefined;
+    const xmlMatch = text.match(/<ccl-actions>([\s\S]*?)<\/ccl-actions>/i);
+    if (xmlMatch) {
+      jsonStr = xmlMatch[1];
+    } else {
+      // Fallback: fenced code block containing {"actions":...}
+      const fencedMatch = text.match(/```(?:json)?\s*\n?(\{[\s\S]*?"actions"\s*:\s*\[[\s\S]*?\})\s*\n?```/i);
+      if (fencedMatch) {
+        jsonStr = fencedMatch[1];
+      } else {
+        // Fallback: bare JSON object with "actions" array at end of response
+        const bareMatch = text.match(/(\{\s*"actions"\s*:\s*\[[\s\S]*\]\s*\})\s*$/);
+        if (bareMatch) jsonStr = bareMatch[1];
+      }
+    }
+    if (!jsonStr) return [];
     try {
-      const parsed = JSON.parse(match[1]) as { actions?: ProjectBrainAction[] };
+      const parsed = JSON.parse(jsonStr) as { actions?: ProjectBrainAction[] };
       if (!Array.isArray(parsed.actions)) return [];
       return parsed.actions.filter((action) => (
         action &&
@@ -521,19 +536,25 @@ export class CclProjects extends LitElement {
   }
 
   private stripBrainActions(text: string): string {
-    return text.replace(/<ccl-actions>[\s\S]*?<\/ccl-actions>/gi, "").trim();
+    return text
+      .replace(/<ccl-actions>[\s\S]*?<\/ccl-actions>/gi, "")
+      .replace(/```(?:json)?\s*\n?\{[\s\S]*?"actions"\s*:\s*\[[\s\S]*?\}\s*\n?```/gi, "")
+      .replace(/\{\s*"actions"\s*:\s*\[[\s\S]*\]\s*\}\s*$/, "")
+      .trim();
   }
 
   private brainMessagesPayload() {
     const systemPrompt = [
       "You are Brain helping inside a project workspace.",
       "Respond in markdown.",
-      "When useful, include machine-readable actions in <ccl-actions>{\"actions\":[...]}</ccl-actions>.",
+      "IMPORTANT: You MUST include machine-readable actions wrapped in <ccl-actions>{\"actions\":[...]}</ccl-actions> tags at the END of your response when creating tasks, saving PRDs, or updating project details.",
       "Allowed actions:",
       "- create_task: { type, title, description?, priority?, status?, dueDate?, assignedClawId?, assignedClawName? }",
       "- assign_task: { type, taskId?, taskKey?, taskTitle?, assignedClawId?, assignedClawName? }",
-      "- save_prd: { type, title?, content }",
+      "- save_prd: { type, title?, content } — content MUST be the full PRD markdown text",
       "- set_project_details: { type, description?, rootWorkingDirectory? }",
+      "Example for save_prd:",
+      '<ccl-actions>{"actions":[{"type":"save_prd","title":"My PRD","content":"# PRD\\n## Goals\\n..."}]}</ccl-actions>',
       "If rootWorkingDirectory is missing, ask for it and include set_project_details action once user provides it.",
       "Keep output concise and execution oriented.",
     ].join("\n");
@@ -567,11 +588,17 @@ export class CclProjects extends LitElement {
     this.brainSending = true;
 
     try {
-      const response = await llm.chat(this.brainMessagesPayload(), { temperature: 0.25, maxTokens: 1800 });
+      const response = await llm.chat(this.brainMessagesPayload(), { temperature: 0.25, maxTokens: 4096 });
       const content = response.choices?.[0]?.message?.content?.trim() ?? "I could not generate a response.";
       const actions = this.parseBrainActions(content);
       if (actions.length) {
         this.brainActions = actions.map((action) => ({ action, status: "idle" }));
+        // Auto-apply save_prd actions immediately
+        for (let i = 0; i < actions.length; i++) {
+          if (actions[i]?.type === "save_prd") {
+            await this.applyBrainAction(i);
+          }
+        }
       }
       const cleanContent = this.stripBrainActions(content) || "Done.";
       this.brainMessages = [...this.brainMessages, { id: crypto.randomUUID(), role: "assistant", text: cleanContent }];

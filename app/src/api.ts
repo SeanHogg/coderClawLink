@@ -13,6 +13,7 @@ const WEB_TOKEN_KEY  = "ccl-web-token";
 const TENANT_TOKEN_KEY = "ccl-tenant-token";
 const TENANT_ID_KEY  = "ccl-tenant-id";
 const USER_KEY       = "ccl-user";
+const DEFAULT_TENANT_KEY = "ccl-default-tenant-id";
 
 export function getWebToken(): string | null   { return localStorage.getItem(WEB_TOKEN_KEY); }
 export function getTenantToken(): string | null { return localStorage.getItem(TENANT_TOKEN_KEY); }
@@ -21,6 +22,10 @@ export function getTenantId(): string | null    { return localStorage.getItem(TE
 export function setWebToken(t: string)   { localStorage.setItem(WEB_TOKEN_KEY, t); }
 export function setTenantToken(t: string) { localStorage.setItem(TENANT_TOKEN_KEY, t); }
 export function setTenantId(id: string)  { localStorage.setItem(TENANT_ID_KEY, id); }
+
+export function getDefaultTenantId(): string | null { return localStorage.getItem(DEFAULT_TENANT_KEY); }
+export function setDefaultTenantId(id: string)      { localStorage.setItem(DEFAULT_TENANT_KEY, id); }
+export function clearDefaultTenantId()              { localStorage.removeItem(DEFAULT_TENANT_KEY); }
 
 export function setUser(u: UserInfo)   { localStorage.setItem(USER_KEY, JSON.stringify(u)); }
 export function getUser(): UserInfo | null {
@@ -1209,6 +1214,158 @@ export const llm = {
     const q = new URLSearchParams();
     q.set("days", String(days));
     return request<TenantLlmUsage>(`/llm/v1/usage?${q.toString()}`);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Brain (server-persisted brainstorm chats + memory)
+// ---------------------------------------------------------------------------
+
+export interface BrainChat {
+  id: number;
+  projectId: number | null;
+  title: string;
+  isArchived?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BrainMessage {
+  id: number;
+  role: string;
+  content: string;
+  metadata: string | null;
+  seq: number;
+  createdAt: string;
+}
+
+export interface ChatMemory {
+  id: number;
+  chatId: number;
+  projectId: number | null;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectMemory {
+  id: number;
+  projectId: number;
+  consolidatedSummary: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const brain = {
+  // Chats
+  async listChats(params?: { projectId?: number | string; limit?: number; offset?: number }): Promise<BrainChat[]> {
+    const q = new URLSearchParams();
+    if (params?.projectId != null) q.set("projectId", String(params.projectId));
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.offset) q.set("offset", String(params.offset));
+    const suffix = q.toString();
+    const res = await request<{ chats: BrainChat[] }>(`/api/brain/chats${suffix ? `?${suffix}` : ""}`);
+    return res.chats;
+  },
+
+  async createChat(data: { title?: string; projectId?: number | null }): Promise<BrainChat> {
+    return request<BrainChat>("/api/brain/chats", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getChat(id: number): Promise<BrainChat> {
+    return request<BrainChat>(`/api/brain/chats/${id}`);
+  },
+
+  async updateChat(id: number, data: { title?: string; projectId?: number | null }): Promise<BrainChat> {
+    return request<BrainChat>(`/api/brain/chats/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteChat(id: number): Promise<void> {
+    await request<{ ok: boolean }>(`/api/brain/chats/${id}`, { method: "DELETE" });
+  },
+
+  // Messages
+  async getMessages(chatId: number, limit = 100): Promise<BrainMessage[]> {
+    const res = await request<{ messages: BrainMessage[] }>(`/api/brain/chats/${chatId}/messages?limit=${limit}`);
+    return res.messages;
+  },
+
+  async sendMessages(chatId: number, messages: Array<{ role: string; content: string; metadata?: string }>): Promise<BrainMessage[]> {
+    const res = await request<{ messages: BrainMessage[] }>(`/api/brain/chats/${chatId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ messages }),
+    });
+    return res.messages;
+  },
+
+  // Summarization
+  async summarize(chatId: number): Promise<{ summary: string | null; reason?: string }> {
+    return request(`/api/brain/chats/${chatId}/summarize`, { method: "POST" });
+  },
+
+  // Memories
+  async listMemories(params?: { projectId?: number; limit?: number }): Promise<ChatMemory[]> {
+    const q = new URLSearchParams();
+    if (params?.projectId != null) q.set("projectId", String(params.projectId));
+    if (params?.limit) q.set("limit", String(params.limit));
+    const suffix = q.toString();
+    const res = await request<{ memories: ChatMemory[] }>(`/api/brain/memories${suffix ? `?${suffix}` : ""}`);
+    return res.memories;
+  },
+
+  async getProjectMemory(projectId: number): Promise<ProjectMemory | null> {
+    const res = await request<{ memory: ProjectMemory | null }>(`/api/brain/projects/${projectId}/memory`);
+    return res.memory;
+  },
+
+  async consolidateProjectMemory(projectId: number): Promise<{ consolidatedSummary: string | null; reason?: string }> {
+    return request(`/api/brain/projects/${projectId}/consolidate`, { method: "POST" });
+  },
+
+  // Claw session summarization
+  async summarizeClawSession(sessionId: number): Promise<{ summary: string | null; reason?: string; projectId?: number | null }> {
+    return request(`/api/brain/claw-sessions/${sessionId}/summarize`, { method: "POST" });
+  },
+
+  // Memory sync to connected claws
+  async syncProjectMemoryToClaws(projectId: number): Promise<{ ok: boolean; dispatched: number; total: number }> {
+    return request(`/api/brain/projects/${projectId}/memory-sync`, { method: "POST" });
+  },
+
+  // Message feedback
+  async setMessageFeedback(messageId: number, feedback: "up" | "down" | null): Promise<BrainMessage> {
+    return request(`/api/brain/messages/${messageId}/feedback`, {
+      method: "PATCH",
+      body: JSON.stringify({ feedback }),
+    });
+  },
+
+  // File upload
+  async upload(file: File): Promise<{ key: string; name: string; type: string; size: number }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = getTenantToken() ?? getWebToken();
+    const res = await fetch(`${BASE}/api/brain/upload`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error((err as { error?: string }).error ?? res.statusText);
+    }
+    return res.json() as Promise<{ key: string; name: string; type: string; size: number }>;
+  },
+
+  // Get upload URL for display
+  uploadUrl(key: string): string {
+    return `${BASE}/api/brain/uploads/${key}`;
   },
 };
 

@@ -5,6 +5,7 @@ import {
   auth, tenants, projects as projectsApi, tasks as tasksApi, clearSession,
   getWebToken, getTenantToken, getTenantId, getUser,
   setWebToken, setTenantToken, setTenantId, setUser,
+  getDefaultTenantId, setDefaultTenantId, clearDefaultTenantId,
   type LegalDocument,
   type TenantSummary, type UserInfo,
 } from "./api.js";
@@ -13,6 +14,7 @@ declare const __APP_VERSION__: string;
 
 // Views
 import "./views/auth.js";
+import "./views/cli-auth.js";
 import "./views/workspace-picker.js";
 import "./views/dashboard.js";
 import "./views/projects.js";
@@ -31,9 +33,10 @@ import "./views/content.js";
 import "./views/debug.js";
 import "./views/pricing.js";
 import "./views/execution-timeline.js";
+import "./views/brainstorm.js";
 
-type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "pricing" | "debug" | "timeline";
+type AppState = "loading" | "landing" | "auth" | "cli-auth" | "workspace-picker" | "dashboard" | "admin";
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "pricing" | "debug" | "timeline" | "brainstorm";
 type WorkspaceTab = "security" | "settings";
 type WorkspaceSection = "settings" | "billing" | "consumption" | "details" | "security";
 
@@ -62,7 +65,11 @@ export class CclApp extends LitElement {
   @state() private showScrollTop = false;
   @state() private nlEmail = "";
   @state() private nlStatus: "idle" | "sending" | "ok" | "error" = "idle";
+  @state() private mobileMenuOpen = false;
+  @state() private landingMenuOpen = false;
   private scrollHandler = () => { this.showScrollTop = window.scrollY > 400; };
+  private mobileMediaQuery = window.matchMedia("(max-width:900px)");
+  private closeMobileOnResize = () => { if (!this.mobileMediaQuery.matches) { this.mobileMenuOpen = false; this.landingMenuOpen = false; } };
 
   override connectedCallback() {
     super.connectedCallback();
@@ -76,6 +83,7 @@ export class CclApp extends LitElement {
     window.addEventListener("ccl:new-project", this.handleNewProject);
     window.addEventListener("ccl:navigate", this.handleNavigate as EventListener);
     window.addEventListener("ccl:dashboard-prompt", this.handleDashboardPrompt as EventListener);
+    this.mobileMediaQuery.addEventListener("change", this.closeMobileOnResize);
     window.addEventListener("ccl:open-admin-security", this.handleOpenAdminSecurity as EventListener);
     window.addEventListener("ccl:terms-required", this.handleTermsRequired as EventListener);
     window.addEventListener("ccl:navigate-auth", this.handleNavigateAuth);
@@ -95,6 +103,7 @@ export class CclApp extends LitElement {
     window.removeEventListener("ccl:terms-required", this.handleTermsRequired as EventListener);
     window.removeEventListener("ccl:navigate-auth", this.handleNavigateAuth);
     window.removeEventListener("scroll", this.scrollHandler);
+    this.mobileMediaQuery.removeEventListener("change", this.closeMobileOnResize);
   }
 
   override updated(changed: PropertyValues) {
@@ -199,6 +208,13 @@ export class CclApp extends LitElement {
   };
 
   private async bootstrap() {
+    // CLI auth: if the URL is /auth/cli, render the dedicated CLI auth view
+    // regardless of existing session state.
+    if (window.location.pathname === "/auth/cli") {
+      this.appState = "cli-auth";
+      return;
+    }
+
     const webToken = getWebToken();
     if (!webToken) { this.appState = "landing"; return; }
     this.user = getUser();
@@ -226,12 +242,40 @@ export class CclApp extends LitElement {
       } catch { /* fall through to picker */ }
     }
 
-    // Has web token but no tenant — go to picker
+    // Has web token but no tenant — try auto-select, else picker
     try {
       this.tenantList = await auth.listTenants();
+      if (await this.autoSelectTenant(this.tenantList)) return;
       this.appState = "workspace-picker";
     } catch {
       this.appState = "auth";
+    }
+  }
+
+  /** Auto-select a tenant if there's only one OR a default is set. Returns true if auto-selected. */
+  private async autoSelectTenant(list: TenantSummary[]): Promise<boolean> {
+    let target: TenantSummary | undefined;
+
+    if (list.length === 1) {
+      target = list[0];
+    } else {
+      const defaultId = getDefaultTenantId();
+      if (defaultId) {
+        target = list.find(t => String(t.id) === defaultId);
+      }
+    }
+
+    if (!target) return false;
+
+    try {
+      const { token } = await auth.tenantToken(target.id);
+      setTenantToken(token);
+      setTenantId(target.id);
+      this.tenant = target;
+      this.appState = "dashboard";
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -253,6 +297,7 @@ export class CclApp extends LitElement {
 
     try {
       this.tenantList = await auth.listTenants();
+      if (await this.autoSelectTenant(this.tenantList)) return;
       this.appState = "workspace-picker";
     } catch {
       this.appState = "workspace-picker";
@@ -287,10 +332,21 @@ export class CclApp extends LitElement {
 
   private handleSignOut() {
     clearSession();
+    clearDefaultTenantId();
     this.user = null;
     this.tenant = null;
     this.tenantList = [];
     this.appState = "landing";
+  }
+
+  private handleSetDefaultTenant(e: CustomEvent<TenantSummary>) {
+    setDefaultTenantId(String(e.detail.id));
+    this.requestUpdate();
+  }
+
+  private handleClearDefaultTenant() {
+    clearDefaultTenantId();
+    this.requestUpdate();
   }
 
   private handleSwitchWorkspace() {
@@ -456,13 +512,20 @@ export class CclApp extends LitElement {
         break;
       }
       case "agents": {
-        const el = document.createElement("ccl-agents") as HTMLElement & { tenantId?: string };
+        // Redirect legacy agents route to workforce (claws) page
+        const el = document.createElement("ccl-claws") as HTMLElement & { tenantId?: string };
         el.tenantId = tenantId;
         view = el;
         break;
       }
       case "chats": {
         const el = document.createElement("ccl-chats") as HTMLElement & { tenantId?: string };
+        el.tenantId = tenantId;
+        view = el;
+        break;
+      }
+      case "brainstorm": {
+        const el = document.createElement("ccl-brainstorm") as HTMLElement & { tenantId?: string };
         el.tenantId = tenantId;
         view = el;
         break;
@@ -525,6 +588,14 @@ export class CclApp extends LitElement {
     localStorage.setItem("ccl-nav-collapsed", this.navCollapsed ? "1" : "0");
   }
 
+  private toggleMobileMenu() {
+    this.mobileMenuOpen = !this.mobileMenuOpen;
+  }
+
+  private toggleLandingMenu() {
+    this.landingMenuOpen = !this.landingMenuOpen;
+  }
+
   // ---------------------------------------------------------------------------
   // Nav icons (inline SVG)
   // ---------------------------------------------------------------------------
@@ -545,6 +616,7 @@ export class CclApp extends LitElement {
       moon: `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`,
       logout: `<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>`,
       agents: `<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>`,
+      workforce: `<circle cx="8" cy="8" r="3"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="8" r="3"/><path d="M14 20c0-3.3 2.7-6 6-6"/>`,
       panelLeft: `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>`,
       chevronsLeft: `<polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>`,
       chevronsRight: `<polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>`,
@@ -553,6 +625,8 @@ export class CclApp extends LitElement {
       pricing: `<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/>`,
       debug: `<path d="M9 3h6l1 2h3a1 1 0 0 1 1 1v3h-2V7h-2.2l-1-2H10.2l-1 2H7v2H5V6a1 1 0 0 1 1-1h3l1-2zm-1 7h8a4 4 0 0 1 4 4v2a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6v-2a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v2a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4v-2a2 2 0 0 0-2-2H8zm2 3h1v2h-1v-2zm3 0h1v2h-1v-2z"/>`,
       timeline: `<line x1="3" y1="12" x2="21" y2="12"/><polyline points="8 8 3 12 8 16"/><line x1="8" y1="12" x2="16" y2="12"/><circle cx="16" cy="12" r="2"/>`,
+      menu: `<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>`,
+      close: `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`,
     };
     return `<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0">${paths[name] ?? ""}</svg>`;
   }
@@ -575,11 +649,13 @@ export class CclApp extends LitElement {
         ? this.renderLanding()
         : this.appState === "auth"
           ? this.renderAuth()
-          : this.appState === "workspace-picker"
-            ? this.renderWorkspacePicker()
-            : this.appState === "admin"
-              ? this.renderAdmin()
-              : this.renderDashboard();
+          : this.appState === "cli-auth"
+            ? this.renderCliAuth()
+            : this.appState === "workspace-picker"
+              ? this.renderWorkspacePicker()
+              : this.appState === "admin"
+                ? this.renderAdmin()
+                : this.renderDashboard();
 
     return html`
       ${page}
@@ -670,13 +746,19 @@ export class CclApp extends LitElement {
               <img src="https://cdn.builder.io/api/v1/image/assets%2Fac94883aaa0849cc897eb61793256164%2Fc284d818569a472aa80fdbee574db744?format=webp&width=64&height=64" alt="" onerror="this.style.display='none'">
               CoderClawLink
             </a>
-            <div class="landing-nav-right">
-              <a href="#features" class="btn btn-ghost btn-sm" @click=${(e: Event) => { e.preventDefault(); document.getElementById("features")?.scrollIntoView({ behavior: "smooth" }); }}>Features</a>
-              <a href="#pricing" class="btn btn-ghost btn-sm" @click=${(e: Event) => { e.preventDefault(); document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" }); }}>Pricing</a>
+            <div class="landing-mobile-actions">
+              <button class="btn btn-primary btn-sm landing-mobile-cta" @click=${() => { this.appState = "auth"; }}>Get Started</button>
+              <button class="btn btn-ghost btn-icon landing-hamburger" @click=${() => this.toggleLandingMenu()} title="Menu">
+                <span .innerHTML=${this.svgIcon(this.landingMenuOpen ? "close" : "menu")}></span>
+              </button>
+            </div>
+            <div class="landing-nav-right ${this.landingMenuOpen ? "open" : ""}">
+              <a href="#features" class="btn btn-ghost btn-sm" @click=${(e: Event) => { e.preventDefault(); this.landingMenuOpen = false; document.getElementById("features")?.scrollIntoView({ behavior: "smooth" }); }}>Features</a>
+              <a href="#pricing" class="btn btn-ghost btn-sm" @click=${(e: Event) => { e.preventDefault(); this.landingMenuOpen = false; document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" }); }}>Pricing</a>
               <a href="https://github.com/SeanHogg/coderClawLink" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">GitHub</a>
               <a href="https://discord.gg/xMKpFdqd" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Discord</a>
-              <button class="btn btn-ghost btn-sm" @click=${() => { this.appState = "auth"; }}>Sign in</button>
-              <button class="btn btn-primary btn-sm" @click=${() => { this.appState = "auth"; }}>Get Started Free</button>
+              <button class="btn btn-ghost btn-sm" @click=${() => { this.landingMenuOpen = false; this.appState = "auth"; }}>Sign in</button>
+              <button class="btn btn-primary btn-sm" @click=${() => { this.landingMenuOpen = false; this.appState = "auth"; }}>Get Started Free</button>
               <button class="btn btn-ghost btn-icon" @click=${() => this.toggleTheme()} title="Toggle theme">
                 <span .innerHTML=${this.svgIcon(this.theme === "dark" ? "sun" : "moon")}></span>
               </button>
@@ -968,6 +1050,10 @@ export class CclApp extends LitElement {
       ></ccl-auth>`;
   }
 
+  private renderCliAuth() {
+    return html`<ccl-cli-auth></ccl-cli-auth>`;
+  }
+
   private renderWorkspacePicker() {
     return html`
       <div>
@@ -987,8 +1073,11 @@ export class CclApp extends LitElement {
         <ccl-workspace-picker
           .tenants=${this.tenantList}
           .user=${this.user}
+          .defaultTenantId=${getDefaultTenantId()}
           @select-tenant=${this.handleSelectTenant}
           @create-tenant=${this.handleCreateTenant}
+          @set-default-tenant=${this.handleSetDefaultTenant}
+          @clear-default-tenant=${this.handleClearDefaultTenant}
           @sign-out=${this.handleSignOut}
         ></ccl-workspace-picker>
       </div>`;
@@ -1002,20 +1091,18 @@ export class CclApp extends LitElement {
     const c = this.navCollapsed;
 
     const mainItems: Array<{ id: DashTab; label: string; icon: string }> = [
-      { id: "home",     label: "Dashboard", icon: "home"     },
-      { id: "projects", label: "Projects",  icon: "projects" },
-      { id: "tasks",    label: "Tasks",     icon: "tasks"    },
-    ];
-    const meshItems: Array<{ id: DashTab; label: string; icon: string }> = [
-      { id: "claws",  label: "Claws",  icon: "claws"  },
-      { id: "skills", label: "Skills", icon: "skills" },
-      { id: "agents", label: "Agents", icon: "agents" },
-      { id: "chats",  label: "Chats",  icon: "logs"   },
-    ];
-    const buildItems: Array<{ id: DashTab; label: string; icon: string }> = [
+      { id: "home",       label: "Dashboard",   icon: "home"     },
+      { id: "projects",   label: "Projects",    icon: "projects" },
+      { id: "tasks",      label: "Tasks",       icon: "tasks"    },
+      { id: "brainstorm", label: "Brain Storm", icon: "logs"     },
       { id: "code-editor", label: "Code Editor",      icon: "code-editor" },
       { id: "content",     label: "Content Manager", icon: "content"     },
       { id: "pricing",     label: "Pricing",          icon: "pricing"     },
+    ];
+    const meshItems: Array<{ id: DashTab; label: string; icon: string }> = [
+      { id: "claws",  label: "Workforce",  icon: "workforce"  },
+      { id: "skills", label: "Skills", icon: "skills" },
+      { id: "chats",  label: "Chats",  icon: "logs"   },
     ];
     const systemItems: Array<
       { id: DashTab; label: string; icon: string; workspaceTab?: WorkspaceTab; workspaceSection?: WorkspaceSection }
@@ -1043,6 +1130,7 @@ export class CclApp extends LitElement {
         }"
         title="${item.label}"
         @click=${() => {
+          this.mobileMenuOpen = false;
           if (item.id === "workspace") {
             this.openWorkspaceArea(item.workspaceTab ?? "settings", item.workspaceSection);
             return;
@@ -1057,9 +1145,14 @@ export class CclApp extends LitElement {
 
     return html`
       <div class="shell ${c ? "nav-collapsed" : ""}">
+        <!-- Mobile nav overlay -->
+        ${this.mobileMenuOpen ? html`<div class="mobile-nav-overlay" @click=${() => { this.mobileMenuOpen = false; }}></div>` : ""}
         <!-- Topbar -->
         <header class="topbar">
           <div class="topbar-left">
+            <button class="btn btn-ghost btn-icon mobile-hamburger" @click=${() => this.toggleMobileMenu()} title="Menu">
+              <span .innerHTML=${this.svgIcon(this.mobileMenuOpen ? "close" : "menu")}></span>
+            </button>
             <div class="brand">
               <img class="brand-logo" src="/claw-logo.png" alt="CoderClawLink" onerror="this.style.display='none'">
               ${c ? "" : html`<span class="brand-name">CoderClawLink</span><span class="brand-badge">BETA</span>`}
@@ -1105,7 +1198,7 @@ export class CclApp extends LitElement {
         </header>
 
         <!-- Sidebar nav -->
-        <nav class="nav ${c ? "collapsed" : ""}">
+        <nav class="nav ${c ? "collapsed" : ""} ${this.mobileMenuOpen ? "mobile-open" : ""}">
           <div class="nav-main">
             <div class="nav-section">
               ${mainItems.map(navBtn)}
@@ -1114,11 +1207,6 @@ export class CclApp extends LitElement {
             <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">Mesh</div>
             <div class="nav-section">
               ${meshItems.map(navBtn)}
-            </div>
-
-            <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">Build</div>
-            <div class="nav-section">
-              ${buildItems.map(navBtn)}
             </div>
 
             <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">System</div>

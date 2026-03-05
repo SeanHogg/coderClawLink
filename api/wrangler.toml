@@ -21,6 +21,10 @@ ENVIRONMENT  = "production"
 name = "CLAW_RELAY"
 class_name = "ClawRelayDO"
 
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "coderclawlink-uploads"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ClawRelayDO"]

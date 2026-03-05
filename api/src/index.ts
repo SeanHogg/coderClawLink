@@ -48,6 +48,8 @@ import { createChatRoutes }         from './presentation/routes/chatRoutes';
 import { createSpecRoutes }         from './presentation/routes/specRoutes';
 import { createWorkflowRoutes }     from './presentation/routes/workflowRoutes';
 import { createApprovalRoutes }     from './presentation/routes/approvalRoutes';
+import { createBrainRoutes }       from './presentation/routes/brainRoutes';
+import { BrainService }            from './application/brain/BrainService';
 
 // Middleware
 import { corsMiddleware } from './presentation/middleware/cors';
@@ -82,6 +84,7 @@ function buildApp(env: Env): Hono<HonoEnv> {
   const agentService    = new AgentService(agentRepo, skillRepo, auditRepo);
   const runtimeService  = new RuntimeService(executionRepo, taskRepo, agentRepo, auditRepo);
   const auditService    = new AuditService(auditRepo);
+  const brainService    = new BrainService(db);
 
   // --- Presentation ---
   const app = new Hono<HonoEnv>();
@@ -118,6 +121,7 @@ function buildApp(env: Env): Hono<HonoEnv> {
   app.route('/api/specs',    createSpecRoutes(db));
   app.route('/api/workflows', createWorkflowRoutes(db));
   app.route('/api/approvals', createApprovalRoutes(db));
+  app.route('/api/brain',     createBrainRoutes(brainService, db));
 
   app.onError(errorHandler);
   app.notFound((c) => c.json({ error: 'Not found' }, 404));

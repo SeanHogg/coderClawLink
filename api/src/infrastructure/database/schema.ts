@@ -581,6 +581,7 @@ export const chatSessions = pgTable('chat_sessions', {
   tenantId:   integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
   clawId:     integer('claw_id').notNull().references(() => coderclawInstances.id, { onDelete: 'cascade' }),
   sessionKey: varchar('session_key', { length: 255 }).notNull(),
+  projectId:  integer('project_id').references(() => projects.id, { onDelete: 'set null' }),
   startedAt:  timestamp('started_at').notNull().defaultNow(),
   endedAt:    timestamp('ended_at'),
   msgCount:   integer('msg_count').notNull().default(0),
@@ -705,4 +706,57 @@ export const approvals = pgTable('approvals', {
   expiresAt:   timestamp('expires_at'),
   createdAt:   timestamp('created_at').notNull().defaultNow(),
   updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Brain chats — server-persisted brainstorming / LLM conversations
+// ---------------------------------------------------------------------------
+
+export const brainChats = pgTable('brain_chats', {
+  id:         serial('id').primaryKey(),
+  tenantId:   integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  userId:     varchar('user_id', { length: 36 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  projectId:  integer('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  title:      varchar('title', { length: 500 }).notNull().default('New chat'),
+  isArchived: boolean('is_archived').notNull().default(false),
+  createdAt:  timestamp('created_at').notNull().defaultNow(),
+  updatedAt:  timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const brainMessages = pgTable('brain_messages', {
+  id:        serial('id').primaryKey(),
+  chatId:    integer('chat_id').notNull().references(() => brainChats.id, { onDelete: 'cascade' }),
+  role:      varchar('role', { length: 16 }).notNull(),  // 'user' | 'assistant' | 'system'
+  content:   text('content').notNull().default(''),
+  metadata:  text('metadata'),  // JSON string (attachments, model info, etc.)
+  seq:       integer('seq').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Chat memories — compressed summaries of individual brain chats
+// ---------------------------------------------------------------------------
+
+export const chatMemories = pgTable('chat_memories', {
+  id:             serial('id').primaryKey(),
+  tenantId:       integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  chatId:         integer('chat_id').references(() => brainChats.id, { onDelete: 'cascade' }).unique(),
+  clawSessionId:  integer('claw_session_id').references(() => chatSessions.id, { onDelete: 'cascade' }).unique(),
+  projectId:      integer('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  summary:        text('summary').notNull().default(''),
+  createdAt:      timestamp('created_at').notNull().defaultNow(),
+  updatedAt:      timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Project memories — consolidated summaries across all chats for a project
+// ---------------------------------------------------------------------------
+
+export const projectMemories = pgTable('project_memories', {
+  id:                   serial('id').primaryKey(),
+  tenantId:             integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  projectId:            integer('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }).unique(),
+  consolidatedSummary:  text('consolidated_summary').notNull().default(''),
+  createdAt:            timestamp('created_at').notNull().defaultNow(),
+  updatedAt:            timestamp('updated_at').notNull().defaultNow(),
 });

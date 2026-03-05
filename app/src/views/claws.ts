@@ -13,6 +13,7 @@ import "./claw/claw-logs.js";
 import "./claw/instances.js";
 import "./claw/projects.js";
 import "./claw/workspace.js";
+import "./claw/agents.js";
 import "./quickstart.js";
 
 type Tab = "chat" | "instances" | "config" | "sessions" | "skills" | "usage" | "cron" | "nodes" | "channels" | "projects" | "workspace" | "logs";
@@ -391,7 +392,7 @@ export class ClawsView extends LitElement {
     return html`
       <div>
         <div class="page-header">
-          <div><div class="page-title">Claws</div><div class="page-sub">${this.clawList.length} registered</div></div>
+          <div><div class="page-title">Workforce</div><div class="page-sub">${this.clawList.length} registered claws</div></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
             <button class="btn btn-primary" @click=${() => { this.showManualRegister = false; this.showRegisterModal = true; }}>Register claw</button>
           </div>
@@ -402,7 +403,7 @@ export class ClawsView extends LitElement {
           <div>
             <div class="empty-state">
               <div class="empty-state-title">No claws registered yet</div>
-              <div class="empty-state-sub">Register your first claw to get started.</div>
+              <div class="empty-state-sub">Register a claw or add an agent to build your workforce.</div>
               <button class="btn btn-primary" style="margin-top:16px" @click=${() => { this.showManualRegister = false; this.showRegisterModal = true; }}>Register claw</button>
             </div>
             <ccl-quickstart></ccl-quickstart>
@@ -444,6 +445,11 @@ export class ClawsView extends LitElement {
             </table>
           </div>
         ` : ""}
+
+        <!-- Agents section -->
+        <div style="margin-top:32px">
+          <ccl-claw-agents></ccl-claw-agents>
+        </div>
       </div>
       ${this.renderRegisterModal()}
       ${this.renderPanel()}
