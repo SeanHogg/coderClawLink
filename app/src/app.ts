@@ -58,6 +58,8 @@ export class CclApp extends LitElement {
   @state() private termsGateRequired = false;
   @state() private acceptingTerms = false;
   @state() private legalModalType: "terms" | "privacy" | null = null;
+  @state() private showScrollTop = false;
+  private scrollHandler = () => { this.showScrollTop = window.scrollY > 400; };
 
   override connectedCallback() {
     super.connectedCallback();
@@ -74,6 +76,7 @@ export class CclApp extends LitElement {
     window.addEventListener("ccl:open-admin-security", this.handleOpenAdminSecurity as EventListener);
     window.addEventListener("ccl:terms-required", this.handleTermsRequired as EventListener);
     window.addEventListener("ccl:navigate-auth", this.handleNavigateAuth);
+    window.addEventListener("scroll", this.scrollHandler, { passive: true });
   }
 
   override disconnectedCallback() {
@@ -88,6 +91,7 @@ export class CclApp extends LitElement {
     window.removeEventListener("ccl:open-admin-security", this.handleOpenAdminSecurity as EventListener);
     window.removeEventListener("ccl:terms-required", this.handleTermsRequired as EventListener);
     window.removeEventListener("ccl:navigate-auth", this.handleNavigateAuth);
+    window.removeEventListener("scroll", this.scrollHandler);
   }
 
   override updated(changed: PropertyValues) {
@@ -874,15 +878,27 @@ export class CclApp extends LitElement {
         <section class="landing-cta-section">
           <div class="landing-section-inner" style="text-align:center">
             <h2 style="font-size:clamp(24px,4vw,36px);font-weight:700;margin:0 0 12px">Ready to build your AI engineering mesh?</h2>
-            <p style="color:var(--muted);margin:0 0 28px">Free to start. No credit card required. 14-day Pro trial on signup. MIT licensed, self-hostable.</p>
+            <p style="color:var(--muted);margin:0 0 8px">Free to start. No credit card required. MIT licensed, self-hostable.</p>
+            <p style="color:var(--accent);font-weight:600;font-size:15px;margin:0 0 28px">14-day Pro trial on every signup — no credit card needed.</p>
             <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-              <button class="btn btn-primary btn-lg" @click=${() => { this.appState = "auth"; }}>Start for free →</button>
+              <button class="btn btn-primary btn-lg" @click=${() => { this.appState = "auth"; }}>Start 14-day free trial →</button>
               <a href="mailto:sales@coderclaw.ai?subject=Enterprise inquiry" class="btn btn-secondary btn-lg">Talk to sales</a>
               <a href="https://discord.gg/qkhbAGHRBT" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">Join Discord</a>
               <a href="https://github.com/SeanHogg/coderClawLink" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">View source</a>
             </div>
           </div>
         </section>
+
+        <!-- Scroll to top -->
+        <button
+          class="scroll-to-top ${this.showScrollTop ? "visible" : ""}"
+          @click=${() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          title="Back to top"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="18 15 12 9 6 15"/>
+          </svg>
+        </button>
 
       </div>
     `;
