@@ -3,28 +3,162 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CoderClawLink</title>
-    <meta
-      name="description"
-      content="CoderClawLink — unified AI coding mesh: manage claws, projects, tasks, and skills across your team."
-    />
+
+    <!-- Primary SEO -->
+    <title>CoderClawLink — AI Agent Orchestration Portal | Replace Jira for AI Teams</title>
+    <meta name="description" content="CoderClawLink is the open-source AI-native orchestration portal for coderClaw.ai. Register self-healing AI agents, assign skills from the marketplace, track executions in real time, and keep humans in control with approval gates. Free to self-host. MIT licensed." />
+    <meta name="keywords" content="AI agent orchestration, multi-agent workflow, coderClaw, AI coding agent, Jira alternative, AI project management, self-healing agents, human-in-the-loop, skills marketplace, Cloudflare Workers, TypeScript AI agents, AI engineering platform" />
+    <meta name="author" content="coderClaw.ai" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://app.coderclaw.ai/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://app.coderclaw.ai/" />
+    <meta property="og:site_name" content="CoderClawLink" />
+    <meta property="og:title" content="CoderClawLink — Replace Jira with an AI-Native Workflow Mesh" />
+    <meta property="og:description" content="Orchestrate self-healing AI coding agents with real-time execution tracking, skills marketplace, RBAC, approval gates, and a full compliance audit trail. Free to self-host. MIT licensed." />
+    <meta property="og:image" content="https://app.coderclaw.ai/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="CoderClawLink — AI Agent Orchestration Portal" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@coderclawai" />
+    <meta name="twitter:creator" content="@coderclawai" />
+    <meta name="twitter:title" content="CoderClawLink — AI Agent Orchestration Portal" />
+    <meta name="twitter:description" content="Replace Jira with an AI-native workflow mesh. Register claws, assign skills, track executions in real time. Free to self-host. MIT licensed." />
+    <meta name="twitter:image" content="https://app.coderclaw.ai/og-image.png" />
+
+    <!-- App / PWA -->
     <meta name="application-name" content="CoderClawLink" />
     <meta name="apple-mobile-web-app-title" content="CoderClawLink" />
-    <meta property="og:title" content="CoderClawLink" />
-    <meta
-      property="og:description"
-      content="Unified AI coding mesh — manage claws, projects, tasks, and skills."
-    />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="CoderClawLink" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#6366f1" />
     <meta name="color-scheme" content="dark light" />
+
+    <!-- Favicons -->
     <link rel="icon" type="image/png" href="./claw-logo.png" />
     <link rel="shortcut icon" type="image/png" href="./claw-logo.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./claw-logo.png" />
-    <script type="module" crossorigin src="./assets/index-Dos7o7cG.js"></script>
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://coderclaw.ai/#organization",
+          "name": "coderClaw.ai",
+          "url": "https://coderclaw.ai",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://app.coderclaw.ai/claw-logo.png"
+          },
+          "sameAs": [
+            "https://github.com/SeanHogg/coderClawLink",
+            "https://github.com/SeanHogg/coderClaw",
+            "https://discord.gg/qkhbAGHRBT"
+          ],
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "email": "support@coderclaw.ai",
+            "contactType": "customer support"
+          }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://app.coderclaw.ai/#app",
+          "name": "CoderClawLink",
+          "description": "AI-native orchestration portal for multi-agent coding workflows. Register self-healing AI agents, assign skills from the marketplace, track executions in real time, and keep humans in control with approval gates.",
+          "url": "https://app.coderclaw.ai",
+          "applicationCategory": "DeveloperApplication",
+          "operatingSystem": "Web",
+          "offers": [
+            {
+              "@type": "Offer",
+              "name": "Free",
+              "price": "0",
+              "priceCurrency": "USD",
+              "description": "1 claw, 3 projects, 50 tasks, 1,000 LLM requests/month"
+            },
+            {
+              "@type": "Offer",
+              "name": "Pro",
+              "price": "29",
+              "priceCurrency": "USD",
+              "priceSpecification": {
+                "@type": "UnitPriceSpecification",
+                "price": "29",
+                "priceCurrency": "USD",
+                "unitText": "seat/month"
+              },
+              "description": "Unlimited claws, projects, tasks, 50,000 LLM requests/month, full RBAC"
+            }
+          ],
+          "author": {
+            "@id": "https://coderclaw.ai/#organization"
+          },
+          "license": "https://opensource.org/licenses/MIT",
+          "codeRepository": "https://github.com/SeanHogg/coderClawLink"
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://app.coderclaw.ai/#website",
+          "url": "https://app.coderclaw.ai",
+          "name": "CoderClawLink",
+          "publisher": {
+            "@id": "https://coderclaw.ai/#organization"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What is CoderClawLink?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "CoderClawLink is an open-source AI-native orchestration portal that replaces Jira for teams using AI coding agents. It lets you register self-healing AI agents (Claws), assign skills from a marketplace, track task executions in real time via WebSocket streaming, and keep humans in control with approval gates and a full audit trail."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is CoderClawLink free?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. CoderClawLink is MIT-licensed and free to self-host. The managed cloud service at app.coderclaw.ai has a Free tier ($0 forever) and a Pro tier ($29/seat/month). All new accounts get a 14-day Pro trial with no credit card required."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How does CoderClawLink compare to Jira?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Unlike Jira, CoderClawLink is purpose-built for AI agent workflows. It includes AI agent registration, real-time execution streaming, human-in-the-loop approval gates, a skills marketplace, an integrated LLM proxy, and a compliance-grade audit trail — none of which Jira supports natively."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I self-host CoderClawLink?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. CoderClawLink is MIT-licensed. Deploy it on your own Cloudflare Workers account with your own Postgres database. A Docker-based self-hosted option is also available. Air-gapped deployments are supported on Enterprise."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
+    <script type="module" crossorigin src="./assets/index-H2Gk4d0v.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-CzorHPLf.css">
   </head>
   <body>
-    <ccl-app></ccl-app>
+    <ccl-app></ccl-app>
   </body>
 </html>
