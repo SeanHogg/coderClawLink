@@ -163,6 +163,9 @@ export class CclAuth extends LitElement {
     return html`
       <div class="auth-shell">
         <div class="auth-card">
+          <button class="auth-close" @click=${() => this.dispatchEvent(new Event("close", { bubbles: true, composed: true }))} title="Close" aria-label="Close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
           <div class="auth-logo">
             <img src="/claw-logo.png" alt="CoderClawLink" onerror="this.style.display='none'" style="width:36px;height:36px">
             <div>

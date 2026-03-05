@@ -658,6 +658,8 @@ export class CclApp extends LitElement {
               CoderClawLink
             </a>
             <div class="landing-nav-right">
+              <a href="#features" class="btn btn-ghost btn-sm" @click=${(e: Event) => { e.preventDefault(); document.getElementById("features")?.scrollIntoView({ behavior: "smooth" }); }}>Features</a>
+              <a href="#pricing" class="btn btn-ghost btn-sm" @click=${(e: Event) => { e.preventDefault(); document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" }); }}>Pricing</a>
               <a href="https://github.com/SeanHogg/coderClawLink" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">GitHub</a>
               <a href="https://discord.gg/qkhbAGHRBT" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Discord</a>
               <button class="btn btn-ghost btn-sm" @click=${() => { this.appState = "auth"; }}>Sign in</button>
@@ -727,7 +729,7 @@ export class CclApp extends LitElement {
         </section>
 
         <!-- Features grid -->
-        <section class="landing-section">
+        <section class="landing-section" id="features">
           <div class="landing-section-inner">
             <h2 class="landing-section-title">Everything your AI engineering team needs</h2>
             <p class="landing-section-sub">CoderClawLink replaces your project management tool, LLM proxy, skills registry, and audit log in a single Cloudflare Worker.</p>
