@@ -612,8 +612,8 @@ export class CclApp extends LitElement {
         >
           <span>App v${__APP_VERSION__} · Terms v${termsVersion}</span>
           <span class="global-footer-links" style="display:inline-flex;align-items:center;gap:12px">
-            <a href="/terms" style="color:var(--text,#111827);text-decoration:none" @click=${(e: Event) => { e.preventDefault(); this.openLegalModal("terms"); }}>Terms of Use</a>
-            <a href="/privacy" style="color:var(--text,#111827);text-decoration:none" @click=${(e: Event) => { e.preventDefault(); this.openLegalModal("privacy"); }}>Privacy Policy</a>
+            <a href="/terms" style="color:var(--text);text-decoration:none" @click=${(e: Event) => { e.preventDefault(); this.openLegalModal("terms"); }}>Terms of Use</a>
+            <a href="/privacy" style="color:var(--text);text-decoration:none" @click=${(e: Event) => { e.preventDefault(); this.openLegalModal("privacy"); }}>Privacy Policy</a>
           </span>
         </div>
       </footer>
@@ -807,10 +807,10 @@ export class CclApp extends LitElement {
               <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:560px">
                 <thead>
                   <tr>
-                    <th style="text-align:left;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border,#e5e7eb)">Feature</th>
-                    <th style="text-align:center;padding:10px 14px;color:var(--accent,#6366f1);font-weight:700;border-bottom:2px solid var(--accent,#6366f1)">CoderClawLink</th>
-                    <th style="text-align:center;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border,#e5e7eb)">Jira</th>
-                    <th style="text-align:center;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border,#e5e7eb)">Linear</th>
+                    <th style="text-align:left;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border)">Feature</th>
+                    <th style="text-align:center;padding:10px 14px;color:var(--accent);font-weight:700;border-bottom:2px solid var(--accent)">CoderClawLink</th>
+                    <th style="text-align:center;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border)">Jira</th>
+                    <th style="text-align:center;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border)">Linear</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -826,11 +826,11 @@ export class CclApp extends LitElement {
                     ["Self-hosted (open source)",        "✅ MIT", "❌ Cloud", "❌ Cloud"],
                     ["Price",                            "Free / $29 / seat", "$8.15 / user", "$8 / user"],
                   ].map(([f, ccl, jira, linear], i) => html`
-                    <tr style="background:${i % 2 === 0 ? "transparent" : "var(--surface-2,#f9fafb)"}">
-                      <td style="padding:9px 14px;border-bottom:1px solid var(--border,#f3f4f6)">${f}</td>
-                      <td style="text-align:center;padding:9px 14px;border-bottom:1px solid var(--border,#f3f4f6);font-weight:600;color:var(--accent,#6366f1)">${ccl}</td>
-                      <td style="text-align:center;padding:9px 14px;border-bottom:1px solid var(--border,#f3f4f6);color:var(--muted)">${jira}</td>
-                      <td style="text-align:center;padding:9px 14px;border-bottom:1px solid var(--border,#f3f4f6);color:var(--muted)">${linear}</td>
+                    <tr style="background:${i % 2 === 0 ? "transparent" : "var(--surface-2)"}">
+                      <td style="padding:9px 14px;border-bottom:1px solid var(--border)">${f}</td>
+                      <td style="text-align:center;padding:9px 14px;border-bottom:1px solid var(--border);font-weight:600;color:var(--accent)">${ccl}</td>
+                      <td style="text-align:center;padding:9px 14px;border-bottom:1px solid var(--border);color:var(--muted)">${jira}</td>
+                      <td style="text-align:center;padding:9px 14px;border-bottom:1px solid var(--border);color:var(--muted)">${linear}</td>
                     </tr>
                   `)}
                 </tbody>

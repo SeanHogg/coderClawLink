@@ -140,10 +140,10 @@ export class CclPricing extends LitElement {
     const active = this.currentPlan === plan;
     return html`
       <div style="
-        border:2px solid ${active ? "var(--accent,#6366f1)" : "var(--border,#e5e7eb)"};
+        border:2px solid ${active ? "var(--accent,#6366f1)" : "var(--border)"};
         border-radius:12px;
         padding:28px 24px;
-        background:var(--surface,#fff);
+        background:var(--surface);
         display:flex;
         flex-direction:column;
         gap:14px;
@@ -161,9 +161,9 @@ export class CclPricing extends LitElement {
         ` : ""}
 
         <div>
-          <div style="font-size:15px;font-weight:700;color:var(--text-strong,#111)">${name}</div>
+          <div style="font-size:15px;font-weight:700;color:var(--text-strong)">${name}</div>
           <div style="margin-top:8px">
-            <span style="font-size:32px;font-weight:800;color:var(--text-strong,#111)">${price}</span>
+            <span style="font-size:32px;font-weight:800;color:var(--text-strong)">${price}</span>
             <span style="font-size:13px;color:var(--muted);margin-left:4px">${priceSub}</span>
           </div>
           <div style="font-size:13px;color:var(--muted);margin-top:6px;line-height:1.5">${description}</div>
@@ -201,16 +201,16 @@ export class CclPricing extends LitElement {
 
         <!-- Header -->
         <div style="text-align:center;margin-bottom:48px">
-          <h1 style="font-size:clamp(26px,5vw,40px);font-weight:800;color:var(--text-strong,#111);margin:0 0 12px">
+          <h1 style="font-size:clamp(26px,5vw,40px);font-weight:800;color:var(--text-strong);margin:0 0 12px">
             Simple, transparent pricing
           </h1>
           <p style="color:var(--muted);font-size:16px;max-width:540px;margin:0 auto">
             Start free — no credit card required. Upgrade when your team is ready.
-            <strong style="color:var(--text-strong,#111)">MIT-licensed and always self-hostable.</strong>
+            <strong style="color:var(--text-strong)">MIT-licensed and always self-hostable.</strong>
           </p>
 
           <!-- Billing cycle toggle -->
-          <div style="display:inline-flex;align-items:center;gap:10px;margin-top:24px;background:var(--surface-2,#f3f4f6);border-radius:99px;padding:4px 8px">
+          <div style="display:inline-flex;align-items:center;gap:10px;margin-top:24px;background:var(--surface-2);border-radius:99px;padding:4px 8px">
             <button
               class="btn btn-sm ${this.billingCycle === "monthly" ? "btn-primary" : "btn-ghost"}"
               style="border-radius:99px"
@@ -231,7 +231,7 @@ export class CclPricing extends LitElement {
           <div class="error-banner" style="margin-bottom:20px">${this.upgradeError}</div>
         ` : ""}
         ${this.upgradeDone ? html`
-          <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px 16px;margin-bottom:20px;color:#166534;font-size:14px">
+          <div style="background:var(--ok-subtle);border:1px solid var(--ok);border-radius:8px;padding:12px 16px;margin-bottom:20px;color:var(--ok);font-size:14px">
             ✓ Upgraded to Pro successfully! Your new limits are active immediately.
           </div>
         ` : ""}
@@ -266,26 +266,26 @@ export class CclPricing extends LitElement {
 
         <!-- Feature comparison table -->
         <div style="margin-bottom:64px">
-          <h2 style="font-size:20px;font-weight:700;color:var(--text-strong,#111);margin:0 0 24px;text-align:center">
+          <h2 style="font-size:20px;font-weight:700;color:var(--text-strong);margin:0 0 24px;text-align:center">
             Full feature comparison
           </h2>
           <div style="overflow-x:auto">
             <table style="width:100%;border-collapse:collapse;font-size:13px">
               <thead>
                 <tr>
-                  <th style="text-align:left;padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border,#e5e7eb)">Feature</th>
-                  <th style="text-align:center;padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border,#e5e7eb);min-width:90px">Free</th>
-                  <th style="text-align:center;padding:10px 12px;color:var(--accent,#6366f1);font-weight:700;border-bottom:2px solid var(--accent,#6366f1);min-width:120px">Pro</th>
-                  <th style="text-align:center;padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border,#e5e7eb);min-width:120px">Enterprise</th>
+                  <th style="text-align:left;padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border)">Feature</th>
+                  <th style="text-align:center;padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border);min-width:90px">Free</th>
+                  <th style="text-align:center;padding:10px 12px;color:var(--accent);font-weight:700;border-bottom:2px solid var(--accent);min-width:120px">Pro</th>
+                  <th style="text-align:center;padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border);min-width:120px">Enterprise</th>
                 </tr>
               </thead>
               <tbody>
                 ${FEATURES.map((f, i) => html`
-                  <tr style="background:${f.highlight ? "var(--surface-2,#f9fafb)" : i % 2 === 0 ? "transparent" : "var(--surface,#fff)"}">
-                    <td style="padding:10px 12px;color:var(--text,#374151);border-bottom:1px solid var(--border,#f3f4f6);${f.highlight ? "font-weight:600" : ""}">${f.label}</td>
-                    <td style="text-align:center;padding:10px 12px;border-bottom:1px solid var(--border,#f3f4f6)">${this.featureCell(f.free)}</td>
-                    <td style="text-align:center;padding:10px 12px;border-bottom:1px solid var(--border,#f3f4f6);background:${f.highlight ? "var(--accent-faint,rgba(99,102,241,.06))" : "rgba(99,102,241,.03)"}">${this.featureCell(f.pro)}</td>
-                    <td style="text-align:center;padding:10px 12px;border-bottom:1px solid var(--border,#f3f4f6)">${this.featureCell(f.enterprise)}</td>
+                  <tr style="background:${f.highlight ? "var(--surface-2)" : i % 2 === 0 ? "transparent" : "var(--surface)"}">
+                    <td style="padding:10px 12px;color:var(--text);border-bottom:1px solid var(--border);${f.highlight ? "font-weight:600" : ""}">${f.label}</td>
+                    <td style="text-align:center;padding:10px 12px;border-bottom:1px solid var(--border)">${this.featureCell(f.free)}</td>
+                    <td style="text-align:center;padding:10px 12px;border-bottom:1px solid var(--border);background:${f.highlight ? "var(--accent-subtle)" : "rgba(99,102,241,.03)"}">${this.featureCell(f.pro)}</td>
+                    <td style="text-align:center;padding:10px 12px;border-bottom:1px solid var(--border)">${this.featureCell(f.enterprise)}</td>
                   </tr>
                 `)}
               </tbody>
@@ -295,8 +295,8 @@ export class CclPricing extends LitElement {
 
         <!-- Self-hosted callout -->
         <div style="
-          background:linear-gradient(135deg,var(--surface-2,#f3f4f6),var(--surface,#fff));
-          border:1px solid var(--border,#e5e7eb);
+          background:linear-gradient(135deg,var(--surface-2),var(--surface));
+          border:1px solid var(--border);
           border-radius:12px;
           padding:28px 32px;
           display:flex;
@@ -307,7 +307,7 @@ export class CclPricing extends LitElement {
           margin-bottom:64px;
         ">
           <div>
-            <div style="font-size:18px;font-weight:700;color:var(--text-strong,#111);margin-bottom:6px">
+            <div style="font-size:18px;font-weight:700;color:var(--text-strong);margin-bottom:6px">
               🦞 Self-hosted? It's free forever.
             </div>
             <div style="color:var(--muted);font-size:14px;max-width:520px">
@@ -327,19 +327,19 @@ export class CclPricing extends LitElement {
 
         <!-- FAQ -->
         <div style="max-width:720px;margin:0 auto">
-          <h2 style="font-size:20px;font-weight:700;color:var(--text-strong,#111);margin:0 0 24px;text-align:center">
+          <h2 style="font-size:20px;font-weight:700;color:var(--text-strong);margin:0 0 24px;text-align:center">
             Frequently asked questions
           </h2>
           <div style="display:grid;gap:2px">
             ${FAQS.map((faq, i) => html`
-              <div style="border:1px solid var(--border,#e5e7eb);border-radius:8px;overflow:hidden">
+              <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
                 <button
                   style="
                     width:100%;text-align:left;padding:14px 16px;
-                    background:var(--surface,#fff);
+                    background:var(--surface);
                     border:none;cursor:pointer;
                     display:flex;justify-content:space-between;align-items:center;
-                    font-size:14px;font-weight:600;color:var(--text-strong,#111);
+                    font-size:14px;font-weight:600;color:var(--text-strong);
                     gap:12px;
                   "
                   @click=${() => { this.openFaq = this.openFaq === i ? null : i; }}
@@ -350,7 +350,7 @@ export class CclPricing extends LitElement {
                   </svg>
                 </button>
                 ${this.openFaq === i ? html`
-                  <div style="padding:0 16px 14px;font-size:13px;color:var(--muted);line-height:1.6;background:var(--surface,#fff)">
+                  <div style="padding:0 16px 14px;font-size:13px;color:var(--muted);line-height:1.6;background:var(--surface)">
                     ${faq.a}
                   </div>
                 ` : ""}
