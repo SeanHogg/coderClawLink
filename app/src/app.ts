@@ -665,7 +665,7 @@ export class CclApp extends LitElement {
               <a href="#features" class="btn btn-ghost btn-sm" @click=${(e: Event) => { e.preventDefault(); document.getElementById("features")?.scrollIntoView({ behavior: "smooth" }); }}>Features</a>
               <a href="#pricing" class="btn btn-ghost btn-sm" @click=${(e: Event) => { e.preventDefault(); document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" }); }}>Pricing</a>
               <a href="https://github.com/SeanHogg/coderClawLink" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">GitHub</a>
-              <a href="https://discord.gg/qkhbAGHRBT" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Discord</a>
+              <a href="https://discord.gg/xMKpFdqd" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Discord</a>
               <button class="btn btn-ghost btn-sm" @click=${() => { this.appState = "auth"; }}>Sign in</button>
               <button class="btn btn-primary btn-sm" @click=${() => { this.appState = "auth"; }}>Get Started Free</button>
               <button class="btn btn-ghost btn-icon" @click=${() => this.toggleTheme()} title="Toggle theme">
@@ -883,7 +883,7 @@ export class CclApp extends LitElement {
             <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
               <button class="btn btn-primary btn-lg" @click=${() => { this.appState = "auth"; }}>Start 14-day free trial →</button>
               <a href="mailto:sales@coderclaw.ai?subject=Enterprise inquiry" class="btn btn-secondary btn-lg">Talk to sales</a>
-              <a href="https://discord.gg/qkhbAGHRBT" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">Join Discord</a>
+              <a href="https://discord.gg/xMKpFdqd" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">Join Discord</a>
               <a href="https://github.com/SeanHogg/coderClawLink" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">View source</a>
             </div>
           </div>
