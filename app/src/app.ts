@@ -909,6 +909,7 @@ export class CclApp extends LitElement {
       <ccl-auth
         @login=${this.handleLogin}
         @register=${this.handleLogin}
+        @close=${() => { this.appState = "landing"; }}
       ></ccl-auth>`;
   }
 
