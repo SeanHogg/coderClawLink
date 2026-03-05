@@ -7,6 +7,7 @@ import "./claw/chat.js";
 import "./claw/instances.js";
 import "./claw/workspace.js";
 import "./claw/claw-logs.js";
+import "./execution-timeline.js";
 import {
   llm,
   projects as projectsApi,
@@ -32,7 +33,7 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   blocked: "Blocked",
 };
 
-type WorkspaceTab = "details" | "board" | "tasks" | "prds" | "brain" | "chat" | "instances" | "workspace" | "logs";
+type WorkspaceTab = "details" | "board" | "tasks" | "prds" | "brain" | "chat" | "instances" | "workspace" | "logs" | "timeline";
 type BrainRole = "user" | "assistant";
 
 type ProjectBrainAction =
@@ -768,6 +769,7 @@ export class CclProjects extends LitElement {
             ["instances", "Instances"],
             ["workspace", "Workspace"],
             ["logs", "Logs"],
+            ["timeline", "Timeline"],
           ] as Array<[WorkspaceTab, string]>).map(([tab, label]) => html`
             <button class="panel-tab ${this.workspaceTab === tab ? "active" : ""}" @click=${() => { this.workspaceTab = tab; }}>${label}</button>
           `)}
@@ -792,7 +794,9 @@ export class CclProjects extends LitElement {
                         ? this.renderClawTab("workspace")
                         : this.workspaceTab === "logs"
                           ? this.renderClawTab("logs")
-                          : this.renderBrainTab()}
+                          : this.workspaceTab === "timeline"
+                            ? this.renderTimelineTab()
+                            : this.renderBrainTab()}
         </div>
       </div>
     `;
@@ -837,6 +841,19 @@ export class CclProjects extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  private renderTimelineTab() {
+    const claw = this.projectClaws.find((item) => String(item.id) === this.activeProjectClawId) ?? this.projectClaws[0] ?? null;
+    if (!claw) {
+      return html`
+        <div class="empty-state" style="margin-top:24px">
+          <div class="empty-state-title">No claws assigned</div>
+          <div class="empty-state-sub">Assign a claw to this project to view its execution timeline.</div>
+        </div>
+      `;
+    }
+    return html`<ccl-execution-timeline clawId=${String(claw.id)}></ccl-execution-timeline>`;
   }
 
   private renderProjectDetails(project: Project, tasks: Task[]) {

@@ -159,7 +159,8 @@ The SPA is built with **Lit 3** (web components) and **Vite**, served by a minim
 | `agents.ts` | `/agents` | Agent + skill management |
 | `workspace.ts` | `/workspace` | Multi-claw workspace |
 | `brain.ts` | `/brain` | AI project assistant (conversational UI) |
-| `logs.ts` | `/logs` | Execution logs |
+| `logs.ts` | `/logs` | Execution logs (raw list + visual timeline) |
+| `execution-timeline.ts` | shared component | Visual timeline/list/graph debugger (see [visual-debugging.md](./visual-debugging.md)) |
 | `code-editor.ts` | `/code-editor` | Browser-based file browser / editor |
 | `skills.ts` | `/skills` | Marketplace skill browser |
 | `admin.ts` | `/admin` | Superadmin panel |

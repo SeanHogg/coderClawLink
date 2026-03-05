@@ -30,9 +30,10 @@ import "./views/code-editor.js";
 import "./views/content.js";
 import "./views/debug.js";
 import "./views/pricing.js";
+import "./views/execution-timeline.js";
 
 type AppState = "loading" | "landing" | "auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "pricing" | "debug";
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "pricing" | "debug" | "timeline";
 type WorkspaceTab = "security" | "settings";
 type WorkspaceSection = "settings" | "billing" | "consumption" | "details" | "security";
 
@@ -484,6 +485,11 @@ export class CclApp extends LitElement {
         view = el;
         break;
       }
+      case "timeline": {
+        const el = document.createElement("ccl-execution-timeline") as HTMLElement & { clawId?: string };
+        view = el;
+        break;
+      }
       case "pricing": {
         const el = document.createElement("ccl-pricing") as HTMLElement & { tenantId?: string; currentPlan?: string };
         el.tenantId = tenantId;
@@ -546,6 +552,7 @@ export class CclApp extends LitElement {
       content: `<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>`,
       pricing: `<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/>`,
       debug: `<path d="M9 3h6l1 2h3a1 1 0 0 1 1 1v3h-2V7h-2.2l-1-2H10.2l-1 2H7v2H5V6a1 1 0 0 1 1-1h3l1-2zm-1 7h8a4 4 0 0 1 4 4v2a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6v-2a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v2a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4v-2a2 2 0 0 0-2-2H8zm2 3h1v2h-1v-2zm3 0h1v2h-1v-2z"/>`,
+      timeline: `<line x1="3" y1="12" x2="21" y2="12"/><polyline points="8 8 3 12 8 16"/><line x1="8" y1="12" x2="16" y2="12"/><circle cx="16" cy="12" r="2"/>`,
     };
     return `<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0">${paths[name] ?? ""}</svg>`;
   }
@@ -1019,6 +1026,7 @@ export class CclApp extends LitElement {
       { id: "workspace", label: "Consumption", icon: "tasks", workspaceTab: "settings", workspaceSection: "consumption" },
       { id: "workspace", label: "Tenant & Workspace", icon: "workspace", workspaceTab: "settings", workspaceSection: "details" },
       { id: "logs", label: "Logs", icon: "logs" },
+      { id: "timeline", label: "Timeline", icon: "timeline" },
       { id: "debug", label: "Debug", icon: "debug" },
     ];
 

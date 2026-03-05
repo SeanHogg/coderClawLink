@@ -920,6 +920,44 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
   });
 
   // -------------------------------------------------------------------------
+  // GET /api/claws/:id/tool-audit?runId=&sessionKey=&limit=
+  // Returns tool audit events for a claw, filterable by runId or sessionKey.
+  // -------------------------------------------------------------------------
+  router.get('/:id/tool-audit', authMiddleware as never, async (c) => {
+    const clawId   = Number(c.req.param('id'));
+    const tenantId = (c as unknown as { get: (k: string) => unknown }).get('tenantId') as number;
+    const runId    = c.req.query('runId');
+    const sessKey  = c.req.query('sessionKey');
+    const limit    = Math.min(Number(c.req.query('limit') ?? 200), 500);
+
+    const conditions = [
+      eq(toolAuditEvents.clawId,    clawId),
+      eq(toolAuditEvents.tenantId,  tenantId),
+      ...(runId   ? [eq(toolAuditEvents.runId,       runId)]   : []),
+      ...(sessKey ? [eq(toolAuditEvents.sessionKey,  sessKey)] : []),
+    ];
+
+    const rows = await db
+      .select({
+        id:         toolAuditEvents.id,
+        runId:      toolAuditEvents.runId,
+        sessionKey: toolAuditEvents.sessionKey,
+        toolCallId: toolAuditEvents.toolCallId,
+        toolName:   toolAuditEvents.toolName,
+        args:       toolAuditEvents.args,
+        result:     toolAuditEvents.result,
+        durationMs: toolAuditEvents.durationMs,
+        ts:         toolAuditEvents.ts,
+      })
+      .from(toolAuditEvents)
+      .where(and(...conditions))
+      .orderBy(toolAuditEvents.ts)
+      .limit(limit);
+
+    return c.json({ events: rows });
+  });
+
+  // -------------------------------------------------------------------------
   // POST /api/claws/:id/tool-audit?key=<clawApiKey>
   // P2-4: Claw posts a tool call audit event for persistence.
   // -------------------------------------------------------------------------

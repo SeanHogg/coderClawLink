@@ -148,7 +148,7 @@ A **Claw** is a registered coderClaw runtime connected to a tenant. Claws authen
 | `GET` | `/api/claws/:id/directories/:dirId/files/:fileId/content` | VIEWER | Get file content |
 | `GET` | `/api/claws/:id/sync-history` | VIEWER | Directory sync history |
 | `GET` | `/api/claws/:id/usage-snapshots` | VIEWER | Context window usage history |
-| `GET` | `/api/claws/:id/tool-audit` | MANAGER | Tool call audit log |
+| `GET` | `/api/claws/:id/tool-audit` | MANAGER | Tool call audit log (query params: `runId`, `sessionKey`, `limit` ≤ 500) |
 | `PATCH` | `/api/claws/:id/capabilities` | MANAGER | Update declared capabilities |
 
 ### Claw-to-claw endpoints (claw API key auth)

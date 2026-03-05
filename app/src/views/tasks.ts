@@ -5,6 +5,7 @@ import {
   type Task, type TaskStatus, type TaskPriority, type Project, type Claw, type Execution,
 } from "../api.js";
 import { renderTaskKanban } from "../components/task-kanban.js";
+import "./execution-timeline.js";
 
 type ViewMode = "kanban" | "list" | "gantt";
 
@@ -50,7 +51,7 @@ export class CclTasks extends LitElement {
   // Task drawer
   @state() private drawerTask: Task | null = null;
   @state() private drawerExecutions: Execution[] = [];
-  @state() private drawerTab: "detail" | "executions" = "detail";
+  @state() private drawerTab: "detail" | "executions" | "timeline" = "detail";
   @state() private running = false;
 
   // Drag
@@ -586,13 +587,13 @@ export class CclTasks extends LitElement {
           </button>
         </div>
         <div class="panel-tabs">
-          ${(["detail", "executions"] as const).map(tab => html`
+          ${(["detail", "executions", "timeline"] as const).map(tab => html`
             <button class="panel-tab ${this.drawerTab === tab ? "active" : ""}"
               @click=${() => { this.drawerTab = tab; }}>${tab}</button>
           `)}
         </div>
         <div class="panel-body" style="padding:20px">
-          ${this.drawerTab === "detail" ? this.renderDrawerDetail(t) : this.renderDrawerExecutions(t)}
+          ${this.drawerTab === "detail" ? this.renderDrawerDetail(t) : this.drawerTab === "executions" ? this.renderDrawerExecutions(t) : this.renderDrawerTimeline(t)}
         </div>
       </div>
     `;
@@ -673,6 +674,13 @@ export class CclTasks extends LitElement {
         `)}
       </div>
     `;
+  }
+  private renderDrawerTimeline(t: Task) {
+    const claw = t.assignedClawId ? this.claws.find(c => c.id === t.assignedClawId) : null;
+    if (!claw) {
+      return html`<div class="empty-state"><div class="empty-state-title">No claw assigned</div><div class="empty-state-sub">Assign a claw to this task to view its execution timeline.</div></div>`;
+    }
+    return html`<ccl-execution-timeline clawId=${claw.id}></ccl-execution-timeline>`;
   }
 }
 
