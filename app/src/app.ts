@@ -874,9 +874,10 @@ export class CclApp extends LitElement {
         <section class="landing-cta-section">
           <div class="landing-section-inner" style="text-align:center">
             <h2 style="font-size:clamp(24px,4vw,36px);font-weight:700;margin:0 0 12px">Ready to build your AI engineering mesh?</h2>
-            <p style="color:var(--muted);margin:0 0 28px">Join teams using CoderClawLink to orchestrate self-healing AI workflows. Free to start, MIT licensed, self-hostable.</p>
+            <p style="color:var(--muted);margin:0 0 28px">Free to start. No credit card required. 14-day Pro trial on signup. MIT licensed, self-hostable.</p>
             <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
               <button class="btn btn-primary btn-lg" @click=${() => { this.appState = "auth"; }}>Start for free →</button>
+              <a href="mailto:sales@coderclaw.ai?subject=Enterprise inquiry" class="btn btn-secondary btn-lg">Talk to sales</a>
               <a href="https://discord.gg/qkhbAGHRBT" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">Join Discord</a>
               <a href="https://github.com/SeanHogg/coderClawLink" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">View source</a>
             </div>

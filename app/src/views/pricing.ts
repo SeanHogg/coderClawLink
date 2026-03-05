@@ -359,30 +359,6 @@ export class CclPricing extends LitElement {
           </div>
         </div>
 
-        <!-- Bottom CTA -->
-        <div style="text-align:center;margin-top:64px;padding:48px 24px;background:var(--surface-2,#f9fafb);border-radius:16px">
-          <h2 style="font-size:clamp(22px,4vw,32px);font-weight:800;color:var(--text-strong,#111);margin:0 0 12px">
-            Ready to build your AI mesh?
-          </h2>
-          <p style="color:var(--muted);margin:0 0 28px;font-size:15px">
-            Free to start. No credit card required. 14-day Pro trial on signup.
-          </p>
-          <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-            <button
-              class="btn btn-primary btn-lg"
-              @click=${() => window.dispatchEvent(new CustomEvent("ccl:navigate-auth"))}
-            >
-              Start for free →
-            </button>
-            <a
-              href="mailto:sales@coderclaw.ai?subject=Enterprise inquiry"
-              class="btn btn-secondary btn-lg"
-            >
-              Talk to sales
-            </a>
-          </div>
-        </div>
-
       </div>
     `;
   }
