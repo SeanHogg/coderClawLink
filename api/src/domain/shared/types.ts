@@ -109,6 +109,37 @@ export enum ExecutionStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Artifact assignments
+// ---------------------------------------------------------------------------
+
+export enum ArtifactType {
+  SKILL   = 'skill',
+  PERSONA = 'persona',
+  CONTENT = 'content',
+}
+
+export enum AssignmentScope {
+  TENANT  = 'tenant',
+  CLAW    = 'claw',
+  PROJECT = 'project',
+  TASK    = 'task',
+}
+
+/** Precedence order for scope resolution (highest → lowest). */
+export const SCOPE_PRECEDENCE: AssignmentScope[] = [
+  AssignmentScope.TASK,
+  AssignmentScope.PROJECT,
+  AssignmentScope.CLAW,
+  AssignmentScope.TENANT,
+];
+
+export type ResolvedArtifacts = {
+  skills:   string[];
+  personas: string[];
+  content:  string[];
+};
+
+// ---------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------
 

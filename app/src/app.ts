@@ -34,9 +34,11 @@ import "./views/debug.js";
 import "./views/pricing.js";
 import "./views/execution-timeline.js";
 import "./views/brainstorm.js";
+import "./views/personas.js";
+import "./views/marketplace.js";
 
 type AppState = "loading" | "landing" | "auth" | "cli-auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "pricing" | "debug" | "timeline" | "brainstorm";
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "pricing" | "debug" | "timeline" | "brainstorm" | "personas" | "marketplace";
 type WorkspaceTab = "security" | "settings";
 type WorkspaceSection = "settings" | "billing" | "consumption" | "details" | "security";
 
@@ -494,14 +496,10 @@ export class CclApp extends LitElement {
         break;
       }
       case "billing": {
-        const el = document.createElement("ccl-workspace") as HTMLElement & {
-          tenant?: TenantSummary | null;
-          initialTab?: WorkspaceTab;
-          initialSection?: string;
-        };
+        // Redirect legacy billing route to pricing page
+        const el = document.createElement("ccl-pricing") as HTMLElement & { tenantId?: string; currentPlan?: string; tenant?: TenantSummary | null };
+        el.tenantId = tenantId;
         el.tenant = this.tenant;
-        el.initialTab = "settings";
-        el.initialSection = "billing";
         view = el;
         break;
       }
@@ -554,7 +552,20 @@ export class CclApp extends LitElement {
         break;
       }
       case "pricing": {
-        const el = document.createElement("ccl-pricing") as HTMLElement & { tenantId?: string; currentPlan?: string };
+        const el = document.createElement("ccl-pricing") as HTMLElement & { tenantId?: string; currentPlan?: string; tenant?: TenantSummary | null };
+        el.tenantId = tenantId;
+        el.tenant = this.tenant;
+        view = el;
+        break;
+      }
+      case "personas": {
+        const el = document.createElement("ccl-personas") as HTMLElement & { tenantId?: string };
+        el.tenantId = tenantId;
+        view = el;
+        break;
+      }
+      case "marketplace": {
+        const el = document.createElement("ccl-marketplace") as HTMLElement & { tenantId?: string };
         el.tenantId = tenantId;
         view = el;
         break;
@@ -627,6 +638,9 @@ export class CclApp extends LitElement {
       timeline: `<line x1="3" y1="12" x2="21" y2="12"/><polyline points="8 8 3 12 8 16"/><line x1="8" y1="12" x2="16" y2="12"/><circle cx="16" cy="12" r="2"/>`,
       menu: `<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>`,
       close: `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`,
+      personas: `<circle cx="12" cy="7" r="4"/><path d="M5.5 21c0-4.4 2.9-8 6.5-8s6.5 3.6 6.5 8"/><path d="M15 11l2-2 2 2"/>`,
+      extensions: `<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><circle cx="17" cy="17" r="4"/>`,
+      marketplace: `<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/>`,
     };
     return `<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0">${paths[name] ?? ""}</svg>`;
   }
@@ -1096,21 +1110,22 @@ export class CclApp extends LitElement {
       { id: "tasks",      label: "Tasks",       icon: "tasks"    },
       { id: "brainstorm", label: "Brain Storm", icon: "logs"     },
       { id: "code-editor", label: "Code Editor",      icon: "code-editor" },
-      { id: "content",     label: "Content Manager", icon: "content"     },
-      { id: "pricing",     label: "Pricing",          icon: "pricing"     },
     ];
     const meshItems: Array<{ id: DashTab; label: string; icon: string }> = [
       { id: "claws",  label: "Workforce",  icon: "workforce"  },
-      { id: "skills", label: "Skills", icon: "skills" },
       { id: "chats",  label: "Chats",  icon: "logs"   },
+    ];
+    const extensionItems: Array<{ id: DashTab; label: string; icon: string }> = [
+      { id: "content",  label: "Content Manager", icon: "content"  },
+      { id: "skills",   label: "Skills",          icon: "skills"   },
+      { id: "personas", label: "Personas",        icon: "personas" },
     ];
     const systemItems: Array<
       { id: DashTab; label: string; icon: string; workspaceTab?: WorkspaceTab; workspaceSection?: WorkspaceSection }
     > = [
+      { id: "pricing", label: "Pricing & Billing", icon: "pricing" },
       { id: "workspace", label: "Security", icon: "settings", workspaceTab: "security", workspaceSection: "security" },
       { id: "workspace", label: "Settings", icon: "settings", workspaceTab: "settings", workspaceSection: "settings" },
-      { id: "workspace", label: "Billing", icon: "billing", workspaceTab: "settings", workspaceSection: "billing" },
-      { id: "workspace", label: "Consumption", icon: "tasks", workspaceTab: "settings", workspaceSection: "consumption" },
       { id: "workspace", label: "Tenant & Workspace", icon: "workspace", workspaceTab: "settings", workspaceSection: "details" },
       { id: "logs", label: "Logs", icon: "logs" },
       { id: "timeline", label: "Timeline", icon: "timeline" },
@@ -1169,6 +1184,15 @@ export class CclApp extends LitElement {
                 >
                   🧠 Brain
                 </button>
+            <button
+              class="btn btn-ghost btn-sm"
+              style="display:flex;align-items:center;gap:6px"
+              @click=${() => { this.setTab("marketplace" as DashTab); }}
+              title="Marketplace"
+            >
+              <span .innerHTML=${this.svgIcon("marketplace")}></span>
+              ${c ? "" : "Marketplace"}
+            </button>
             ${this.user?.isSuperadmin ? html`
               <button
                 class="btn btn-ghost btn-sm"
@@ -1207,6 +1231,11 @@ export class CclApp extends LitElement {
             <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">Mesh</div>
             <div class="nav-section">
               ${meshItems.map(navBtn)}
+            </div>
+
+            <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">Extensions</div>
+            <div class="nav-section">
+              ${extensionItems.map(navBtn)}
             </div>
 
             <div class="nav-section-label" style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:0 10px;margin-bottom:6px">System</div>

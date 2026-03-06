@@ -397,7 +397,7 @@ export class CclBrain extends LitElement {
   }
 
   private toChatMessages() {
-    const conversation = this.messages.slice(-12).map((m) => ({ role: m.role, content: m.text }));
+    const conversation = this.messages.slice(-50).map((m) => ({ role: m.role, content: m.text }));
     const systemPrompt = [
       "You are Brain, the first-class AI assistant inside CoderClawLink.",
       `You are currently helping on the ${this.pageLabel()} page.`,
@@ -459,7 +459,7 @@ export class CclBrain extends LitElement {
       }
       msgs.push(...conversation);
 
-      const response = await llm.chat(msgs, { temperature: 0.25, maxTokens: 1400 });
+      const response = await llm.chat(msgs, { temperature: 0.25, maxTokens: 4096 });
       const reply = response.choices?.[0]?.message?.content?.trim() ?? "I could not generate a response.";
       const foundActions = this.parseActions(reply);
       if (foundActions.length) {

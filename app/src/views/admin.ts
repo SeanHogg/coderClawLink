@@ -16,7 +16,10 @@ import {
 } from "../api.js";
 import QRCode from "qrcode";
 
-type AdminTab = "health" | "billing" | "users" | "tenants" | "errors" | "usage" | "security" | "legal" | "newsletter" | "privacy";
+import type { Persona } from "./personas.js";
+import { BUILTIN_PERSONAS } from "./personas.js";
+
+type AdminTab = "health" | "billing" | "users" | "tenants" | "errors" | "usage" | "security" | "legal" | "newsletter" | "privacy" | "personas";
 type LlmPoolTab = "coderClawLLM" | "coderClawLLMPro";
 
 @customElement("ccl-admin")
@@ -106,6 +109,7 @@ export class CclAdmin extends LitElement {
   @state() private privacyTypeFilter: string = "";
   @state() private privacySearch = "";
   @state() private privacyUpdateBusy = false;
+  @state() private systemPersonas: Persona[] = [...BUILTIN_PERSONAS];
 
   override connectedCallback() {
     super.connectedCallback();
@@ -366,7 +370,7 @@ export class CclAdmin extends LitElement {
 
         <!-- Tabs -->
         <nav class="admin-tabs">
-          ${(["health", "billing", "usage", "users", "tenants", "security", "legal", "newsletter", "privacy", "errors"] as AdminTab[]).map(t => html`
+          ${(["health", "billing", "usage", "users", "tenants", "security", "personas", "legal", "newsletter", "privacy", "errors"] as AdminTab[]).map(t => html`
             <button
               class="admin-tab ${this.tab === t ? "active" : ""}"
               @click=${() => this.loadTab(t)}
@@ -398,6 +402,7 @@ export class CclAdmin extends LitElement {
     if (this.tab === "legal")   return this.renderLegal();
     if (this.tab === "newsletter") return this.renderNewsletter();
     if (this.tab === "privacy") return this.renderPrivacy();
+    if (this.tab === "personas") return this.renderPersonas();
     if (this.tab === "errors")  return this.renderErrors();
     return html``;
   }
@@ -1644,6 +1649,57 @@ export class CclAdmin extends LitElement {
               `}
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  private renderPersonas() {
+    return html`
+      <div style="display:grid;gap:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <h2 style="font-size:18px;font-weight:700;color:var(--text-strong);margin:0">System Personas</h2>
+            <p style="font-size:12px;color:var(--muted);margin:4px 0 0">
+              Manage built-in and marketplace personas available across all tenants.
+            </p>
+          </div>
+          <span style="font-size:13px;color:var(--muted)">${this.systemPersonas.length} personas registered</span>
+        </div>
+
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600">Name</th>
+              <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600">Voice</th>
+              <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600">Source</th>
+              <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600">Prefix</th>
+              <th style="text-align:center;padding:8px 12px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600">Tags</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${this.systemPersonas.map((p, i) => html`
+              <tr style="background:${i % 2 === 0 ? "transparent" : "var(--surface)"}">
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-weight:600;color:var(--text-strong)">
+                  <span style="margin-right:6px">🎭</span>${p.name}
+                </td>
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border);color:var(--text)">${p.voice}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border)">
+                  <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;background:${p.source === "builtin" ? "var(--accent,#6366f1)" : "#22c55e"};color:#fff;text-transform:uppercase">${p.source}</span>
+                </td>
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border)">
+                  <code style="background:var(--surface-2);padding:1px 6px;border-radius:4px;font-size:11px">${p.outputPrefix}</code>
+                </td>
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border);text-align:center">
+                  <div style="display:flex;flex-wrap:wrap;gap:3px;justify-content:center">
+                    ${(p.tags ?? []).map((t) => html`
+                      <span style="font-size:10px;padding:1px 6px;border-radius:99px;background:var(--surface-2);color:var(--text);border:1px solid var(--border)">${t}</span>
+                    `)}
+                  </div>
+                </td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
       </div>
     `;
   }

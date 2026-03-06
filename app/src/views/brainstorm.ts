@@ -251,8 +251,8 @@ export class CclBrainstorm extends LitElement {
       this.messages = [...this.messages, userMsg];
       this.scrollToBottom();
 
-      // 2. Build conversation for LLM
-      const history = this.messages.slice(-20).map(m => ({
+      // 2. Build conversation for LLM — send full history (up to 80 messages)
+      const history = this.messages.slice(-80).map(m => ({
         role: m.role as "user" | "assistant" | "system",
         content: m.content,
       }));
@@ -279,7 +279,7 @@ export class CclBrainstorm extends LitElement {
       llmMessages.push(...history);
 
       // 3. Get LLM response
-      const response = await llm.chat(llmMessages, { temperature: 0.3, maxTokens: 1600 });
+      const response = await llm.chat(llmMessages, { temperature: 0.3, maxTokens: 4096 });
       const reply = response.choices?.[0]?.message?.content?.trim() ?? "I could not generate a response.";
 
       // 4. Persist assistant message

@@ -1142,6 +1142,61 @@ export const skillAssignments = {
 };
 
 // ---------------------------------------------------------------------------
+// Artifact assignments (unified: skill / persona / content × scope)
+// ---------------------------------------------------------------------------
+
+export type ArtifactType = 'skill' | 'persona' | 'content';
+export type AssignmentScope = 'tenant' | 'claw' | 'project' | 'task';
+
+export interface ArtifactAssignment {
+  id:            number;
+  tenantId:      number;
+  artifactType:  ArtifactType;
+  artifactSlug:  string;
+  scope:         AssignmentScope;
+  scopeId:       number;
+  assignedBy:    string | null;
+  config:        string | null;
+  assignedAt:    string;
+}
+
+export interface ResolvedArtifacts {
+  skills:   string[];
+  personas: string[];
+  content:  string[];
+}
+
+export const artifactAssignments = {
+  async list(scope: AssignmentScope, scopeId: number, artifactType?: ArtifactType): Promise<ArtifactAssignment[]> {
+    const q = new URLSearchParams({ scope, scopeId: String(scopeId) });
+    if (artifactType) q.set('artifactType', artifactType);
+    const res = await request<{ assignments: ArtifactAssignment[] }>(`/api/artifact-assignments?${q}`);
+    return res.assignments;
+  },
+
+  async assign(artifactType: ArtifactType, artifactSlug: string, scope: AssignmentScope, scopeId: number, config?: string): Promise<void> {
+    return request('/api/artifact-assignments', {
+      method: 'POST',
+      body: JSON.stringify({ artifactType, artifactSlug, scope, scopeId, config }),
+    });
+  },
+
+  async unassign(artifactType: ArtifactType, artifactSlug: string, scope: AssignmentScope, scopeId: number): Promise<void> {
+    return request(`/api/artifact-assignments/${artifactType}/${artifactSlug}/${scope}/${scopeId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async resolve(params: { taskId?: number; clawId?: number; projectId?: number }): Promise<ResolvedArtifacts> {
+    const q = new URLSearchParams();
+    if (params.taskId != null)    q.set('taskId',    String(params.taskId));
+    if (params.clawId != null)    q.set('clawId',    String(params.clawId));
+    if (params.projectId != null) q.set('projectId', String(params.projectId));
+    return request<ResolvedArtifacts>(`/api/artifact-assignments/resolve?${q}`);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Executions / audit
 // ---------------------------------------------------------------------------
 

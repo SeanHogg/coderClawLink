@@ -14,7 +14,7 @@
  */
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { tenants } from "../api.js";
+import { tenants, llm, type TenantSubscription, type TenantLlmUsage, type TenantSummary } from "../api.js";
 
 type Plan = "free" | "pro" | "enterprise";
 
@@ -82,12 +82,24 @@ export class CclPricing extends LitElement {
 
   @property() currentPlan: Plan = "free";
   @property() tenantId = "";
+  @property({ type: Object }) tenant: TenantSummary | null = null;
 
   @state() private billingCycle: "monthly" | "yearly" = "monthly";
   @state() private upgrading = false;
   @state() private upgradeError = "";
   @state() private upgradeDone = false;
   @state() private openFaq: number | null = null;
+
+  // Billing management state
+  @state() private subscription: TenantSubscription | null = null;
+  @state() private usage: TenantLlmUsage | null = null;
+  @state() private usageDays = 30;
+  @state() private billingEmail = "";
+  @state() private billingBrand = "visa";
+  @state() private billingLast4 = "";
+  @state() private updatingPlan = false;
+  @state() private loadingBilling = false;
+  @state() private pricingTab: "pricing" | "billing" = "pricing";
 
   private proMonthly = 29;
   private proYearly = 23; // ~20% discount
@@ -96,13 +108,83 @@ export class CclPricing extends LitElement {
     return this.billingCycle === "yearly" ? this.proYearly : this.proMonthly;
   }
 
+  override connectedCallback() {
+    super.connectedCallback();
+    if (this.tenantId) this.loadBilling();
+  }
+
+  override updated(c: Map<string, unknown>) {
+    if (c.has("tenantId") && this.tenantId) this.loadBilling();
+  }
+
+  private async loadBilling() {
+    if (!this.tenantId) return;
+    this.loadingBilling = true;
+    try {
+      const [sub, usage] = await Promise.all([
+        tenants.subscription(this.tenantId),
+        llm.usage(this.usageDays),
+      ]);
+      this.subscription = sub;
+      this.usage = usage;
+      this.currentPlan = sub.effectivePlan;
+      this.billingEmail = sub.billingEmail ?? "";
+      this.billingBrand = sub.billingPaymentBrand ?? "visa";
+      this.billingLast4 = sub.billingPaymentLast4 ?? "";
+      this.billingCycle = sub.billingCycle ?? "monthly";
+    } catch (e) {
+      this.upgradeError = (e as Error).message;
+    } finally {
+      this.loadingBilling = false;
+    }
+  }
+
+  private canManageBilling() {
+    const role = this.tenant?.role?.toLowerCase();
+    return role === "owner" || role === "manager";
+  }
+
+  private async changePlanToPro(e: Event) {
+    e.preventDefault();
+    if (!this.tenantId || !this.canManageBilling()) return;
+    this.updatingPlan = true;
+    try {
+      await tenants.upgradeToPro(this.tenantId, {
+        billingCycle: this.billingCycle,
+        billingEmail: this.billingEmail,
+        billingPaymentBrand: this.billingBrand,
+        billingPaymentLast4: this.billingLast4,
+      });
+      this.upgradeDone = true;
+      await this.loadBilling();
+    } catch (e) {
+      this.upgradeError = (e as Error).message;
+    } finally {
+      this.updatingPlan = false;
+    }
+  }
+
+  private async changePlanToFree() {
+    if (!this.tenantId || !this.canManageBilling()) return;
+    if (!confirm("Downgrade to Free? Changes take effect at end of billing period.")) return;
+    this.updatingPlan = true;
+    try {
+      await tenants.downgradeToFree(this.tenantId);
+      await this.loadBilling();
+    } catch (e) {
+      this.upgradeError = (e as Error).message;
+    } finally {
+      this.updatingPlan = false;
+    }
+  }
+
   private handleUpgrade() {
     if (!this.tenantId) return;
-    // Redirect to the full billing form in the workspace settings panel
-    window.dispatchEvent(new CustomEvent("ccl:navigate", {
-      bubbles: true,
-      detail: { tab: "workspace", workspaceTab: "settings", workspaceSection: "billing" },
-    }));
+    this.pricingTab = "billing";
+    requestAnimationFrame(() => {
+      const el = this.querySelector('[data-pricing-section="billing"]') as HTMLElement | null;
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   private async handleDowngrade() {
@@ -199,6 +281,30 @@ export class CclPricing extends LitElement {
     return html`
       <div style="padding:${inApp ? "24px" : "64px 24px"};max-width:1100px;margin:0 auto">
 
+        ${inApp ? html`
+        <!-- Tabs -->
+        <div style="display:flex;gap:4px;margin-bottom:24px">
+          <button
+            class="btn ${this.pricingTab === "pricing" ? "btn-primary" : "btn-secondary"}"
+            @click=${() => { this.pricingTab = "pricing"; }}
+          >Pricing</button>
+          <button
+            class="btn ${this.pricingTab === "billing" ? "btn-primary" : "btn-secondary"}"
+            @click=${() => { this.pricingTab = "billing"; }}
+          >Billing</button>
+        </div>
+        ` : ""}
+
+        ${this.upgradeError ? html`
+          <div class="error-banner" style="margin-bottom:20px">${this.upgradeError}</div>
+        ` : ""}
+        ${this.upgradeDone ? html`
+          <div style="background:var(--ok-subtle);border:1px solid var(--ok);border-radius:8px;padding:12px 16px;margin-bottom:20px;color:var(--ok);font-size:14px">
+            ✓ Upgraded to Pro successfully! Your new limits are active immediately.
+          </div>
+        ` : ""}
+
+        ${!inApp || this.pricingTab === "pricing" ? html`
         <!-- Header -->
         <div style="text-align:center;margin-bottom:48px">
           <h1 style="font-size:clamp(26px,5vw,40px);font-weight:800;color:var(--text-strong);margin:0 0 12px">
@@ -226,15 +332,6 @@ export class CclPricing extends LitElement {
             </button>
           </div>
         </div>
-
-        ${this.upgradeError ? html`
-          <div class="error-banner" style="margin-bottom:20px">${this.upgradeError}</div>
-        ` : ""}
-        ${this.upgradeDone ? html`
-          <div style="background:var(--ok-subtle);border:1px solid var(--ok);border-radius:8px;padding:12px 16px;margin-bottom:20px;color:var(--ok);font-size:14px">
-            ✓ Upgraded to Pro successfully! Your new limits are active immediately.
-          </div>
-        ` : ""}
 
         <!-- Plan cards -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;margin-bottom:64px;padding-top:16px">
@@ -358,7 +455,113 @@ export class CclPricing extends LitElement {
             `)}
           </div>
         </div>
+        ` : ""}
 
+        <!-- Billing tab (in-app only) -->
+        ${inApp && this.pricingTab === "billing" ? this.renderBillingManagement() : ""}
+
+      </div>
+    `;
+  }
+
+  private renderBillingManagement() {
+    const sub = this.subscription;
+    const usage = this.usage;
+    const canManage = this.canManageBilling();
+
+    return html`
+      <div style="max-width:680px;margin:0 auto 64px;display:grid;gap:16px">
+        <h2 style="font-size:20px;font-weight:700;color:var(--text-strong);margin:0;text-align:center">Billing & Subscription</h2>
+
+        ${this.loadingBilling ? html`<div style="color:var(--muted);font-size:13px;text-align:center">Loading billing…</div>` : ""}
+
+        <!-- Current subscription card -->
+        ${sub ? html`
+          <div class="card" data-pricing-section="billing">
+            <div class="card-title" style="margin-bottom:16px">Your Subscription</div>
+            <div style="display:grid;gap:10px;margin-bottom:14px">
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <span style="color:var(--muted)">Current plan</span>
+                <span style="color:var(--text-strong);font-weight:600">${sub.effectivePlan === "pro" ? "Pro" : "Free"}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <span style="color:var(--muted)">Configured plan</span>
+                <span style="color:var(--text-strong);font-weight:500">${sub.plan}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <span style="color:var(--muted)">Billing status</span>
+                <span style="color:var(--text-strong);font-weight:500">${sub.billingStatus}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <span style="color:var(--muted)">Pro pricing</span>
+                <span style="color:var(--text-strong);font-weight:500">$${sub.pricing.pro.monthly}/mo or $${sub.pricing.pro.yearly}/yr</span>
+              </div>
+            </div>
+
+            ${canManage ? html`
+              <form @submit=${this.changePlanToPro} style="display:grid;gap:10px;margin-bottom:10px">
+                <div style="font-size:12px;color:var(--muted)">Upgrade to Pro requires billing info. If billing is not active, workspace usage automatically falls back to Free.</div>
+                <div class="field">
+                  <label class="label">Billing cycle</label>
+                  <select class="select" .value=${this.billingCycle} @change=${(e: Event) => { this.billingCycle = (e.target as HTMLSelectElement).value as "monthly" | "yearly"; }}>
+                    <option value="monthly">Monthly ($${sub.pricing.pro.monthly})</option>
+                    <option value="yearly">Yearly ($${sub.pricing.pro.yearly})</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="label">Billing email</label>
+                  <input class="input" type="email" required .value=${this.billingEmail} @input=${(e: InputEvent) => { this.billingEmail = (e.target as HTMLInputElement).value; }} />
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                  <div class="field">
+                    <label class="label">Card brand</label>
+                    <input class="input" required .value=${this.billingBrand} @input=${(e: InputEvent) => { this.billingBrand = (e.target as HTMLInputElement).value; }} />
+                  </div>
+                  <div class="field">
+                    <label class="label">Card last 4</label>
+                    <input class="input" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" required .value=${this.billingLast4} @input=${(e: InputEvent) => { this.billingLast4 = (e.target as HTMLInputElement).value.replace(/\D/g, "").slice(0, 4); }} />
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn btn-primary btn-sm" type="submit" ?disabled=${this.updatingPlan}>${this.updatingPlan ? "Updating…" : "Activate Pro"}</button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click=${this.changePlanToFree} ?disabled=${this.updatingPlan}>Switch to Free</button>
+                </div>
+              </form>
+            ` : html`<div style="font-size:12px;color:var(--muted)">Only owner/manager can change billing or plan.</div>`}
+          </div>
+        ` : ""}
+
+        <!-- Consumption card -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:8px">coderClawLLM Consumption</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+            <label style="font-size:12px;color:var(--muted)">Window</label>
+            <select class="select" style="max-width:130px" @change=${(e: Event) => { this.usageDays = Number((e.target as HTMLSelectElement).value); void this.loadBilling(); }}>
+              ${[7, 14, 30, 60, 90].map((days) => html`<option value="${days}" ?selected=${this.usageDays === days}>${days} days</option>`)}
+            </select>
+          </div>
+          ${usage ? html`
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:10px">
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="font-size:11px;color:var(--muted)">Workspace requests</div>
+                <div style="font-size:18px;font-weight:600">${usage.totals.requests.toLocaleString()}</div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="font-size:11px;color:var(--muted)">Workspace tokens</div>
+                <div style="font-size:18px;font-weight:600">${usage.totals.totalTokens.toLocaleString()}</div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="font-size:11px;color:var(--muted)">Your requests</div>
+                <div style="font-size:18px;font-weight:600">${usage.mine.requests.toLocaleString()}</div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="font-size:11px;color:var(--muted)">Your tokens</div>
+                <div style="font-size:18px;font-weight:600">${usage.mine.totalTokens.toLocaleString()}</div>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--muted)">Top model: ${usage.byModel[0]?.model ?? "—"} · Product: ${usage.byModel[0]?.llmProduct ?? "coderClawLLM"}</div>
+          ` : html`<div style="color:var(--muted);font-size:13px">Loading usage…</div>`}
+        </div>
       </div>
     `;
   }

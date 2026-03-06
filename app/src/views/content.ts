@@ -39,6 +39,11 @@ export interface ContentBlock {
   variant?: ContentVariant | null;
   /** Audience tags for targeting (e.g. "free", "pro", "mobile") */
   tags: string[];
+  /** Whether this block has been shared to the marketplace */
+  sharedToMarketplace?: boolean;
+  image?: string;
+  likes?: number;
+  downloads?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +81,8 @@ export class CclContent extends LitElement {
   @state() private filter: ContentType | "all" = "all";
   @state() private statusFilter: ContentStatus | "all" = "all";
   @state() private search = "";
+  @state() private contentTab: "my-content" | "marketplace" = "my-content";
+  @state() private marketplaceSearch = "";
 
   @state() private panelOpen = false;
   @state() private editTarget: ContentBlock | null = null;
@@ -88,6 +95,7 @@ export class CclContent extends LitElement {
     status: "draft" as ContentStatus,
     body: "",
     tags: "",
+    image: "",
     variantEnabled: false,
     variantLabel: "Variant B",
     variantBody: "",
@@ -124,6 +132,7 @@ export class CclContent extends LitElement {
       status: "draft",
       body: "",
       tags: "",
+      image: "",
       variantEnabled: false,
       variantLabel: "Variant B",
       variantBody: "",
@@ -143,6 +152,7 @@ export class CclContent extends LitElement {
       status: block.status,
       body: block.body,
       tags: block.tags.join(", "),
+      image: block.image || "",
       variantEnabled: block.variant != null,
       variantLabel: block.variant?.label ?? "Variant B",
       variantBody: block.variant?.body ?? "",
@@ -166,7 +176,7 @@ export class CclContent extends LitElement {
     if (this.editTarget) {
       this.blocks = this.blocks.map(b =>
         b.id === this.editTarget!.id
-          ? { ...b, title, type: this.form.type, status: this.form.status, body: this.form.body, tags, variant, updatedAt: now }
+          ? { ...b, title, type: this.form.type, status: this.form.status, body: this.form.body, tags, variant, image: this.form.image.trim() || undefined, updatedAt: now }
           : b,
       );
     } else {
@@ -178,6 +188,9 @@ export class CclContent extends LitElement {
         body: this.form.body,
         tags,
         variant,
+        image: this.form.image.trim() || undefined,
+        likes: 0,
+        downloads: 0,
         createdAt: now,
         updatedAt: now,
       };
@@ -198,6 +211,21 @@ export class CclContent extends LitElement {
       b.id === id ? { ...b, status: b.status === "published" ? "draft" : "published", updatedAt: new Date().toISOString() } : b,
     );
     this.persist();
+  }
+
+  private toggleMarketplace(id: string) {
+    this.blocks = this.blocks.map(b =>
+      b.id === id ? { ...b, sharedToMarketplace: !b.sharedToMarketplace, updatedAt: new Date().toISOString() } : b,
+    );
+    this.persist();
+  }
+
+  private marketplaceContent(): ContentBlock[] {
+    const q = this.marketplaceSearch.toLowerCase();
+    return this.blocks.filter(b =>
+      b.sharedToMarketplace && b.status === "published" &&
+      (!q || b.title.toLowerCase().includes(q) || b.body.toLowerCase().includes(q)),
+    );
   }
 
   private async generateContent() {
@@ -253,7 +281,6 @@ export class CclContent extends LitElement {
   // ---------------------------------------------------------------------------
 
   override render() {
-    const items = this.filtered();
     return html`
       <div style="padding:16px;display:grid;gap:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
@@ -261,47 +288,99 @@ export class CclContent extends LitElement {
             <div style="font-size:18px;font-weight:600;color:var(--text-strong)">Content Manager</div>
             <div style="font-size:13px;color:var(--muted);margin-top:2px">Manage reusable markdown content blocks with A/B variants and audience targeting</div>
           </div>
-          <button class="btn btn-primary btn-sm" @click=${this.openCreate}>
-            <svg viewBox="0 0 24 24" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New content
-          </button>
+          ${this.contentTab === "my-content" ? html`
+            <button class="btn btn-primary btn-sm" @click=${this.openCreate}>
+              <svg viewBox="0 0 24 24" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New content
+            </button>
+          ` : ""}
         </div>
 
-        <!-- Filters -->
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <input class="input" style="max-width:240px;font-size:12px;padding:6px 10px" placeholder="Search…"
-            .value=${this.search} @input=${(e: InputEvent) => { this.search = (e.target as HTMLInputElement).value; }}>
-          ${(["all", "page", "template", "snippet"] as const).map(t => html`
-            <button class="btn btn-sm ${this.filter === t ? "btn-primary" : "btn-secondary"}" @click=${() => { this.filter = t; }}>${t === "all" ? "All types" : t}</button>
-          `)}
-          ${(["all", "published", "draft"] as const).map(s => html`
-            <button class="btn btn-sm ${this.statusFilter === s ? "btn-primary" : "btn-secondary"}" @click=${() => { this.statusFilter = s; }}>${s === "all" ? "All status" : s}</button>
-          `)}
+        <!-- Tabs -->
+        <div style="display:flex;gap:4px;margin-bottom:4px">
+          <button class="btn btn-sm ${this.contentTab === "my-content" ? "btn-primary" : "btn-secondary"}" @click=${() => { this.contentTab = "my-content"; }}>My Content (${this.blocks.length})</button>
+          <button class="btn btn-sm ${this.contentTab === "marketplace" ? "btn-primary" : "btn-secondary"}" @click=${() => { this.contentTab = "marketplace"; }}>Marketplace (${this.blocks.filter(b => b.sharedToMarketplace).length})</button>
         </div>
 
-        <!-- Content list -->
-        ${items.length === 0
-          ? html`
-            <div class="empty-state">
-              <div class="empty-state-icon">📝</div>
-              <div class="empty-state-title">No content blocks yet</div>
-              <div class="empty-state-sub">Create pages, templates, and snippets to manage your content centrally</div>
-              <button class="btn btn-primary" style="margin-top:16px" @click=${this.openCreate}>Create content</button>
-            </div>`
-          : html`
-            <div class="grid grid-3">
-              ${items.map(b => this.renderCard(b))}
-            </div>`}
+        ${this.contentTab === "my-content" ? this.renderMyContent() : this.renderMarketplaceTab()}
       </div>
 
       ${this.panelOpen ? this.renderPanel() : ""}
     `;
   }
 
+  private renderMyContent() {
+    const items = this.filtered();
+    return html`
+      <!-- Filters -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input class="input" style="max-width:240px;font-size:12px;padding:6px 10px" placeholder="Search…"
+          .value=${this.search} @input=${(e: InputEvent) => { this.search = (e.target as HTMLInputElement).value; }}>
+        ${(["all", "page", "template", "snippet"] as const).map(t => html`
+          <button class="btn btn-sm ${this.filter === t ? "btn-primary" : "btn-secondary"}" @click=${() => { this.filter = t; }}>${t === "all" ? "All types" : t}</button>
+        `)}
+        ${(["all", "published", "draft"] as const).map(s => html`
+          <button class="btn btn-sm ${this.statusFilter === s ? "btn-primary" : "btn-secondary"}" @click=${() => { this.statusFilter = s; }}>${s === "all" ? "All status" : s}</button>
+        `)}
+      </div>
+
+      <!-- Content list -->
+      ${items.length === 0
+        ? html`
+          <div class="empty-state">
+            <div class="empty-state-icon">📝</div>
+            <div class="empty-state-title">No content blocks yet</div>
+            <div class="empty-state-sub">Create pages, templates, and snippets to manage your content centrally</div>
+            <button class="btn btn-primary" style="margin-top:16px" @click=${this.openCreate}>Create content</button>
+          </div>`
+        : html`
+          <div class="grid grid-3">
+            ${items.map(b => this.renderCard(b))}
+          </div>`}
+    `;
+  }
+
+  private renderMarketplaceTab() {
+    const items = this.marketplaceContent();
+    return html`
+      <input class="input" style="max-width:300px;font-size:12px;padding:6px 10px" placeholder="Search marketplace content…"
+        .value=${this.marketplaceSearch} @input=${(e: InputEvent) => { this.marketplaceSearch = (e.target as HTMLInputElement).value; }}>
+
+      ${items.length === 0
+        ? html`
+          <div class="empty-state">
+            <div class="empty-state-icon">🏪</div>
+            <div class="empty-state-title">No marketplace content yet</div>
+            <div class="empty-state-sub">Publish your content blocks and share them in the marketplace</div>
+            <button class="btn btn-primary" style="margin-top:16px" @click=${() => { this.contentTab = "my-content"; }}>Go to My Content</button>
+          </div>`
+        : html`
+          <div class="grid grid-3">
+            ${items.map(b => html`
+              <div class="card" style="display:flex;flex-direction:column;gap:10px">
+                <div class="card-header">
+                  <div style="flex:1;overflow:hidden">
+                    <div class="card-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.title}</div>
+                    <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
+                      <span class="badge badge-gray">${b.type}</span>
+                      <span class="badge badge-green">Published</span>
+                      <span class="badge badge-blue">Marketplace</span>
+                      ${b.tags.slice(0, 2).map(t => html`<span class="badge badge-gray">${t}</span>`)}
+                    </div>
+                  </div>
+                </div>
+                ${b.body ? html`<div style="font-size:12px;color:var(--muted);line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">${b.body.slice(0, 160)}</div>` : ""}
+              </div>
+            `)}
+          </div>`}
+    `;
+  }
+
   private renderCard(b: ContentBlock) {
     const preview = b.body.slice(0, 160).trim();
     return html`
-      <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;overflow:hidden">
+        ${b.image ? html`<div style="width:100%;height:100px;background:url('${b.image}') center/cover;border-bottom:1px solid var(--border);margin:-16px -16px 0;width:calc(100% + 32px)"></div>` : ""}
         <div class="card-header">
           <div style="flex:1;overflow:hidden">
             <div class="card-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${b.title}">${b.title}</div>
@@ -314,11 +393,20 @@ export class CclContent extends LitElement {
           </div>
         </div>
         ${preview ? html`<div style="font-size:12px;color:var(--muted);line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">${preview}</div>` : ""}
+        <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted)">
+          <span title="Likes">❤️ ${b.likes ?? 0}</span>
+          <span title="Downloads">⬇️ ${b.downloads ?? 0}</span>
+        </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:auto">
           <button class="btn btn-ghost btn-sm" @click=${() => this.openEdit(b)}>Edit</button>
           <button class="btn btn-ghost btn-sm" @click=${() => this.togglePublish(b.id)}>
             ${b.status === "published" ? "Unpublish" : "Publish"}
           </button>
+          ${b.status === "published" ? html`
+            <button class="btn btn-sm ${b.sharedToMarketplace ? "btn-secondary" : "btn-primary"}" @click=${() => this.toggleMarketplace(b.id)}>
+              ${b.sharedToMarketplace ? "Unshare" : "Share to Marketplace"}
+            </button>
+          ` : ""}
           <button class="btn btn-danger btn-sm" @click=${() => this.deleteBlock(b.id)}>Delete</button>
         </div>
         <div style="font-size:11px;color:var(--muted)">Updated ${new Date(b.updatedAt).toLocaleString()}</div>
@@ -369,6 +457,13 @@ export class CclContent extends LitElement {
               <label class="label">Audience tags <span style="font-weight:400;color:var(--muted)">(comma-separated — e.g. free, pro, mobile)</span></label>
               <input class="input" placeholder="free, pro, mobile" .value=${this.form.tags}
                 @input=${(e: InputEvent) => { this.form = { ...this.form, tags: (e.target as HTMLInputElement).value }; }}>
+            </div>
+
+            <!-- Cover image -->
+            <div>
+              <label class="label">Cover Image URL</label>
+              <input class="input" placeholder="https://example.com/image.jpg" .value=${this.form.image}
+                @input=${(e: InputEvent) => { this.form = { ...this.form, image: (e.target as HTMLInputElement).value }; }}>
             </div>
 
             <!-- A/B variant toggle -->

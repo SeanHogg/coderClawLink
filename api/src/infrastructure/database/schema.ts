@@ -108,6 +108,9 @@ export const workflowStatusEnum = pgEnum('workflow_status', ['pending', 'running
 export const workflowTaskStatusEnum = pgEnum('workflow_task_status', ['pending', 'running', 'completed', 'failed', 'cancelled']);
 export const approvalStatusEnum = pgEnum('approval_status', ['pending', 'approved', 'rejected', 'expired']);
 
+export const artifactTypeEnum = pgEnum('artifact_type', ['skill', 'persona', 'content']);
+export const assignmentScopeEnum = pgEnum('assignment_scope', ['tenant', 'claw', 'project', 'task']);
+
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Tables
@@ -505,6 +508,29 @@ export const clawSkillAssignments = pgTable('claw_skill_assignments', {
   assignedAt: timestamp('assigned_at').notNull().defaultNow(),
 }, (t) => [
   primaryKey({ columns: [t.clawId, t.skillSlug] }),
+]);
+
+// ---------------------------------------------------------------------------
+// Unified artifact assignments (skills, personas, content at any scope level)
+// ---------------------------------------------------------------------------
+
+/**
+ * Assigns an artifact (skill, persona, or content) to a scope (tenant, claw,
+ * project, or task). Precedence during resolution: task > project > claw > tenant.
+ * scopeId holds the FK for the scope entity (tenantId / clawId / projectId / taskId).
+ */
+export const artifactAssignments = pgTable('artifact_assignments', {
+  id:            serial('id').primaryKey(),
+  tenantId:      integer('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  artifactType:  artifactTypeEnum('artifact_type').notNull(),
+  artifactSlug:  varchar('artifact_slug', { length: 255 }).notNull(),
+  scope:         assignmentScopeEnum('scope').notNull(),
+  scopeId:       integer('scope_id').notNull(),
+  assignedBy:    varchar('assigned_by', { length: 36 }).references(() => users.id),
+  config:        text('config'),
+  assignedAt:    timestamp('assigned_at').notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.tenantId, t.artifactType, t.artifactSlug, t.scope, t.scopeId] }),
 ]);
 
 // ---------------------------------------------------------------------------

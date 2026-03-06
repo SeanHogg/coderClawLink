@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import { and, eq, isNotNull } from 'drizzle-orm';
 import { RuntimeService } from '../../application/runtime/RuntimeService';
+import { resolveArtifacts } from '../../application/artifact/resolveArtifacts';
 import { ExecutionStatus } from '../../domain/shared/types';
+import type { ResolvedArtifacts } from '../../domain/shared/types';
 import type { HonoEnv } from '../../env';
 import { authMiddleware } from '../middleware/authMiddleware';
 import type { Db } from '../../infrastructure/database/connection';
@@ -34,6 +36,7 @@ type DispatchMessage = {
     title: string;
     description?: string | null;
   };
+  artifacts?: ResolvedArtifacts;
 };
 
 function normalizeCodeChanges(value: unknown): number | null {
@@ -175,6 +178,14 @@ export function createRuntimeRoutes(runtimeService: RuntimeService, db: Db): Hon
     if (taskRow) {
       const targets = await getDispatchTargets(db, c.get('tenantId'), taskRow.assignedClawId);
       const dispatchType: DispatchMessage['type'] = taskRow.assignedClawId != null ? 'task.assign' : 'task.broadcast';
+
+      // Resolve assigned artifacts across all scope levels for this execution
+      const artifacts = await resolveArtifacts(db, {
+        tenantId:  c.get('tenantId'),
+        taskId:    taskRow.id,
+        clawId:    taskRow.assignedClawId ?? undefined,
+      });
+
       const message: DispatchMessage = {
         type: dispatchType,
         executionId: execution.id,
@@ -184,6 +195,7 @@ export function createRuntimeRoutes(runtimeService: RuntimeService, db: Db): Hon
           title: taskRow.title,
           description: taskRow.description,
         },
+        artifacts,
       };
 
       await Promise.all(targets.map((targetId) => dispatchToClaw(c.env, targetId, message).catch(() => false)));
