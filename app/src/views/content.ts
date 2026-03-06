@@ -18,7 +18,8 @@ import { customElement, property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { llm } from "../api.js";
+import { llm, marketplaceStats, type ArtifactStats } from "../api.js";
+import "../components/artifact-assigner.js";
 
 export type ContentType = "page" | "template" | "snippet";
 export type ContentStatus = "draft" | "published";
@@ -83,6 +84,7 @@ export class CclContent extends LitElement {
   @state() private search = "";
   @state() private contentTab: "my-content" | "marketplace" = "my-content";
   @state() private marketplaceSearch = "";
+  @state() private contentStats: Record<string, ArtifactStats> = {};
 
   @state() private panelOpen = false;
   @state() private editTarget: ContentBlock | null = null;
@@ -108,11 +110,20 @@ export class CclContent extends LitElement {
   override connectedCallback() {
     super.connectedCallback();
     this.blocks = loadBlocks(this.tenantId);
+    this.loadContentStats();
   }
 
   override updated(changed: Map<string, unknown>) {
     if (changed.has("tenantId")) {
       this.blocks = loadBlocks(this.tenantId);
+      this.loadContentStats();
+    }
+  }
+
+  private async loadContentStats() {
+    const slugs = this.blocks.filter(b => b.sharedToMarketplace).map(b => b.id);
+    if (slugs.length > 0) {
+      this.contentStats = await marketplaceStats.getStats("content", slugs).catch(() => ({}));
     }
   }
 
@@ -228,6 +239,17 @@ export class CclContent extends LitElement {
     );
   }
 
+  private async toggleContentLike(id: string) {
+    try {
+      const liked = await marketplaceStats.toggleLike("content", id);
+      const prev = this.contentStats[id] ?? { likes: 0, installs: 0, liked: false };
+      this.contentStats = {
+        ...this.contentStats,
+        [id]: { ...prev, liked, likes: liked ? prev.likes + 1 : Math.max(0, prev.likes - 1) },
+      };
+    } catch { /* silently fail for now */ }
+  }
+
   private async generateContent() {
     const prompt = this.generatePrompt.trim();
     if (!prompt || this.generating) return;
@@ -313,7 +335,7 @@ export class CclContent extends LitElement {
     const items = this.filtered();
     return html`
       <!-- Filters -->
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div style="position:sticky;top:0;z-index:10;background:var(--page-bg,var(--bg,#0e0e10));padding:8px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input class="input" style="max-width:240px;font-size:12px;padding:6px 10px" placeholder="Search…"
           .value=${this.search} @input=${(e: InputEvent) => { this.search = (e.target as HTMLInputElement).value; }}>
         ${(["all", "page", "template", "snippet"] as const).map(t => html`
@@ -343,8 +365,10 @@ export class CclContent extends LitElement {
   private renderMarketplaceTab() {
     const items = this.marketplaceContent();
     return html`
-      <input class="input" style="max-width:300px;font-size:12px;padding:6px 10px" placeholder="Search marketplace content…"
-        .value=${this.marketplaceSearch} @input=${(e: InputEvent) => { this.marketplaceSearch = (e.target as HTMLInputElement).value; }}>
+      <div style="position:sticky;top:0;z-index:10;background:var(--page-bg,var(--bg,#0e0e10));padding:8px 0 16px">
+        <input class="input" style="max-width:300px;font-size:12px;padding:6px 10px" placeholder="Search marketplace content…"
+          .value=${this.marketplaceSearch} @input=${(e: InputEvent) => { this.marketplaceSearch = (e.target as HTMLInputElement).value; }}>
+      </div>
 
       ${items.length === 0
         ? html`
@@ -356,7 +380,9 @@ export class CclContent extends LitElement {
           </div>`
         : html`
           <div class="grid grid-3">
-            ${items.map(b => html`
+            ${items.map(b => {
+              const stat = this.contentStats[b.id] ?? { likes: 0, installs: 0, liked: false };
+              return html`
               <div class="card" style="display:flex;flex-direction:column;gap:10px">
                 <div class="card-header">
                   <div style="flex:1;overflow:hidden">
@@ -368,16 +394,27 @@ export class CclContent extends LitElement {
                       ${b.tags.slice(0, 2).map(t => html`<span class="badge badge-gray">${t}</span>`)}
                     </div>
                   </div>
+                  <ccl-artifact-assigner
+                    artifactType="content"
+                    .artifactSlug=${b.id}
+                    .artifactName=${b.title}
+                  ></ccl-artifact-assigner>
                 </div>
                 ${b.body ? html`<div style="font-size:12px;color:var(--muted);line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">${b.body.slice(0, 160)}</div>` : ""}
+                <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted)">
+                  <button style="background:none;border:none;cursor:pointer;padding:0;font-size:11px;color:${stat.liked ? '#ef4444' : 'var(--muted)'}" title="${stat.liked ? 'Unlike' : 'Like'}"
+                    @click=${() => this.toggleContentLike(b.id)}>${stat.liked ? '❤️' : '🤍'} ${stat.likes}</button>
+                  <span title="Installs">⬇️ ${stat.installs}</span>
+                </div>
               </div>
-            `)}
+            `;})}
           </div>`}
     `;
   }
 
   private renderCard(b: ContentBlock) {
     const preview = b.body.slice(0, 160).trim();
+    const stat = this.contentStats[b.id] ?? { likes: b.likes ?? 0, installs: b.downloads ?? 0, liked: false };
     return html`
       <div class="card" style="display:flex;flex-direction:column;gap:10px;overflow:hidden">
         ${b.image ? html`<div style="width:100%;height:100px;background:url('${b.image}') center/cover;border-bottom:1px solid var(--border);margin:-16px -16px 0;width:calc(100% + 32px)"></div>` : ""}
@@ -394,8 +431,9 @@ export class CclContent extends LitElement {
         </div>
         ${preview ? html`<div style="font-size:12px;color:var(--muted);line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">${preview}</div>` : ""}
         <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted)">
-          <span title="Likes">❤️ ${b.likes ?? 0}</span>
-          <span title="Downloads">⬇️ ${b.downloads ?? 0}</span>
+          <button style="background:none;border:none;cursor:pointer;padding:0;font-size:11px;color:${stat.liked ? '#ef4444' : 'var(--muted)'}" title="${stat.liked ? 'Unlike' : 'Like'}"
+            @click=${() => this.toggleContentLike(b.id)}>${stat.liked ? '❤️' : '🤍'} ${stat.likes}</button>
+          <span title="Installs">⬇️ ${stat.installs}</span>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:auto">
           <button class="btn btn-ghost btn-sm" @click=${() => this.openEdit(b)}>Edit</button>
@@ -408,6 +446,11 @@ export class CclContent extends LitElement {
             </button>
           ` : ""}
           <button class="btn btn-danger btn-sm" @click=${() => this.deleteBlock(b.id)}>Delete</button>
+          <ccl-artifact-assigner
+            artifactType="content"
+            .artifactSlug=${b.id}
+            .artifactName=${b.title}
+          ></ccl-artifact-assigner>
         </div>
         <div style="font-size:11px;color:var(--muted)">Updated ${new Date(b.updatedAt).toLocaleString()}</div>
       </div>

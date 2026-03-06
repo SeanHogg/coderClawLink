@@ -321,6 +321,18 @@ export const marketplaceSkillLikes = pgTable('marketplace_skill_likes', {
   primaryKey({ columns: [t.userId, t.skillSlug] }),
 ]);
 
+/**
+ * Unified artifact likes — tracks likes for any artifact type (skill, persona, content).
+ */
+export const artifactLikes = pgTable('artifact_likes', {
+  userId:        varchar('user_id', { length: 36 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  artifactType:  artifactTypeEnum('artifact_type').notNull(),
+  artifactSlug:  varchar('artifact_slug', { length: 255 }).notNull(),
+  createdAt:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.artifactType, t.artifactSlug] }),
+]);
+
 // ---------------------------------------------------------------------------
 // Orchestration tables
 // ---------------------------------------------------------------------------

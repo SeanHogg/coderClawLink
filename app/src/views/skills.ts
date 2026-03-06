@@ -1,6 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { marketplace, skillAssignments, type Skill, type SkillAssignment } from "../api.js";
+import { marketplace, skillAssignments, artifactAssignments, marketplaceStats, claws, type Skill, type SkillAssignment, type ArtifactStats } from "../api.js";
 import { BUILTIN_SKILLS, type BuiltinSkill } from "./builtin-skills.js";
 import "../components/artifact-assigner.js";
 
@@ -12,6 +12,7 @@ export interface UserSkill {
   description: string;
   category: string;
   version: string;
+  tags: string[];
   shared: boolean;
   image?: string;
   likes: number;
@@ -42,8 +43,15 @@ export class CclSkills extends LitElement {
 
   // Create skill form
   @state() private createOpen = false;
-  @state() private createForm = { name: "", description: "", category: "general", version: "1.0.0", image: "" };
+  @state() private createForm = { name: "", description: "", category: "general", version: "1.0.0", tags: "", image: "" };
   @state() private userSkills: UserSkill[] = [];
+
+  // Marketplace stats (real likes/installs from API)
+  @state() private stats: Record<string, ArtifactStats> = {};
+  @state() private hasClaws = true;
+
+  // Installed slugs (artifact assignments at tenant scope)
+  @state() private installedSlugs = new Set<string>();
 
   override connectedCallback() {
     super.connectedCallback();
@@ -54,31 +62,67 @@ export class CclSkills extends LitElement {
   private async load() {
     this.loading = true;
     try {
-      const [avail, asgn] = await Promise.all([
+      const [avail, asgn, clawList, installed] = await Promise.all([
         marketplace.list().catch(() => [] as Skill[]),
         skillAssignments.listTenant().catch(() => [] as SkillAssignment[]),
+        claws.list().catch(() => []),
+        artifactAssignments.list("tenant", Number(this.tenantId), "skill").catch(() => []),
       ]);
       this.available = avail;
       this.assigned = asgn;
+      this.hasClaws = clawList.length > 0;
+      this.installedSlugs = new Set(installed.map(a => a.artifactSlug));
+
+      // Fetch real stats for all marketplace skills
+      const allSlugs = [
+        ...BUILTIN_SKILLS.map(b => b.slug),
+        ...avail.map(s => s.slug),
+      ];
+      if (allSlugs.length > 0) {
+        this.stats = await marketplaceStats.getStats("skill", allSlugs).catch(() => ({}));
+      }
     } catch (e) { this.error = (e as Error).message; }
     finally { this.loading = false; }
   }
 
   private async assign(slug: string) {
     try {
-      await skillAssignments.assignTenant(slug);
-      this.assigned = await skillAssignments.listTenant();
+      await artifactAssignments.assign("skill", slug, "tenant", Number(this.tenantId));
+      this.installedSlugs = new Set([...this.installedSlugs, slug]);
+      // Refresh stats for the installed skill
+      const updated = await marketplaceStats.getStats("skill", [slug]).catch(() => ({}));
+      this.stats = { ...this.stats, ...updated };
+      // Also refresh legacy skill assignments
+      this.assigned = await skillAssignments.listTenant().catch(() => this.assigned);
     } catch (e) { this.error = (e as Error).message; }
   }
 
   private async unassign(slug: string) {
     try {
-      await skillAssignments.unassignTenant(slug);
-      this.assigned = this.assigned.filter(a => a.slug !== slug);
+      await artifactAssignments.unassign("skill", slug, "tenant", Number(this.tenantId));
+      const s = new Set(this.installedSlugs);
+      s.delete(slug);
+      this.installedSlugs = s;
+      // Refresh stats
+      const updated = await marketplaceStats.getStats("skill", [slug]).catch(() => ({}));
+      this.stats = { ...this.stats, ...updated };
+      // Also refresh legacy skill assignments
+      this.assigned = await skillAssignments.listTenant().catch(() => this.assigned);
     } catch (e) { this.error = (e as Error).message; }
   }
 
   private assignedSlugs() { return new Set(this.assigned.map(a => a.slug)); }
+
+  private async toggleLike(slug: string) {
+    try {
+      const liked = await marketplaceStats.toggleLike("skill", slug);
+      const prev = this.stats[slug] ?? { likes: 0, installs: 0, liked: false };
+      this.stats = {
+        ...this.stats,
+        [slug]: { ...prev, liked, likes: liked ? prev.likes + 1 : Math.max(0, prev.likes - 1) },
+      };
+    } catch (e) { this.error = (e as Error).message; }
+  }
 
   private saveSkill() {
     const name = this.createForm.name.trim();
@@ -91,6 +135,7 @@ export class CclSkills extends LitElement {
       description: this.createForm.description.trim(),
       category: this.createForm.category,
       version: this.createForm.version || "1.0.0",
+      tags: this.createForm.tags.split(",").map(t => t.trim()).filter(Boolean),
       shared: false,
       image: this.createForm.image.trim() || undefined,
       likes: 0,
@@ -100,7 +145,7 @@ export class CclSkills extends LitElement {
     this.userSkills = [...this.userSkills, skill];
     saveUserSkills(this.tenantId, this.userSkills);
     this.createOpen = false;
-    this.createForm = { name: "", description: "", category: "general", version: "1.0.0", image: "" };
+    this.createForm = { name: "", description: "", category: "general", version: "1.0.0", tags: "", image: "" };
     this.tab = "my-skills";
   }
 
@@ -182,6 +227,7 @@ export class CclSkills extends LitElement {
                   <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
                     <span class="badge badge-gray">${s.category}</span>
                     <span class="badge badge-gray">v${s.version}</span>
+                    ${s.tags?.slice(0, 2).map(t => html`<span class="badge badge-gray">${t}</span>`)}
                     ${s.shared ? html`<span class="badge badge-green">Shared</span>` : ""}
                   </div>
                 </div>
@@ -248,6 +294,11 @@ export class CclSkills extends LitElement {
               <input class="input" placeholder="https://example.com/image.jpg" .value=${this.createForm.image}
                 @input=${(e: InputEvent) => { this.createForm = { ...this.createForm, image: (e.target as HTMLInputElement).value }; }}>
             </div>
+            <div>
+              <label class="label">Tags (comma-separated)</label>
+              <input class="input" placeholder="e.g. coding, automation, testing" .value=${this.createForm.tags}
+                @input=${(e: InputEvent) => { this.createForm = { ...this.createForm, tags: (e.target as HTMLInputElement).value }; }}>
+            </div>
           </div>
           <div class="modal-footer">
             <button class="btn btn-secondary" @click=${() => { this.createOpen = false; }}>Cancel</button>
@@ -259,6 +310,9 @@ export class CclSkills extends LitElement {
   }
 
   private renderAssigned() {
+    if (!this.hasClaws) {
+      return html`<div class="empty-state"><div class="empty-state-icon">🔗</div><div class="empty-state-title">No claws registered</div><div class="empty-state-sub">Register a claw (workforce) to start assigning skills</div></div>`;
+    }
     if (this.assigned.length === 0) {
       return html`<div class="empty-state"><div class="empty-state-icon">✨</div><div class="empty-state-title">No skills assigned</div><div class="empty-state-sub">Browse the marketplace to add skills to your workspace</div><button class="btn btn-primary" style="margin-top:16px" @click=${() => { this.tab = "marketplace"; }}>Browse marketplace</button></div>`;
     }
@@ -284,14 +338,19 @@ export class CclSkills extends LitElement {
     const items = this.filteredAvailable();
     return html`
       <div>
-        <input class="input" style="max-width:300px;margin-bottom:16px" placeholder="Search skills…"
-          .value=${this.search} @input=${(e: InputEvent) => { this.search = (e.target as HTMLInputElement).value; }}>
+        <div style="position:sticky;top:0;z-index:10;background:var(--page-bg,var(--bg,#0e0e10));padding:8px 0 16px">
+          <input class="input" style="max-width:300px" placeholder="Search skills…"
+            .value=${this.search} @input=${(e: InputEvent) => { this.search = (e.target as HTMLInputElement).value; }}>
+        </div>
 
         ${items.length === 0
           ? html`<div class="empty-state"><div class="empty-state-title">No skills found</div></div>`
           : html`
             <div class="grid grid-3">
-              ${items.map(s => html`
+              ${items.map(s => {
+                const stat = this.stats[s.slug] ?? { likes: 0, installs: 0, liked: false };
+                const installed = this.installedSlugs.has(s.slug);
+                return html`
                 <div class="card" style="overflow:hidden">
                   ${s.icon ? html`<div style="width:100%;height:100px;background:url('${s.icon}') center/cover;border-bottom:1px solid var(--border)"></div>` : ""}
                   <div style="padding:${s.icon ? '12px' : '0'}">
@@ -300,27 +359,29 @@ export class CclSkills extends LitElement {
                         <div style="width:32px;height:32px;background:var(--accent-subtle);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px">${(s as any).emoji || '✨'}</div>
                         <div>
                           <div class="card-title">${s.name}</div>
-                          ${s.category ? html`<span class="badge badge-gray" style="font-size:10px">${s.category}</span>` : ""}
+                          <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
+                            ${s.category ? html`<span class="badge badge-gray" style="font-size:10px">${s.category}</span>` : ""}
+                            ${((s as any).tags ?? []).slice(0, 2).map((t: string) => html`<span class="badge badge-gray" style="font-size:10px">${t}</span>`)}
+                          </div>
                         </div>
                       </div>
                     </div>
                     ${s.description ? html`<div style="font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0">${s.description}</div>` : ""}
                     <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted);margin:4px 0 8px">
-                      <span title="Likes">❤️ ${(s as any).likes ?? 0}</span>
-                      <span title="Downloads">⬇️ ${(s as any).downloads ?? 0}</span>
+                      <button style="background:none;border:none;cursor:pointer;padding:0;font-size:11px;color:${stat.liked ? '#ef4444' : 'var(--muted)'}" title="${stat.liked ? 'Unlike' : 'Like'}"
+                        @click=${() => this.toggleLike(s.slug)}>${stat.liked ? '❤️' : '🤍'} ${stat.likes}</button>
+                      <span title="Installs">⬇️ ${stat.installs}</span>
+                      ${(s as any).author ? html`<span>by ${(s as any).author}</span>` : ""}
                     </div>
-                    ${assigned.has(s.slug)
-                      ? html`<div style="display:flex;gap:6px;align-items:center">
-                          <button class="btn btn-danger btn-sm" @click=${() => this.unassign(s.slug)}>Remove</button>
-                          <ccl-artifact-assigner artifactType="skill" artifactSlug=${s.slug} artifactName=${s.name}></ccl-artifact-assigner>
-                        </div>`
-                      : html`<div style="display:flex;gap:6px;align-items:center">
-                          <button class="btn btn-primary btn-sm" @click=${() => this.assign(s.slug)}>Add to workspace</button>
-                          <ccl-artifact-assigner artifactType="skill" artifactSlug=${s.slug} artifactName=${s.name}></ccl-artifact-assigner>
-                        </div>`}
+                    <div style="display:flex;gap:6px;align-items:center">
+                      ${installed
+                        ? html`<button class="btn btn-danger btn-sm" @click=${() => this.unassign(s.slug)}>Uninstall</button>`
+                        : html`<button class="btn btn-primary btn-sm" @click=${() => this.assign(s.slug)}>Install</button>`}
+                      <ccl-artifact-assigner artifactType="skill" artifactSlug=${s.slug} artifactName=${s.name}></ccl-artifact-assigner>
+                    </div>
                   </div>
                 </div>
-              `)}
+              `;})}
             </div>`}
       </div>
     `;

@@ -1116,6 +1116,33 @@ export const marketplace = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Marketplace stats (unified likes + install counts)
+// ---------------------------------------------------------------------------
+
+export interface ArtifactStats {
+  likes: number;
+  installs: number;
+  liked: boolean;
+}
+
+export const marketplaceStats = {
+  async getStats(type: ArtifactType, slugs: string[]): Promise<Record<string, ArtifactStats>> {
+    if (slugs.length === 0) return {};
+    const q = new URLSearchParams({ type, slugs: slugs.join(',') });
+    const res = await request<{ stats: Record<string, ArtifactStats> }>(`/api/marketplace-stats/stats?${q}`);
+    return res.stats;
+  },
+
+  async toggleLike(artifactType: ArtifactType, artifactSlug: string): Promise<boolean> {
+    const res = await request<{ liked: boolean }>('/api/marketplace-stats/like', {
+      method: 'POST',
+      body: JSON.stringify({ artifactType, artifactSlug }),
+    });
+    return res.liked;
+  },
+};
+
 export const skillAssignments = {
   async listTenant(): Promise<SkillAssignment[]> {
     const res = await request<{ assignments: SkillAssignment[] }>("/api/skill-assignments/tenant");
