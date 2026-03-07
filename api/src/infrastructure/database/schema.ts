@@ -26,11 +26,17 @@ export const projectStatusEnum = pgEnum('project_status', [
 ]);
 
 export const taskStatusEnum = pgEnum('task_status', [
-  'todo', 'in_progress', 'in_review', 'done', 'blocked',
+  'backlog', // ideation/unplanned
+  'todo',    // planned
+  'ready',   // queued/assigned awaiting workforce
+  'in_progress',
+  'in_review',
+  'done',
+  'blocked',
 ]);
 
 export const taskPriorityEnum = pgEnum('task_priority', [
-  'low', 'medium', 'high', 'critical',
+  'low', 'medium', 'high', 'urgent',
 ]);
 
 export const agentTypeEnum = pgEnum('agent_type', [
@@ -390,6 +396,7 @@ export const projects = pgTable('projects', {
   githubRepoUrl:   varchar('github_repo_url', { length: 500 }),
   githubRepoOwner: varchar('github_repo_owner', { length: 255 }),
   githubRepoName:  varchar('github_repo_name', { length: 255 }),
+  governance:      text('governance'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
   updatedAt:       timestamp('updated_at').notNull().defaultNow(),
 });
@@ -400,7 +407,7 @@ export const tasks = pgTable('tasks', {
   key:               varchar('key', { length: 100 }).notNull().unique(),
   title:             varchar('title', { length: 500 }).notNull(),
   description:       text('description'),
-  status:            taskStatusEnum('status').notNull().default('todo'),
+  status:            taskStatusEnum('status').notNull().default('backlog'),
   priority:          taskPriorityEnum('priority').notNull().default('medium'),
   assignedAgentType: agentTypeEnum('assigned_agent_type'),
   githubPrUrl:       varchar('github_pr_url', { length: 500 }),
@@ -719,6 +726,7 @@ export const toolAuditEvents = pgTable('tool_audit_events', {
   sessionKey:  varchar('session_key', { length: 255 }),
   toolCallId:  varchar('tool_call_id', { length: 255 }),
   toolName:    varchar('tool_name', { length: 255 }).notNull(),
+  category:    varchar('category', { length: 100 }),  // free-form classification e.g. thinking, tool, code_edit
   args:        text('args'),     // JSON object stored as text
   result:      text('result'),
   durationMs:  integer('duration_ms'),

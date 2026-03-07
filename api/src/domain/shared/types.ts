@@ -30,7 +30,9 @@ export enum ProjectStatus {
 }
 
 export enum TaskStatus {
+  BACKLOG = 'backlog',
   TODO = 'todo',
+  READY = 'ready',
   IN_PROGRESS = 'in_progress',
   IN_REVIEW = 'in_review',
   DONE = 'done',
@@ -38,10 +40,10 @@ export enum TaskStatus {
 }
 
 export enum TaskPriority {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high',
-  CRITICAL = 'critical',
+  LOW     = 'low',
+  MEDIUM  = 'medium',
+  HIGH    = 'high',
+  URGENT  = 'urgent',
 }
 
 export enum AgentType {

@@ -381,6 +381,7 @@ export interface Project {
   sourceControlRepoFullName?: string | null;
   sourceControlRepoUrl?: string | null;
   githubRepoUrl?: string | null;
+  governance?: string | null; // markdown rules
   taskCount?: number;
   createdAt: string;
 }
@@ -394,8 +395,8 @@ export interface ProjectScaffoldResult {
   };
 }
 
-export type TaskStatus = "todo" | "in_progress" | "in_review" | "done" | "blocked";
-export type TaskPriority = "low" | "medium" | "high" | "critical";
+export type TaskStatus = "backlog" | "todo" | "ready" | "in_progress" | "in_review" | "done" | "blocked";
+export type TaskPriority = "low" | "medium" | "high" | "urgent";
 
 export interface Task {
   id: string;
@@ -494,6 +495,7 @@ export interface ToolAuditEvent {
   sessionKey?: string | null;
   toolCallId?: string | null;
   toolName: string;
+  category?: string | null;
   args?: string | null;
   result?: string | null;
   durationMs?: number | null;
@@ -974,6 +976,11 @@ export const tasks = {
       method: "POST",
       body: JSON.stringify({ taskId: Number(id), payload }),
     });
+  },
+
+  async next(): Promise<Task | null> {
+    const res = await request<{ task: Task | null }>(`/api/tasks/next`, { method: "POST" });
+    return res.task;
   },
 
   async executions(id: string): Promise<Execution[]> {

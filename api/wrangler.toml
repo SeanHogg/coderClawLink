@@ -9,7 +9,7 @@ zone_name = "coderclaw.ai"
 
 [vars]
 # Overridden by Cloudflare dashboard secrets for production.
-CORS_ORIGINS = "https://app.coderclaw.ai,https://coderclaw.ai,https://www.coderclaw.ai"
+CORS_ORIGINS = "*"
 ENVIRONMENT  = "production"
 # JWT_SECRET must be set via: wrangler secret put JWT_SECRET
 # OPENROUTER_API_KEY must be set via: wrangler secret put OPENROUTER_API_KEY

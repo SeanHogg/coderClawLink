@@ -76,7 +76,7 @@ export class TaskService {
       projectId: asProjectId(dto.projectId),
       title: dto.title,
       description: dto.description ?? null,
-      status: TaskStatus.TODO,
+      status: TaskStatus.BACKLOG,
       priority: dto.priority ?? TaskPriority.MEDIUM,
       assignedAgentType: dto.assignedAgentType ?? null,
       assignedClawId: dto.assignedClawId != null ? asClawId(dto.assignedClawId) : null,
@@ -106,5 +106,17 @@ export class TaskService {
   async deleteTask(id: number): Promise<void> {
     await this.getTask(id);
     await this.tasks.delete(asTaskId(id));
+  }
+
+  /**
+   * Fetch the next ready task for a given tenant, marking it in progress.
+   * Selection is prioritized by task priority, due date, and creation time.
+   */
+  async dequeueNextReady(callerTenantId: number): Promise<Task | null> {
+    // determine which projects belong to this tenant
+    const tenantProjects = await this.projects.findByTenant(asTenantId(callerTenantId));
+    const projectIds = tenantProjects.map(p => asProjectId(p.id));
+    if (projectIds.length === 0) return null;
+    return this.tasks.dequeueNextReady(projectIds);
   }
 }

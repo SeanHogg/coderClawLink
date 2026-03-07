@@ -9,15 +9,15 @@ import "./execution-timeline.js";
 
 type ViewMode = "kanban" | "list" | "gantt";
 
-const STATUSES: TaskStatus[] = ["todo", "in_progress", "in_review", "done", "blocked"];
+const STATUSES: TaskStatus[] = ["backlog", "todo", "ready", "in_progress", "in_review", "done", "blocked"];
 const STATUS_LABELS: Record<TaskStatus, string> = {
-  todo: "To Do", in_progress: "In Progress", in_review: "In Review",
+  backlog: "Backlog", todo: "To Do", ready: "Ready", in_progress: "In Progress", in_review: "In Review",
   done: "Done", blocked: "Blocked",
 };
-const PRIORITIES: TaskPriority[] = ["low", "medium", "high", "critical"];
+const PRIORITIES: TaskPriority[] = ["low", "medium", "high", "urgent"];
 
 const PRIORITY_COLOR: Record<TaskPriority, string> = {
-  low: "badge-gray", medium: "badge-blue", high: "badge-yellow", critical: "badge-red",
+  low: "badge-gray", medium: "badge-blue", high: "badge-yellow", urgent: "badge-red",
 };
 
 @customElement("ccl-tasks")
@@ -70,7 +70,7 @@ export class CclTasks extends LitElement {
     if (changed.has("openTaskPrompt") && this.openTaskPrompt) {
       this.editTarget = null;
       this.form = {
-        status: "todo",
+        status: "backlog",
         priority: "medium",
         title: this.openTaskPrompt,
         ...(this.projectId ? { projectId: this.projectId } : {}),
@@ -114,7 +114,7 @@ export class CclTasks extends LitElement {
 
   private openCreate() {
     this.editTarget = null;
-    this.form = { status: "todo", priority: "medium" };
+    this.form = { status: "backlog", priority: "medium" };
     this.showModal = true;
   }
 
@@ -224,7 +224,8 @@ export class CclTasks extends LitElement {
 
   private statusBadge(s: TaskStatus) {
     const map: Record<TaskStatus, string> = {
-      todo: "badge-gray", in_progress: "badge-blue",
+      backlog: "badge-gray", todo: "badge-gray", ready: "badge-blue",
+      in_progress: "badge-blue",
       in_review: "badge-yellow", done: "badge-green", blocked: "badge-red",
     };
     return html`<span class="badge ${map[s]}">${STATUS_LABELS[s]}</span>`;

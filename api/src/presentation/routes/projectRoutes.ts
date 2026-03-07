@@ -336,6 +336,7 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
       sourceControlRepoFullName?: string | null;
       sourceControlRepoUrl?: string | null;
       githubRepoUrl?: string | null;
+      governance?: string | null;
     }>();
     const tenantId = c.get('tenantId');
     const name = body.name?.trim();
@@ -359,6 +360,7 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
       sourceControlRepoFullName: assignment.value.sourceControlRepoFullName,
       sourceControlRepoUrl: assignment.value.sourceControlRepoUrl,
       githubRepoUrl: assignment.value.githubRepoUrl,
+      governance: body.governance ?? null,
       tenantId,
     });
     return c.json(project.toPlain(), 201);
@@ -375,6 +377,7 @@ export function createProjectRoutes(projectService: ProjectService, db: Db): Hon
       sourceControlRepoFullName?: string | null;
       sourceControlRepoUrl?: string | null;
       githubRepoUrl?: string | null;
+      governance?: string | null;
     }>();
 
     const name = body.name?.trim();

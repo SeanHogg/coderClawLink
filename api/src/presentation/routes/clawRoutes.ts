@@ -944,6 +944,7 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
         sessionKey: toolAuditEvents.sessionKey,
         toolCallId: toolAuditEvents.toolCallId,
         toolName:   toolAuditEvents.toolName,
+        category:   toolAuditEvents.category,
         args:       toolAuditEvents.args,
         result:     toolAuditEvents.result,
         durationMs: toolAuditEvents.durationMs,
@@ -973,6 +974,7 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
       sessionKey?:  string;
       toolCallId?:  string;
       toolName?:    string;
+      category?:    string;
       args?:        unknown;
       result?:      string;
       durationMs?:  number;
@@ -988,6 +990,7 @@ export function createClawRoutes(db: Db): Hono<ClawHonoEnv> {
       sessionKey:  body.sessionKey ?? null,
       toolCallId:  body.toolCallId ?? null,
       toolName:    body.toolName,
+      category:    body.category ?? null,
       args:        body.args != null ? JSON.stringify(body.args) : null,
       result:      body.result ?? null,
       durationMs:  body.durationMs ?? null,

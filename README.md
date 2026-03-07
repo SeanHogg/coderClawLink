@@ -98,6 +98,9 @@ coderClaw.ai agents monitor their own execution state. When a task fails, the sy
 Unlike ephemeral AI tools, every agent maintains a `.coderClaw/` knowledge base per project — storing architectural docs, coding standards, semantic indices, and session handoffs. coderClawLink persists agent registrations, skill catalogs, and execution histories so nothing is lost between sessions. Context window usage and token spend are tracked per session via `usage.snapshot` relay frames and stored in the `usage_snapshots` table.
 
 ### 👥 Human-in-the-Loop Governance
+
+The web UI now includes direct access to a project's governance rules via a **Governance** menu item in the system sidebar. Super‑admins also see a governance tab in the admin console for quick reference. A **Next task** menu lets you fetch the highest‑priority ready task from the queue.
+
 All autonomous operations are subject to role-based approval policies. The MANAGER and OWNER roles control who can register agents, view audit logs, and manage organizational members. Every state change is recorded in the immutable audit trail. For destructive or high-risk actions, agents can request human approval via `POST /api/approvals`; the portal notifies reviewers in real-time over the WebSocket relay and awaits an `approved` or `rejected` decision before the agent proceeds.
 
 ### 🤖 Multi-Agent Orchestration
@@ -323,6 +326,7 @@ All protected routes require `Authorization: Bearer <jwt>`.
 | `GET` | `/api/tasks/:id` | Get task |
 | `PATCH` | `/api/tasks/:id` | Update task |
 | `DELETE` | `/api/tasks/:id` | Delete task |
+| `POST` | `/api/tasks/next` | Claim next ready task |
 
 ### Tenants & Members
 

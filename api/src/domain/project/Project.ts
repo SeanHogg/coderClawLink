@@ -18,6 +18,7 @@ export interface ProjectProps {
   githubRepoUrl:   string | null;
   githubRepoOwner: string | null;
   githubRepoName:  string | null;
+  governance:      string | null;
   createdAt:       Date;
   updatedAt:       Date;
 }
@@ -79,6 +80,7 @@ export class Project {
   get githubRepoUrl(): string | null { return this.props.githubRepoUrl; }
   get githubRepoOwner(): string | null { return this.props.githubRepoOwner; }
   get githubRepoName(): string | null { return this.props.githubRepoName; }
+  get governance(): string | null { return this.props.governance; }
   get createdAt(): Date { return this.props.createdAt; }
   get updatedAt(): Date { return this.props.updatedAt; }
 
@@ -90,7 +92,7 @@ export class Project {
     updates: Partial<
       Pick<
         ProjectProps,
-        'name' | 'description' | 'rootWorkingDirectory' | 'status' | 'sourceControlIntegrationId' | 'sourceControlProvider' | 'sourceControlRepoFullName' | 'sourceControlRepoUrl' | 'githubRepoUrl' | 'githubRepoOwner' | 'githubRepoName'
+        'name' | 'description' | 'rootWorkingDirectory' | 'status' | 'sourceControlIntegrationId' | 'sourceControlProvider' | 'sourceControlRepoFullName' | 'sourceControlRepoUrl' | 'githubRepoUrl' | 'githubRepoOwner' | 'githubRepoName' | 'governance'
       >
     >,
   ): Project {

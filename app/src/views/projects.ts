@@ -33,7 +33,7 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   blocked: "Blocked",
 };
 
-type WorkspaceTab = "details" | "board" | "tasks" | "prds" | "brain" | "chat" | "instances" | "workspace" | "logs" | "timeline";
+type WorkspaceTab = "details" | "board" | "tasks" | "prds" | "brain" | "chat" | "instances" | "workspace" | "logs" | "timeline" | "governance";
 type BrainRole = "user" | "assistant";
 
 type ProjectBrainAction =
@@ -797,6 +797,7 @@ export class CclProjects extends LitElement {
             ["workspace", "Workspace"],
             ["logs", "Logs"],
             ["timeline", "Timeline"],
+            ["governance", "Governance"],
           ] as Array<[WorkspaceTab, string]>).map(([tab, label]) => html`
             <button class="panel-tab ${this.workspaceTab === tab ? "active" : ""}" @click=${() => { this.workspaceTab = tab; }}>${label}</button>
           `)}
@@ -823,10 +824,19 @@ export class CclProjects extends LitElement {
                           ? this.renderClawTab("logs")
                           : this.workspaceTab === "timeline"
                             ? this.renderTimelineTab()
-                            : this.renderBrainTab()}
+                            : this.workspaceTab === "governance"
+                              ? this.renderGovernanceTab()
+                              : this.renderBrainTab()}
         </div>
       </div>
     `;
+  }
+
+  private renderGovernanceTab() {
+    if (!this.activeProject) {
+      return html`<div class="empty-state"><div class="empty-state-icon">📄</div><div class="empty-state-title">No project selected</div><div class="empty-state-sub">Open a project to view governance rules.</div></div>`;
+    }
+    return html`<ccl-governance .projectId=${String(this.activeProject.id)}></ccl-governance>`;
   }
 
   private renderClawTab(tab: "chat" | "instances" | "workspace" | "logs") {

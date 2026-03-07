@@ -34,6 +34,7 @@ export class CclExecutionTimeline extends LitElement {
   @state() private loading = false;
   @state() private error = "";
   @state() private viewMode: "timeline" | "list" | "graph" = "timeline";
+  @state() private categoryFilter: string = ""; // filter string for event categories
 
   override connectedCallback() {
     super.connectedCallback();
@@ -77,10 +78,11 @@ export class CclExecutionTimeline extends LitElement {
 
     // Tool audit events → one track per tool call
     for (const ev of this.events) {
+      if (this.categoryFilter && !(ev.category ?? "").includes(this.categoryFilter)) continue;
       const startMs = new Date(ev.ts).getTime();
       const endMs   = startMs + (ev.durationMs ?? 0);
       tracks.push({
-        label:   ev.toolName,
+        label:   ev.category ? `${ev.toolName} (${ev.category})` : ev.toolName,
         kind:    "tool",
         startMs,
         endMs,
@@ -151,8 +153,12 @@ export class CclExecutionTimeline extends LitElement {
   // ---------------------------------------------------------------------------
 
   private renderTimelineView(tracks: Track[]) {
+    const showFilter = html`<div style="margin-bottom:8px">
+      <label>Category filter: <input .value=${this.categoryFilter} @input=${(e: any) => { this.categoryFilter = e.target.value; }} placeholder="e.g. thinking" /></label>
+    </div>`;
+
     if (tracks.length === 0) {
-      return html`<div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-title">No timeline events</div><div class="empty-state-sub">Tool audit events and workflow tasks will appear here once the claw runs.</div></div>`;
+      return html`${showFilter}<div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-title">No timeline events</div><div class="empty-state-sub">Tool audit events and workflow tasks will appear here once the claw runs.</div></div>`;
     }
 
     const minMs   = Math.min(...tracks.map(t => t.startMs));
@@ -172,6 +178,7 @@ export class CclExecutionTimeline extends LitElement {
     }));
 
     return html`
+      ${showFilter}
       <div style="overflow-x:auto">
         <svg width="${LABEL_W + BAR_W + PAD * 2}" height="${totalH + 24}"
              style="font-family:var(--font-mono,'monospace');display:block">

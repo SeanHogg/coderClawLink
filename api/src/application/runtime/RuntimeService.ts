@@ -137,6 +137,28 @@ export class RuntimeService {
 
     const saved = await this.executions.update(execution);
 
+    // sync task status based on execution state --------------------------------
+    try {
+      const task = await this.tasks.findById(execution.taskId);
+      if (task) {
+        if (dto.status === ExecutionStatus.RUNNING && task.status !== TaskStatus.IN_PROGRESS) {
+          await this.tasks.update(task.update({ status: TaskStatus.IN_PROGRESS }));
+        }
+        if (dto.status === ExecutionStatus.COMPLETED) {
+          // default move to in_review; some governance rules may auto-complete
+          let newStatus: TaskStatus = TaskStatus.IN_REVIEW;
+          const resultText = dto.result ?? '';
+          // simple governance rule: include token [auto-approve] to skip review
+          if (resultText.includes('[auto-approve]')) {
+            newStatus = TaskStatus.DONE;
+          }
+          await this.tasks.update(task.update({ status: newStatus }));
+        }
+      }
+    } catch {
+      // ignore task sync errors to avoid blocking runtime flow
+    }
+
     const auditType = dto.status === ExecutionStatus.RUNNING
       ? AuditEventType.EXECUTION_STARTED
       : dto.status === ExecutionStatus.COMPLETED

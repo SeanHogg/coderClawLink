@@ -33,12 +33,15 @@ import "./views/content.js";
 import "./views/debug.js";
 import "./views/pricing.js";
 import "./views/execution-timeline.js";
+import "./views/next-task.js";
 import "./views/brainstorm.js";
 import "./views/personas.js";
 import "./views/marketplace.js";
+import "./views/governance.js";
 
 type AppState = "loading" | "landing" | "auth" | "cli-auth" | "workspace-picker" | "dashboard" | "admin";
-type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "pricing" | "debug" | "timeline" | "brainstorm" | "personas" | "marketplace";
+// dash tabs including new governance and queue views
+type DashTab = "home" | "projects" | "tasks" | "claws" | "skills" | "workspace" | "billing" | "logs" | "agents" | "chats" | "code-editor" | "content" | "pricing" | "debug" | "timeline" | "brainstorm" | "personas" | "marketplace" | "governance" | "next";
 type WorkspaceTab = "security" | "settings";
 type WorkspaceSection = "settings" | "billing" | "consumption" | "details" | "security";
 
@@ -548,6 +551,18 @@ export class CclApp extends LitElement {
       }
       case "timeline": {
         const el = document.createElement("ccl-execution-timeline") as HTMLElement & { clawId?: string };
+        view = el;
+        break;
+      }
+      case "governance": {
+        const el = document.createElement("ccl-governance") as unknown as HTMLElement & { projectId?: string };
+        // if a project is selected, pass it; otherwise nothing
+        if (this.selectedProjectId) el.projectId = this.selectedProjectId;
+        view = el;
+        break;
+      }
+      case "next": {
+        const el = document.createElement("ccl-next-task") as HTMLElement;
         view = el;
         break;
       }
@@ -1129,6 +1144,8 @@ export class CclApp extends LitElement {
       { id: "workspace", label: "Tenant & Workspace", icon: "workspace", workspaceTab: "settings", workspaceSection: "details" },
       { id: "logs", label: "Logs", icon: "logs" },
       { id: "timeline", label: "Timeline", icon: "timeline" },
+      { id: "next", label: "Next task", icon: "tasks" },
+      { id: "governance", label: "Governance", icon: "admin" },
       { id: "debug", label: "Debug", icon: "debug" },
     ];
 

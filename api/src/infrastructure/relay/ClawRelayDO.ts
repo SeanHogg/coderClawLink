@@ -314,6 +314,7 @@ export class ClawRelayDO implements DurableObject {
           sessionKey?: string;
           toolCallId?: string;
           toolName?: string;
+          category?: string;
           args?: unknown;
           result?: string;
           durationMs?: number;
@@ -475,6 +476,7 @@ export class ClawRelayDO implements DurableObject {
     sessionKey?: string;
     toolCallId?: string;
     toolName?: string;
+    category?: string;
     args?: unknown;
     result?: string;
     durationMs?: number;

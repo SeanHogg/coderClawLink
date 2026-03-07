@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS tool_audit_events (
   session_key  varchar(255),
   tool_call_id varchar(255),
   tool_name    varchar(255) NOT NULL,
+  category     varchar(100),
   args         text,
   result       text,
   duration_ms  int,

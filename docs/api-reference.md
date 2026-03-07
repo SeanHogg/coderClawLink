@@ -103,10 +103,11 @@ Content-Type: application/json
 | `GET` | `/api/tasks/:id` | VIEWER | Get task |
 | `PATCH` | `/api/tasks/:id` | DEVELOPER | Update task |
 | `DELETE` | `/api/tasks/:id` | DEVELOPER | Delete task |
+| `POST` | `/api/tasks/next` | DEVELOPER | Claim next ready task (priority queue) |
 
-**Task statuses:** `todo` → `in_progress` → `in_review` → `done` · `blocked` · `cancelled`
+**Task statuses:** `backlog` → `todo` → `ready` → `in_progress` → `in_review` → `done` · `blocked` · `cancelled`
 
-**Task priorities:** `low` · `medium` · `high` · `critical`
+**Task priorities:** `low` · `medium` · `high` · `urgent`
 
 ---
 

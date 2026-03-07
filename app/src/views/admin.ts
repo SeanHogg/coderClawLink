@@ -19,7 +19,7 @@ import QRCode from "qrcode";
 import type { Persona } from "./personas.js";
 import { BUILTIN_PERSONAS } from "./personas.js";
 
-type AdminTab = "health" | "billing" | "users" | "tenants" | "errors" | "usage" | "security" | "legal" | "newsletter" | "privacy" | "personas";
+type AdminTab = "health" | "billing" | "users" | "tenants" | "errors" | "usage" | "security" | "legal" | "newsletter" | "privacy" | "personas" | "governance";
 type LlmPoolTab = "coderClawLLM" | "coderClawLLMPro";
 
 @customElement("ccl-admin")
@@ -146,6 +146,8 @@ export class CclAdmin extends LitElement {
         await this.loadNewsletterContext();
       } else if (tab === "privacy") {
         await this.loadPrivacyContext();
+      } else if (tab === "governance") {
+        // no additional data required; governance is managed in tenant workspace
       }
     } catch (e: unknown) {
       this.errorMsg = e instanceof Error ? e.message : String(e);
@@ -370,7 +372,7 @@ export class CclAdmin extends LitElement {
 
         <!-- Tabs -->
         <nav class="admin-tabs">
-          ${(["health", "billing", "usage", "users", "tenants", "security", "personas", "legal", "newsletter", "privacy", "errors"] as AdminTab[]).map(t => html`
+          ${(["health", "billing", "usage", "users", "tenants", "security", "personas", "legal", "newsletter", "privacy", "governance", "errors"] as AdminTab[]).map(t => html`
             <button
               class="admin-tab ${this.tab === t ? "active" : ""}"
               @click=${() => this.loadTab(t)}
@@ -402,6 +404,7 @@ export class CclAdmin extends LitElement {
     if (this.tab === "legal")   return this.renderLegal();
     if (this.tab === "newsletter") return this.renderNewsletter();
     if (this.tab === "privacy") return this.renderPrivacy();
+    if (this.tab === "governance") return html`<div style="padding:18px"><div class="page-title">Governance</div><div class="page-sub">Project governance rules are managed per‑tenant in the workspace view.</div></div>`;
     if (this.tab === "personas") return this.renderPersonas();
     if (this.tab === "errors")  return this.renderErrors();
     return html``;

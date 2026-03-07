@@ -55,7 +55,7 @@ export class Task {
       key,
       title: props.title.trim(),
       description: props.description,
-      status: props.status ?? TaskStatus.TODO,
+      status: props.status ?? TaskStatus.BACKLOG,
       priority: props.priority ?? TaskPriority.MEDIUM,
       assignedAgentType: props.assignedAgentType,
       githubPrUrl: null,
