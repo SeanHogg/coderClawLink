@@ -3,6 +3,8 @@ main = "src/index.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# API only. Documentation is served at docs.coderclaw.ai from the coderclaw.ai repo (docs-site → Cloudflare Pages).
+
 [[routes]]
 pattern = "api.coderclaw.ai/*"
 zone_name = "coderclaw.ai"
